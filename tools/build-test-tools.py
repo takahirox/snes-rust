@@ -43,7 +43,9 @@ for name in ['cc65', 'bass-untech'] + (['spcasm'] if args.spc else []):
                 member.name = str(Path(*parts[1:]))
                 tar.extract(member, dest, filter='data')
     if name == 'cc65':
-        command = ['make', '-j4', 'ca65', 'ld65']
+        # One dependency graph owns wrk/common/common.a for both executables.
+        # Separate top-level recursive targets race when built in parallel.
+        command = ['make', '-C', 'src', '-j4', 'ca65', 'ld65']
         cwd = dest
     elif name == 'bass-untech':
         command = ['make', '-j4']

@@ -99,6 +99,178 @@ fn direct_indirect_wrap_and_long_bank_carry() {
     assert_eq!(c.a, 0x3412);
 }
 #[test]
+fn native_bank_zero_word_operands_wrap_reads_writes_and_modifies() {
+    // dp, dp,X, dp,Y and stack-relative all address $00ffff. DB must not
+    // affect them, and the second byte must come from $000000, not $010000.
+    for (load, store, modify, d, index, s) in [
+        (0xa5, 0x85, Some(0xe6), 0xffff, 0, 0x1ff),
+        (0xb5, 0x95, Some(0xf6), 0xfffe, 1, 0x1ff),
+        (0xb6, 0x96, None, 0xfffe, 1, 0x1ff),
+        (0xa3, 0x83, None, 0, 0, 0xffff),
+    ] {
+        let mut r = Ram::new(&[load, 0, store, 0, modify.unwrap_or(0xea), 0]);
+        r.data[0xffff] = 0x12;
+        r.data[0] = 0x34;
+        r.data[0x10000] = 0x56;
+        let mut c = Cpu {
+            pc: 0x8000,
+            e: false,
+            p: 0,
+            db: 0x7e,
+            d,
+            x: index,
+            y: index,
+            s,
+            ..Cpu::default()
+        };
+        c.step(&mut r);
+        assert_eq!(if load == 0xb6 { c.x } else { c.a }, 0x3412);
+        assert_eq!(&r.reads[r.reads.len() - 2..], &[0xffff, 0]);
+        if load == 0xb6 {
+            c.x = 0xabcd;
+        } else {
+            c.a = 0xabcd;
+        }
+        c.step(&mut r);
+        assert_eq!(r.writes, [(0xffff, 0xcd), (0, 0xab)]);
+        if modify.is_some() {
+            c.step(&mut r);
+            assert_eq!(&r.reads[r.reads.len() - 2..], &[0xffff, 0]);
+            assert_eq!(&r.writes[2..], &[(0xffff, 0xce), (0, 0xab)]);
+        }
+        assert_eq!(r.data[0x10000], 0x56);
+    }
+}
+#[test]
+fn indirect_pointers_wrap_in_bank_zero_but_resolved_data_can_carry() {
+    for e in [false, true] {
+        // [dp] and [dp],Y never page-wrap, even in emulation mode.
+        for d in [0xff00, 0xffff] {
+            for op in [0xa7, 0xb7] {
+                let mut r = Ram::new(&[op, if d == 0xff00 { 0xff } else { 0 }]);
+                r.data[0xffff] = 0xff;
+                r.data[0] = 0xff;
+                r.data[1] = 0x7e;
+                r.data[0xff01] = 0x7d; // wrong emulation-page wrap sentinel
+                r.data[0x10000] = 0x12; // wrong bank carry sentinel
+                r.data[0x7effff] = 0x42;
+                r.data[0x7f0000] = 0x43;
+                let mut c = Cpu {
+                    pc: 0x8000,
+                    e,
+                    p: M | X,
+                    d,
+                    y: 1,
+                    ..Cpu::default()
+                };
+                c.step(&mut r);
+                assert_eq!(c.a, if op == 0xa7 { 0x42 } else { 0x43 });
+                assert_eq!(&r.reads[2..5], &[0xffff, 0, 1]);
+            }
+        }
+    }
+    // A stack-relative pointer also stays in bank zero; its resolved word
+    // operand uses DB and can cross a bank boundary on both read and write.
+    let mut r = Ram::new(&[0xb3, 0, 0x93, 0]);
+    r.data[0xffff] = 0xff;
+    r.data[0] = 0xff;
+    r.data[0x10000] = 0x12;
+    r.data[0x7effff] = 0x34;
+    r.data[0x7f0000] = 0x56;
+    let mut c = Cpu {
+        pc: 0x8000,
+        e: false,
+        p: 0,
+        s: 0xffff,
+        db: 0x7e,
+        ..Cpu::default()
+    };
+    c.step(&mut r);
+    assert_eq!(c.a, 0x5634);
+    assert_eq!(r.reads, [0x8000, 0x8001, 0xffff, 0, 0x7effff, 0x7f0000]);
+    c.a = 0xabcd;
+    c.step(&mut r);
+    assert_eq!(r.writes, [(0x7effff, 0xcd), (0x7f0000, 0xab)]);
+}
+#[test]
+fn hardware_and_software_interrupts_take_seven_or_eight_bus_cycles() {
+    // W65C816S table 5-7: BRK/COP consume opcode + signature reads;
+    // NMI/IRQ consume a discarded opcode read + internal cycle instead.
+    for e in [true, false] {
+        for kind in ["BRK", "COP", "NMI", "IRQ"] {
+            let software = matches!(kind, "BRK" | "COP");
+            let op = if kind == "COP" { 0x02 } else { 0x00 };
+            let vector = match (kind, e) {
+                ("COP", true) => 0xfff4,
+                ("COP", false) => 0xffe4,
+                ("NMI", true) => 0xfffa,
+                ("NMI", false) => 0xffea,
+                (_, true) => 0xfffe,
+                ("BRK", false) => 0xffe6,
+                _ => 0xffee,
+            };
+            let mut r = Ram::new(&[]);
+            r.data[0x128000..0x128002].copy_from_slice(&[op, 0x42]);
+            r.data[vector..vector + 2].copy_from_slice(&0x9000u16.to_le_bytes());
+            let p = D | M | X;
+            let mut c = Cpu {
+                pc: 0x8000,
+                pb: 0x12,
+                e,
+                p,
+                waiting: !software,
+                ..Cpu::default()
+            };
+            if software {
+                c.step(&mut r);
+            } else {
+                c.interrupt(&mut r, kind == "NMI");
+            }
+            assert_eq!(
+                r.reads.len() + r.writes.len() + r.idle,
+                if e { 7 } else { 8 },
+                "{kind}, E={e}"
+            );
+            let mut reads = vec![0x128000];
+            if software {
+                reads.push(0x128001);
+            }
+            reads.extend([vector as u32, vector as u32 + 1]);
+            assert_eq!(r.reads, reads, "{kind}, E={e}");
+            assert_eq!(r.idle, usize::from(!software));
+            let mut writes = Vec::new();
+            if !e {
+                writes.push((0x1ff, 0x12));
+            }
+            let stack = if e { 0x1ff } else { 0x1fe };
+            let stacked_p = if e {
+                (p & !X) | if software { X } else { 0 }
+            } else {
+                p
+            };
+            writes.extend([
+                (stack, 0x80),
+                (stack - 1, if software { 2 } else { 0 }),
+                (stack - 2, stacked_p),
+            ]);
+            assert_eq!(r.writes, writes);
+            assert_eq!(c.s, if e { 0x1fc } else { 0x1fb });
+            assert_eq!((c.pc, c.pb, c.p), (0x9000, 0, (p | I) & !D));
+            assert!(!c.waiting);
+        }
+    }
+    let mut r = Ram::new(&[]);
+    let mut c = Cpu {
+        waiting: true,
+        ..Cpu::default()
+    };
+    c.interrupt(&mut r, false); // masked IRQ wakes WAI without entry cycles
+    assert!(!c.waiting);
+    c.stopped = true;
+    c.interrupt(&mut r, true);
+    assert!(r.reads.is_empty() && r.writes.is_empty() && r.idle == 0);
+}
+#[test]
 fn nmi_stack_and_rti_restore_native_state() {
     let mut r = Ram::new(&[0xcb, 0xea]);
     r.data[0xffea] = 0;

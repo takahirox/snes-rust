@@ -371,6 +371,15 @@ impl Cpu {
         let l = b.read(a);
         u16::from_le_bytes([l, b.read((a + 1) & 0xffffff)])
     }
+    fn next_data_addr(mode: Mode, a: u32) -> u32 {
+        // Direct and stack-relative operands stay in bank zero; resolved
+        // indirect, absolute and long operands can carry into the next bank.
+        if matches!(mode, Dp | Dpx | Dpy | Sr) {
+            (a as u16).wrapping_add(1) as u32
+        } else {
+            (a + 1) & 0xffffff
+        }
+    }
     fn dpword(&self, b: &mut impl Bus, a: u16) -> u16 {
         let next = if self.e && self.d & 255 == 0 {
             (a & 0xff00) | (a.wrapping_add(1) & 255)
@@ -434,6 +443,10 @@ impl Cpu {
         if !nmi && self.flag(I) {
             return;
         }
+        // Hardware entry discards an opcode fetch without advancing PC and
+        // takes an internal cycle. BRK/COP instead fetch opcode + signature.
+        b.read(((self.pb as u32) << 16) | self.pc as u32);
+        b.idle();
         self.enter(
             b,
             if nmi {
@@ -466,7 +479,6 @@ impl Cpu {
         self.p = (self.p | I) & !D;
         self.pb = 0;
         self.pc = Self::rd16(b, vector);
-        b.idle();
     }
     fn addr(&mut self, b: &mut impl Bus, m: Mode, write: bool) -> u32 {
         let db = (self.db as u32) << 16;
@@ -507,7 +519,12 @@ impl Cpu {
                         (db + base as u32 + self.y as u32) & 0xffffff
                     }
                     Idl | Ily => {
-                        let l = Self::rd16(b, a as u32) as u32;
+                        // Long pointers do not page-wrap in emulation mode,
+                        // but all three pointer bytes still stay in bank zero.
+                        let l = u16::from_le_bytes([
+                            b.read(a as u32),
+                            b.read(a.wrapping_add(1) as u32),
+                        ]) as u32;
                         let bank = b.read(a.wrapping_add(2) as u32) as u32;
                         ((bank << 16) + l + if m == Ily { self.y as u32 } else { 0 }) & 0xffffff
                     }
@@ -536,7 +553,8 @@ impl Cpu {
                 b.idle();
                 let a = self.s.wrapping_add(v as u16);
                 if m == Siy {
-                    let base = Self::rd16(b, a as u32);
+                    let base =
+                        u16::from_le_bytes([b.read(a as u32), b.read(a.wrapping_add(1) as u32)]);
                     b.idle();
                     (db + base as u32 + self.y as u32) & 0xffffff
                 } else {
@@ -959,7 +977,7 @@ impl Cpu {
             } else if byte {
                 b.read(a) as u16
             } else {
-                Self::rd16(b, a)
+                u16::from_le_bytes([b.read(a), b.read(Self::next_data_addr(mode, a))])
             }
         };
         let mut out = None;
@@ -1032,7 +1050,7 @@ impl Cpu {
             } else {
                 b.write(a, v as u8);
                 if !byte {
-                    b.write((a + 1) & 0xffffff, (v >> 8) as u8);
+                    b.write(Self::next_data_addr(mode, a), (v >> 8) as u8);
                 }
             }
         }
