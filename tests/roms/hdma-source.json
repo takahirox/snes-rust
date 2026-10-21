@@ -1,0 +1,25 @@
+{
+  "repository": "https://github.com/undisbeliever/snes-test-roms",
+  "commit": "ac6ef8006809c0ff5dabc8ff137a4623967697fe",
+  "license": "Zlib",
+  "files": {
+    "LICENSE": "20fc99a7b0024b4ad755633876e35a8c836829cdb46bf7cb39b14a3d32f6a529",
+    "src/_common/assert.inc": "097ac710bc5765c0c93848920bc58792a97cf5130cbf729283cdb031fab29d92",
+    "src/_common/cpu.inc": "a6f8c4c2409b82a7d25d7598a78fc1605767122ce33bb7ae9e9a89a3689bb92f",
+    "src/_common/enum.inc": "92638983e6c5624dc847698797bccd98b5962e9431863f31f19427cc1aa9521d",
+    "src/_common/functiontable.inc": "a7f7a56922fe822df5f02f4819e8e1865e374ab962fb6fbac080de81ff6bff78",
+    "src/_common/memory.inc": "824524d3b219722a9370f69a1232329d0e5adabf9358ebb656a37ebd12b87462",
+    "src/_common/print.inc": "c9fce9732bd9011b83b93c01a9b219b279bc36dd3699d02e5541714ca505627f",
+    "src/_common/registers.inc": "8f5ab0b3f554a0fcd0acccd686002bfb98b60a5eb1381e89a343e0dcba71095a",
+    "src/_common/snes_header.inc": "09aff8a9e43ad735c95e306ff8651eed9a55b229f72ea99cc2e62b69393ffe24",
+    "src/_common/struct.inc": "767b6eac8ed70d2e36891eb8c58c27baf95c88f35cfc3c1a27f537846c000488",
+    "src/_common/tmp_words.inc": "f0cfa320b6fb995ac650fe3364d0a9b633a09623de5805efaef33d48503d30fc",
+    "src/break_handler.inc": "983b95d24d033f35ee89e847928ebd1196bd3f326f3775c5fde07f880b4cc405",
+    "src/common.inc": "01dfb8da1a643323568ba684c5e1733147112c665c4739090e5963b2254f49f6",
+    "src/dma_forceblank.inc": "f460ac6a0f6f719ae0210da557485be945bc12b0b278b51426b214a268e37062",
+    "src/hardware-tests/hdma-timing-demonstration.asm": "ee295b791ffe0c9d021bfc55aa45a8f9241c9660f03a4bea7932081fb7ddcb08",
+    "src/reset_handler.inc": "fd899ba95577fbfdedcc758bd481d5645a5ae6d373934f263d63aab58defbd16",
+    "src/reset_registers.inc": "07e9d002dc0ddff3ba7b7600c20db9e025c6a60410cc2091bd23043617dca48b",
+    "resources/textbuffer/font-1bpp-map.inc": "a55887dce8f6a959f69f4adfbc7678178edd712f24f97ead6271c324262e27a5"
+  }
+}

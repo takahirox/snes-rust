@@ -1,0 +1,104 @@
+{
+  "issue": 3,
+  "date": "2026-10-21",
+  "status": "Four review findings fixed; Issue #3 remains incomplete.",
+  "fixes": {
+    "assemblerBuild": "Build ca65 and ld65 in one src make invocation so the shared common.a has one dependency graph.",
+    "bankWrapping": "Keep direct and stack-relative word operands and indirect pointers in bank zero; preserve bank carry for resolved data addresses.",
+    "interruptTiming": "BRK/COP use opcode and signature fetches; NMI/IRQ use a discarded opcode fetch and an internal cycle. Both take 7 emulation or 8 native cycles.",
+    "prDescription": "Removed the live draft PR #4 closing directive and its contradictory explanation. The body references #3 as partial work; preserve this on publication."
+  },
+  "testedFileSha256": {
+    "crates/snes-core/src/cpu.rs": "547d561704be5b0d18a6d1f122e3466e327b07e5c825db55dad26ea52ed0c8b1",
+    "crates/snes-core/tests/regression.rs": "fae85c854cfb2796d8682156ab2665de5c693488c701705f68211ffb6774a004",
+    "tools/build-test-tools.py": "5f2e245b4ae232aa297e134c9ba9509c7a80ebc028a50f9fa22c695eeec7554c"
+  },
+  "regressionControl": "New tests against the original CPU at checkpoint 6f52dbf: 16 passed, 3 failed. Fixed CPU: all 19 pass.",
+  "linuxEnvironment": {
+    "distribution": "Ubuntu 24.04 container, fresh source/build directories",
+    "architecture": "aarch64",
+    "rust": "1.99.0 with RUSTUP_TOOLCHAIN=1.99.0, rustfmt, Clippy and wasm32-unknown-unknown",
+    "python": "3.12.3",
+    "node": "24.21.0",
+    "playwright": "1.61.1, Chromium 149.0.7827.55"
+  },
+  "checks": {
+    "cargo fmt --all -- --check": "pass",
+    "cargo clippy --workspace --all-targets --locked -- -D warnings": "pass",
+    "cargo test --workspace --locked": "pass; 19 integration tests",
+    "python3 tools/make-fixture.py and cmp": "pass; diagnostic unchanged",
+    "python3 tools/build-test-tools.py --spc": "pass; clean Linux cc65, bass-untech and spcasm builds",
+    "python3 tools/hardware-tests.py with pinned assemblers": "pass; CPU full/basic and SPC700",
+    "python3 tools/ppu-test.py with pinned bass": "pass; HDMA grayscale bands",
+    "python3 tools/build-cleared-games.py (twice)": "pass; both pinned ROM hashes reproduced from fresh build directories",
+    "npm --prefix web ci": "pass",
+    "npm --prefix web run build": "pass; Wasm and static frontend",
+    "npm test -- --grep-invert '301 seconds'": "11 passed in Linux Chromium; both five-minute games, interactive game audio and UI/SRAM recovery",
+    "native macOS format, Clippy and workspace tests": "pass; 19 integration tests"
+  },
+  "hardwareSuites": [
+    {
+      "suite": "cputest-full",
+      "sha256": "1727e7c46ebb5df55711598264ba19005986bd34e915621383966adf674b3cfa",
+      "terminal_pc": "0081a2",
+      "last_test": "0649"
+    },
+    {
+      "suite": "cputest-basic",
+      "sha256": "514d58950ae1ca940d6673c2a028b258b2ab17293bbc7cbd7cb54dded32abc5b",
+      "terminal_pc": "0081a2",
+      "last_test": "0452"
+    },
+    {
+      "suite": "spctest",
+      "sha256": "279d6a92d051ff8a98e190ce73e40482ff2cc981812509c7bca35a047484507e",
+      "terminal_pc": "008060",
+      "last_test": "0557"
+    }
+  ],
+  "ppuFixture": {
+    "source": "ac6ef8006809c0ff5dabc8ff137a4623967697fe",
+    "romSha256": "aef339e5d4a7319db31de577b253d977b45f5c45f09adfaa99a302ca300a957a",
+    "verified": "11 grayscale bands, each 16 scanlines; final shade persists to line 223"
+  },
+  "browserEvidence": {
+    "castle": {
+      "frames": 18100,
+      "emulatedSeconds": 301.17236490742397,
+      "transitions": {
+        "0:2": 40,
+        "2:0": 40
+      },
+      "windows": 20,
+      "audio": "silent; not used for audio acceptance"
+    },
+    "memory": {
+      "frames": 18100,
+      "emulatedSeconds": 301.17236490742397,
+      "transitions": {
+        "2:0": 1,
+        "0:2": 1,
+        "2:4": 19,
+        "4:6": 19,
+        "6:8": 19,
+        "8:10": 19,
+        "10:12": 271,
+        "12:14": 271,
+        "14:10": 252,
+        "14:2": 18
+      },
+      "windows": 20,
+      "wins": 18,
+      "nonzeroSamplesInCompleteWindows": 5806076
+    }
+  },
+  "validationSetupCorrections": [
+    "Initial native SPC tool build used Homebrew Rust 1.94 and failed on if-let guards; the documented RUSTC selection from rustup 1.99 passed.",
+    "Initial Linux source transfer introduced macOS metadata sidecars that prevented browser test discovery. Rebuilt the tracked-file archive with COPYFILE_DISABLE=1 and --no-xattrs; the complete clean Linux run passed."
+  ],
+  "limitations": [
+    "GitHub-hosted CI cannot test this local fix until publication; no push or merge was performed.",
+    "Linux validation ran on aarch64, not the GitHub-hosted x86_64 runner.",
+    "Issue #3 release acceptance remains incomplete. No human confirmation or broader compatibility is claimed."
+  ]
+}

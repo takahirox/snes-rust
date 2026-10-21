@@ -43,9 +43,10 @@ demonstrated need tied to the Issue. Added complexity is not automatically usefu
 
 ### Available validation
 
-The repository currently has no application files, dependencies, CI, or configured
-build/test commands. Do not invent commands or add application or tooling setup
-merely to document a process.
+Runtime and browser tooling is now configured. Follow the [README validation
+commands](../README.md#validate), including source-built hardware fixtures when
+changing emulation behavior. Do not run incompletely audited external games in
+CI or include their binaries. Report optional game checks separately.
 
 For templates and documentation, inspect Markdown structure, template syntax,
 links (including anchors), whitespace, and consistency. Use available tooling
