@@ -1056,6 +1056,11 @@ impl Cpu {
         if let Some(v) = out {
             if mode == Acc {
                 self.a = (self.a & !mask) | (v & mask);
+            } else if !store && !byte {
+                // Word read-modify-write instructions write high before low
+                // (W65C816S Table 5-7); I/O port side effects observe this order.
+                b.write(Self::next_data_addr(mode, a), (v >> 8) as u8);
+                b.write(a, v as u8);
             } else {
                 b.write(a, v as u8);
                 if !byte {

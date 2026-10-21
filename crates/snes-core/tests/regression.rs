@@ -136,9 +136,103 @@ fn native_bank_zero_word_operands_wrap_reads_writes_and_modifies() {
         if modify.is_some() {
             c.step(&mut r);
             assert_eq!(&r.reads[r.reads.len() - 2..], &[0xffff, 0]);
-            assert_eq!(&r.writes[2..], &[(0xffff, 0xce), (0, 0xab)]);
+            assert_eq!(&r.writes[2..], &[(0, 0xab), (0xffff, 0xce)]);
         }
         assert_eq!(r.data[0x10000], 0x56);
+    }
+}
+#[test]
+fn rmw_writes_high_before_low_while_stores_write_low_before_high() {
+    // W65C816S Table 5-7: word RMW writeback reverses the operand read order.
+    // $2118/$2119 represent adjacent I/O ports whose side effects depend on it.
+    for (ops, expected) in [
+        ([0x06, 0x16, 0x0e, 0x1e], 0x82fe), // ASL $c17f
+        ([0x46, 0x56, 0x4e, 0x5e], 0x60bf), // LSR
+        ([0x26, 0x36, 0x2e, 0x3e], 0x82ff), // ROL with carry
+        ([0x66, 0x76, 0x6e, 0x7e], 0xe0bf), // ROR with carry
+        ([0xe6, 0xf6, 0xee, 0xfe], 0xc180), // INC
+        ([0xc6, 0xd6, 0xce, 0xde], 0xc17e), // DEC
+        ([0x04, 0, 0x0c, 0], 0xc3ff),       // TSB with A=$42c0
+        ([0x14, 0, 0x1c, 0], 0x813f),       // TRB
+    ] {
+        for (mode, op) in ops.into_iter().enumerate().filter(|(_, op)| *op != 0) {
+            let addresses = if mode < 2 {
+                vec![(0x2118, 0x2119), (0xffff, 0)]
+            } else {
+                vec![(0x2118, 0x2119), (0x7effff, 0x7f0000), (0xffffff, 0)]
+            };
+            for (low, high) in addresses {
+                for (e, byte) in [(false, false), (false, true), (true, true)] {
+                    let indexed = mode % 2 == 1;
+                    let operand = if mode < 2 {
+                        0
+                    } else {
+                        low as u16 - u16::from(indexed)
+                    };
+                    let mut r = Ram::new(&[op, operand as u8, (operand >> 8) as u8]);
+                    r.data[low] = 0x7f;
+                    r.data[high] = 0xc1;
+                    let mut c = Cpu {
+                        pc: 0x8000,
+                        e,
+                        p: C | X | if byte { M } else { 0 },
+                        a: 0x42c0,
+                        db: (low >> 16) as u8,
+                        x: u16::from(indexed),
+                        d: if mode < 2 {
+                            low as u16 - u16::from(indexed)
+                        } else {
+                            0
+                        },
+                        ..Cpu::default()
+                    };
+                    c.step(&mut r);
+                    // Byte shifts have different carry input/width; other low bytes agree.
+                    let result = if byte && ops[0] == 0x46 {
+                        0x3f
+                    } else if byte && ops[0] == 0x66 {
+                        0xbf
+                    } else {
+                        expected as u8
+                    };
+                    let writes = if byte {
+                        vec![(low as u32, result)]
+                    } else {
+                        vec![(high as u32, (expected >> 8) as u8), (low as u32, result)]
+                    };
+                    assert_eq!(
+                        r.writes, writes,
+                        "opcode {op:02x}, address {low:06x}, E={e}, byte={byte}"
+                    );
+                    assert_eq!(
+                        r.data[high],
+                        if byte { 0xc1 } else { (expected >> 8) as u8 }
+                    );
+                    if !byte {
+                        assert_eq!(&r.reads[r.reads.len() - 2..], &[low as u32, high as u32]);
+                    }
+                }
+            }
+        }
+    }
+    for op in [0x8d, 0x8e, 0x8c, 0x9c] {
+        // STA/STX/STY/STZ remain low first.
+        let mut r = Ram::new(&[op, 0x18, 0x21]);
+        let mut c = Cpu {
+            pc: 0x8000,
+            e: false,
+            p: 0,
+            a: 0x1234,
+            x: 0x1234,
+            y: 0x1234,
+            ..Cpu::default()
+        };
+        c.step(&mut r);
+        let value = if op == 0x9c { 0 } else { 0x1234 };
+        assert_eq!(
+            r.writes,
+            [(0x2118, value as u8), (0x2119, (value >> 8) as u8)]
+        );
     }
 }
 #[test]

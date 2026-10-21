@@ -275,7 +275,7 @@ def main():
                   'snes-rust contributors, 2026, MIT.\n'
                   'Alterations: regenerated graphics/checksum and replacement lettering;\n'
                   'Castle reset/MVN assembler notation; Memory NTSC region declaration\n'
-                  'and original card-reveal, match, win and wrong-pair sound effects.\n\n'
+                  'and original gameplay music plus card-reveal, match, win and wrong-pair effects.\n\n'
                   + (dest / 'LICENSE').read_text() + '\n' + (ROOT / 'LICENSE').read_text())
         (dest / 'NOTICE.txt').write_text(notice)
         sha = hashlib.sha256(data).hexdigest()

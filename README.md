@@ -9,8 +9,8 @@ Audited, source-built modified versions of Castle Platformer and Memory Game run
 through the same core in five-minute browser regressions. Their exact sources,
 assets, notices, alterations and ROM hashes are recorded in the
 [cleared-game audit](tests/roms/CLEARED-GAMES.md). The modified Memory Game adds
-original card/match/win/loss sound effects through an uploaded SPC program;
-Castle remains silent. Hardware and audio fidelity verification remain release
+original looping gameplay music and card/match/win/loss sound effects through
+an uploaded SPC program; Castle remains silent. Hardware and audio fidelity verification remain release
 requirements. Gothicvania and the original Castle release remain
 user-supplied investigations with unresolved binary/build licensing. This is not
 a completed release or a claim of broad commercial compatibility. See the
@@ -89,9 +89,13 @@ are downloaded only from the allowlist, then converted and assembled locally;
 their ROMs are never downloaded. Repeating the build verifies the expected hashes
 from fresh build directories. Chromium runs 18,100 frames (301.17 emulated seconds)
 per game, asserting gameplay throughout the run. Memory also wins and restarts
-using controller input, requiring non-silent game sound effects in every window.
-A separate real-time keyboard test verifies its card sounds reach Web Audio
-after clicking Play, end while idle, and stay silent on the title after reset.
+using controller input, requiring independently non-silent music and game effects
+in every window.
+An idle-gameplay test recovers the looping score's notes, rests and durations
+from rendered audio, checks a finite card effect while music continues, and
+emits JSON plus a listenable stereo WAV in `web/test-results`. A separate real-time
+keyboard test verifies music and card effects reach Web Audio after clicking
+Play, the effect ends while music continues, and reset returns to a silent title.
 A separate fixed-input Castle replay traverses all five maps from reset and
 finishes the credits scroll. It verifies switch-modified map tiles, ordered map
 transitions, controller-driven traversal, changing video and framebuffer hashes

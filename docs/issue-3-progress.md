@@ -3,7 +3,7 @@
 Source Issue: <https://github.com/takahirox/snes-rust/issues/3>.
 **Status: partial implementation, keep the Issue open.** The generic core runs
 two audited, modified homebrew games in Chromium, with input-derived graphics,
-Memory sound effects and Castle's complete progression route. Timing, PPU and
+Memory music/sound effects and Castle's complete progression route. Timing, PPU and
 audio fidelity gaps remain release requirements.
 
 ## Current review fixes
@@ -24,8 +24,9 @@ changing video and death/restart. Memory performs complete wins and restarts
 using controller input, with cursor/selection/video assertions in every window.
 The build runs twice with exact output-hash verification, and CI now builds and
 tests both artifacts. The modified Memory Game now includes original MIT sound
-effects executed by its uploaded SPC program, with sustained non-silent sample
-and interactive Web Audio assertions. Upstream Memory and Castle are silent;
+effects and looping gameplay music executed by its uploaded SPC program, with
+independent non-silent music/effect samples, recovered score notes and interactive
+Web Audio assertions. Upstream Memory and Castle are silent;
 no upstream music-driver compatibility is claimed. Castle finish/credits
 progression is now covered by the fixed-input replay described below;
 hardware-fidelity gaps remain open.
@@ -40,6 +41,29 @@ results are recorded in
 [review-audio-save-fixes.json](../tests/results/review-audio-save-fixes.json).
 PR #4 references #3 without a closing directive. No push or merge is performed
 by this node.
+
+### RMW write ordering and cleared gameplay music review fixes
+
+Word memory RMW instructions now write the high byte before the low byte, as
+specified by [WDC Table 5-7](https://www.westerndesigncenter.com/wdc/documentation/w65c816s.pdf). Ordinary stores retain low-first writes. The counting
+bus regression covers ASL/LSR/ROL/ROR/INC/DEC/TSB/TRB, all their memory addressing
+forms, byte/word widths, native/emulation modes, adjacent I/O ports, bank-zero
+wrapping, bank carry and the end of the 24-bit address space. It failed on the
+old implementation and passes after the fix.
+
+The modified Memory Game now plays an original MIT 16-beat looping score during
+gameplay, including idle selection. Its uploaded SPC program advances notes and
+rests with timer 1 on a second DSP voice; timer 0 still ends the independent card
+effects. No game-specific behavior was added to the emulator. The audit pins the
+new source, generated SPC/upload code and ROM hashes. Browser waveform assertions
+recover repeated ordered notes and their durations across roughly ten seconds,
+then require a finite card effect while music continues. Real-time Web Audio
+checks cover music across a full loop, effects, pause and reset. The five-minute
+replay separately requires non-silent music and effects in every window.
+A WAV plus numeric evidence are emitted under `web/test-results`; the saved
+validation summary is [review-rmw-music-fixes.json](../tests/results/review-rmw-music-fixes.json).
+This verifies the original score through the generic core, not third-party music
+driver compatibility or hardware audio fidelity. Issue #3 remains open.
 
 ### Castle progression and PEI review fixes
 
@@ -94,8 +118,8 @@ Validation and progression evidence are recorded in
   frame hashes/PPM export, bounded CPU/SPC traces and useful failures.
 - [x] Audit two exact modified ROM/build/art/font inventories and source-build
   both games reproducibly; keep the unaudited original releases ignored/local.
-- [x] Audit modified Memory Game with original game-event sound effects and
-  require non-silent samples and interactive Web Audio playback in CI.
+- [x] Audit modified Memory Game with original gameplay music and game-event effects;
+  require recovered score notes, non-silent music/effects and Web Audio playback in CI.
 - [x] Cover sustained gameplay and game-state transitions with the five-minute
   per-window regressions, Castle's complete fixed-input route and Memory wins.
 
@@ -115,8 +139,8 @@ it references #3 as partial work.
 - WebAssembly release/static production build: pass. Chromium checks: 7 pass
   when both optional game images are supplied (two long replays and two late
   freeze negative controls). Those are historical original-release results.
-  Current CI runs eight diagnostic/UI/SRAM tests, two cleared source-built
-  gameplay tests and one interactive cleared-game audio test; it never downloads
+  Current CI runs diagnostic/UI/SRAM tests, cleared source-built
+  gameplay/completion tests, waveform music/effect and interactive audio tests; it never downloads
   prebuilt game images.
 - Original 32 KiB diagnostic reproduces byte-for-byte, exercises actual DMA,
   planar graphics, frame counter, controller input, uploaded SPC execution and
@@ -196,8 +220,8 @@ a standard gamepad is simulated in the automated UI test.
 
 ## Remaining release requirements
 
-1. Verify audio fidelity and synchronization beyond Memory's non-silent game-event
-   effects and interactive Web Audio checks. Castle remains silent. The
+1. Verify audio fidelity and synchronization beyond Memory's original looping
+   score, game-event effects and interactive Web Audio checks. Castle remains silent. The
    [audit](../tests/roms/CLEARED-GAMES.md) clears the exact modified builds;
    Gothicvania's original runtime/audio/build terms and the original Castle
    credits/build match remain unresolved. Neither original release is cleared,

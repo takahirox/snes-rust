@@ -1,0 +1,651 @@
+{
+  "issue": 3,
+  "date": "2026-10-21",
+  "status": "Both supplied agent-fixable review findings addressed; Issue #3 remains open for documented timing/PPU/audio fidelity gaps.",
+  "fixes": {
+    "P2": "Word memory ASL/LSR/ROL/ROR/INC/DEC/TSB/TRB write high before low, preserving low-first ordinary stores. Counting-bus regressions cover every memory form, values, byte/word widths, native/emulation modes, $2118/$2119, bank-zero wrapping, bank carry and 24-bit wrapping.",
+    "P1": "The cleared modified Memory Game includes an original MIT looping score on a second DSP voice, driven by SPC timer 1. Separate tests recover ordered notes/rests/durations, distinguish finite card effects from continuing music, verify non-silent music/effects in every five-minute replay window and observe actual Web Audio scheduling."
+  },
+  "checks": {
+    "format": {
+      "command": "cargo fmt --all -- --check",
+      "result": "pass"
+    },
+    "clippy": {
+      "command": "cargo clippy --workspace --all-targets --locked -- -D warnings",
+      "result": "pass"
+    },
+    "rust": {
+      "command": "cargo test --workspace --locked",
+      "result": "pass",
+      "unitTests": 4,
+      "integrationTests": 23,
+      "compiler": "Rust 1.94.0 (Homebrew)"
+    },
+    "rmwBeforeFix": "Regression failed as expected: ASL wrote [(0x2118, 0xfe), (0x2119, 0x82)] instead of [(0x2119, 0x82), (0x2118, 0xfe)]. It passes after the change.",
+    "sourceBuilds": {
+      "command": "python3 tools/build-cleared-games.py (repeated fresh builds)",
+      "result": "pass",
+      "consecutiveFinalBuilds": 2,
+      "artifacts": {
+        "castle": {
+          "rom": ".cache/cleared-games/castle/castle.sfc",
+          "sha256": "197a176355e42f7984ab090baf7b2ac895c59409a9ffeec6c6017d7c5c28c869",
+          "bytes": 131072
+        },
+        "memory": {
+          "rom": ".cache/cleared-games/memory/memory.sfc",
+          "sha256": "6b57b34416676d2dfddfef6bb450ffacc7336900adb916648bc1dea0317494b1",
+          "bytes": 131072
+        }
+      }
+    },
+    "diagnostic": {
+      "command": "python3 tools/make-fixture.py .cache/smoke.bin; cmp tests/roms/smoke.bin .cache/smoke.bin",
+      "result": "pass"
+    },
+    "wasm": {
+      "command": "RUSTC=\"$(rustup which rustc)\" npm --prefix web run build",
+      "result": "pass",
+      "compiler": "Rust 1.99.0"
+    },
+    "hardware": {
+      "result": "pass",
+      "cpuSpcSource": "5ecdf555da920f0bd7b157542141965a8120186d",
+      "suites": [
+        {
+          "suite": "cputest-full",
+          "sha256": "1727e7c46ebb5df55711598264ba19005986bd34e915621383966adf674b3cfa",
+          "terminal_pc": "0081a2",
+          "last_test": "0649"
+        },
+        {
+          "suite": "cputest-basic",
+          "sha256": "514d58950ae1ca940d6673c2a028b258b2ab17293bbc7cbd7cb54dded32abc5b",
+          "terminal_pc": "0081a2",
+          "last_test": "0452"
+        },
+        {
+          "suite": "spctest",
+          "sha256": "279d6a92d051ff8a98e190ce73e40482ff2cc981812509c7bca35a047484507e",
+          "terminal_pc": "008060",
+          "last_test": "0557"
+        }
+      ],
+      "ppuSource": "ac6ef8006809c0ff5dabc8ff137a4623967697fe",
+      "ppuVerified": "11 grayscale bands, each 16 scanlines; final shade persists to line 223"
+    },
+    "browser": {
+      "command": "npm --prefix web test -- --grep-invert '301 seconds'",
+      "result": "15 passed",
+      "finalMemoryCommand": "npm --prefix web test -- --grep 'cleared Memory'",
+      "finalMemoryResult": "3 passed after adding win-title silence assertion and precise captured audio duration",
+      "optionalUnauditedGames": "excluded; no optional original-release ROM supplied"
+    }
+  },
+  "musicWaveform": {
+    "rom": "Memory Game (modified)",
+    "musicFrames": 600,
+    "musicSeconds": 9.98359375,
+    "notes": [
+      {
+        "note": 902,
+        "frames": 15,
+        "start": 2,
+        "end": 16
+      },
+      {
+        "note": 0,
+        "frames": 14,
+        "start": 17,
+        "end": 30
+      },
+      {
+        "note": 675,
+        "frames": 14,
+        "start": 32,
+        "end": 45
+      },
+      {
+        "note": 804,
+        "frames": 14,
+        "start": 47,
+        "end": 60
+      },
+      {
+        "note": 1012,
+        "frames": 14,
+        "start": 62,
+        "end": 75
+      },
+      {
+        "note": 804,
+        "frames": 15,
+        "start": 77,
+        "end": 91
+      },
+      {
+        "note": 601,
+        "frames": 15,
+        "start": 92,
+        "end": 106
+      },
+      {
+        "note": 804,
+        "frames": 15,
+        "start": 107,
+        "end": 121
+      },
+      {
+        "note": 1072,
+        "frames": 14,
+        "start": 123,
+        "end": 136
+      },
+      {
+        "note": 0,
+        "frames": 14,
+        "start": 138,
+        "end": 151
+      },
+      {
+        "note": 536,
+        "frames": 15,
+        "start": 152,
+        "end": 166
+      },
+      {
+        "note": 675,
+        "frames": 14,
+        "start": 168,
+        "end": 181
+      },
+      {
+        "note": 804,
+        "frames": 15,
+        "start": 183,
+        "end": 197
+      },
+      {
+        "note": 675,
+        "frames": 14,
+        "start": 198,
+        "end": 211
+      },
+      {
+        "note": 601,
+        "frames": 14,
+        "start": 213,
+        "end": 226
+      },
+      {
+        "note": 716,
+        "frames": 14,
+        "start": 228,
+        "end": 241
+      },
+      {
+        "note": 902,
+        "frames": 14,
+        "start": 243,
+        "end": 256
+      },
+      {
+        "note": 0,
+        "frames": 14,
+        "start": 258,
+        "end": 271
+      },
+      {
+        "note": 675,
+        "frames": 15,
+        "start": 272,
+        "end": 286
+      },
+      {
+        "note": 804,
+        "frames": 14,
+        "start": 288,
+        "end": 301
+      },
+      {
+        "note": 1012,
+        "frames": 14,
+        "start": 303,
+        "end": 316
+      },
+      {
+        "note": 804,
+        "frames": 14,
+        "start": 318,
+        "end": 331
+      },
+      {
+        "note": 601,
+        "frames": 14,
+        "start": 333,
+        "end": 346
+      },
+      {
+        "note": 804,
+        "frames": 14,
+        "start": 348,
+        "end": 361
+      },
+      {
+        "note": 1072,
+        "frames": 15,
+        "start": 363,
+        "end": 377
+      },
+      {
+        "note": 0,
+        "frames": 14,
+        "start": 378,
+        "end": 391
+      },
+      {
+        "note": 536,
+        "frames": 15,
+        "start": 392,
+        "end": 406
+      },
+      {
+        "note": 675,
+        "frames": 14,
+        "start": 408,
+        "end": 421
+      },
+      {
+        "note": 804,
+        "frames": 14,
+        "start": 423,
+        "end": 436
+      },
+      {
+        "note": 675,
+        "frames": 14,
+        "start": 438,
+        "end": 451
+      },
+      {
+        "note": 601,
+        "frames": 14,
+        "start": 453,
+        "end": 466
+      },
+      {
+        "note": 716,
+        "frames": 14,
+        "start": 468,
+        "end": 481
+      },
+      {
+        "note": 902,
+        "frames": 15,
+        "start": 483,
+        "end": 497
+      },
+      {
+        "note": 0,
+        "frames": 14,
+        "start": 498,
+        "end": 511
+      },
+      {
+        "note": 675,
+        "frames": 15,
+        "start": 512,
+        "end": 526
+      },
+      {
+        "note": 804,
+        "frames": 15,
+        "start": 527,
+        "end": 541
+      },
+      {
+        "note": 1012,
+        "frames": 14,
+        "start": 543,
+        "end": 556
+      },
+      {
+        "note": 804,
+        "frames": 14,
+        "start": 558,
+        "end": 571
+      },
+      {
+        "note": 601,
+        "frames": 14,
+        "start": 573,
+        "end": 586
+      },
+      {
+        "note": 804,
+        "frames": 12,
+        "start": 588,
+        "end": 599
+      }
+    ],
+    "effectFrames": 8,
+    "lastEffect": 7,
+    "musicFramesAfterEffect": 88,
+    "resetTitleSilent": true,
+    "audioArtifact": {
+      "file": "music-and-card-effect.wav",
+      "sha256": "6708b7dbddca2ceda8629dd6cddd320d1d1d67c3153d053724661c6746c70174",
+      "sampleRate": 32000,
+      "channels": 2,
+      "seconds": 11.9803125,
+      "cardRevealAtSeconds": 9.98359375
+    }
+  },
+  "interactiveWebAudio": {
+    "musicBuffers": 422,
+    "effectBuffers": 9,
+    "idleMusicSampleSeconds": 4.5,
+    "effectEndedWhileMusicContinued": true,
+    "pauseAndResetSilent": true
+  },
+  "memoryFiveMinuteReplay": {
+    "frames": 18100,
+    "emulatedSeconds": 301.17236490742397,
+    "wins": 18,
+    "windows": [
+      {
+        "end": 899,
+        "movements": 111,
+        "selections": 26,
+        "active": 773,
+        "hashes": 137,
+        "nonzero": 823776,
+        "audioRms": 0.021440230074245562,
+        "musicRms": 0.015136501114703228,
+        "effectRms": 0.02161472099485847
+      },
+      {
+        "end": 1799,
+        "movements": 84,
+        "selections": 26,
+        "active": 779,
+        "hashes": 142,
+        "nonzero": 824065,
+        "audioRms": 0.021567153912903987,
+        "musicRms": 0.015282415925434861,
+        "effectRms": 0.021485142600809963
+      },
+      {
+        "end": 2699,
+        "movements": 98,
+        "selections": 28,
+        "active": 779,
+        "hashes": 141,
+        "nonzero": 828309,
+        "audioRms": 0.021966066050880338,
+        "musicRms": 0.015228201463316235,
+        "effectRms": 0.02240484240078217
+      },
+      {
+        "end": 3599,
+        "movements": 91,
+        "selections": 26,
+        "active": 779,
+        "hashes": 140,
+        "nonzero": 844383,
+        "audioRms": 0.021530448230434384,
+        "musicRms": 0.015366983149590714,
+        "effectRms": 0.021278574499159878
+      },
+      {
+        "end": 4499,
+        "movements": 87,
+        "selections": 28,
+        "active": 779,
+        "hashes": 143,
+        "nonzero": 828127,
+        "audioRms": 0.021817489103255903,
+        "musicRms": 0.015258375490772398,
+        "effectRms": 0.022119925069815957
+      },
+      {
+        "end": 5399,
+        "movements": 83,
+        "selections": 26,
+        "active": 779,
+        "hashes": 141,
+        "nonzero": 814008,
+        "audioRms": 0.02167933139309453,
+        "musicRms": 0.015211603256337053,
+        "effectRms": 0.021822692241156134
+      },
+      {
+        "end": 6299,
+        "movements": 89,
+        "selections": 28,
+        "active": 779,
+        "hashes": 144,
+        "nonzero": 835845,
+        "audioRms": 0.02171041648618514,
+        "musicRms": 0.015217981609421794,
+        "effectRms": 0.021708936997691792
+      },
+      {
+        "end": 7199,
+        "movements": 95,
+        "selections": 26,
+        "active": 779,
+        "hashes": 142,
+        "nonzero": 815659,
+        "audioRms": 0.02157160962049199,
+        "musicRms": 0.015215139888612731,
+        "effectRms": 0.02171004784971572
+      },
+      {
+        "end": 8099,
+        "movements": 85,
+        "selections": 27,
+        "active": 779,
+        "hashes": 142,
+        "nonzero": 838673,
+        "audioRms": 0.021718349742193995,
+        "musicRms": 0.015315844947738865,
+        "effectRms": 0.02175163494423941
+      },
+      {
+        "end": 8999,
+        "movements": 113,
+        "selections": 29,
+        "active": 893,
+        "hashes": 148,
+        "nonzero": 866358,
+        "audioRms": 0.022363126032489255,
+        "musicRms": 0.015330004984624944,
+        "effectRms": 0.02298378417025523
+      },
+      {
+        "end": 9899,
+        "movements": 96,
+        "selections": 28,
+        "active": 787,
+        "hashes": 143,
+        "nonzero": 846692,
+        "audioRms": 0.021867523338180216,
+        "musicRms": 0.015288016621914948,
+        "effectRms": 0.022154644360878106
+      },
+      {
+        "end": 10799,
+        "movements": 89,
+        "selections": 26,
+        "active": 780,
+        "hashes": 144,
+        "nonzero": 828249,
+        "audioRms": 0.021463424240914925,
+        "musicRms": 0.015222366063134844,
+        "effectRms": 0.02146390387652478
+      },
+      {
+        "end": 11699,
+        "movements": 106,
+        "selections": 26,
+        "active": 780,
+        "hashes": 141,
+        "nonzero": 847161,
+        "audioRms": 0.02164625853844885,
+        "musicRms": 0.015296995475405748,
+        "effectRms": 0.021738005920246977
+      },
+      {
+        "end": 12599,
+        "movements": 83,
+        "selections": 28,
+        "active": 779,
+        "hashes": 138,
+        "nonzero": 829295,
+        "audioRms": 0.02174227219217224,
+        "musicRms": 0.01521612787248768,
+        "effectRms": 0.021869145647186162
+      },
+      {
+        "end": 13499,
+        "movements": 75,
+        "selections": 27,
+        "active": 779,
+        "hashes": 143,
+        "nonzero": 827485,
+        "audioRms": 0.02154409377756115,
+        "musicRms": 0.015214943602790958,
+        "effectRms": 0.021494346379813876
+      },
+      {
+        "end": 14399,
+        "movements": 94,
+        "selections": 27,
+        "active": 779,
+        "hashes": 144,
+        "nonzero": 820539,
+        "audioRms": 0.021705490530868045,
+        "musicRms": 0.015215259731365829,
+        "effectRms": 0.022072903142099
+      },
+      {
+        "end": 15299,
+        "movements": 81,
+        "selections": 27,
+        "active": 779,
+        "hashes": 145,
+        "nonzero": 814307,
+        "audioRms": 0.021634002630114814,
+        "musicRms": 0.015220825088035147,
+        "effectRms": 0.021718230462630803
+      },
+      {
+        "end": 16199,
+        "movements": 100,
+        "selections": 25,
+        "active": 779,
+        "hashes": 137,
+        "nonzero": 833356,
+        "audioRms": 0.021660107219610363,
+        "musicRms": 0.015297347891943185,
+        "effectRms": 0.021611699057590122
+      },
+      {
+        "end": 17099,
+        "movements": 92,
+        "selections": 28,
+        "active": 779,
+        "hashes": 143,
+        "nonzero": 829099,
+        "audioRms": 0.021840442621745018,
+        "musicRms": 0.01514222364360973,
+        "effectRms": 0.02210684921046399
+      },
+      {
+        "end": 17999,
+        "movements": 91,
+        "selections": 28,
+        "active": 844,
+        "hashes": 137,
+        "nonzero": 824850,
+        "audioRms": 0.02192196473569844,
+        "musicRms": 0.015183633161099693,
+        "effectRms": 0.022271583917961812
+      }
+    ],
+    "transitions": {
+      "2:0": 1,
+      "0:2": 1,
+      "2:4": 19,
+      "4:6": 19,
+      "6:8": 19,
+      "8:10": 19,
+      "10:12": 271,
+      "12:14": 271,
+      "14:10": 252,
+      "14:2": 18
+    }
+  },
+  "castleRegression": {
+    "frames": 18100,
+    "emulatedSeconds": 301.17236490742397,
+    "windows": 20,
+    "transitions": {
+      "0:2": 40,
+      "2:0": 40
+    }
+  },
+  "castleCompletion": {
+    "frames": 11097,
+    "emulatedSeconds": 184.64694659545216,
+    "credits": {
+      "state": 3,
+      "scroll": 287,
+      "hash": "97663f45"
+    },
+    "maps": [
+      {
+        "frames": 3148,
+        "movement": 2211,
+        "jumps": 36,
+        "hashes": 522
+      },
+      {
+        "frames": 100,
+        "movement": 0,
+        "jumps": 0,
+        "hashes": 16
+      },
+      {
+        "frames": 2846,
+        "movement": 2114,
+        "jumps": 32,
+        "hashes": 466
+      },
+      {
+        "frames": 1931,
+        "movement": 1094,
+        "jumps": 39,
+        "hashes": 320
+      },
+      {
+        "frames": 1902,
+        "movement": 758,
+        "jumps": 18,
+        "hashes": 317
+      }
+    ]
+  },
+  "originalAudioInputs": {
+    "tools/memory-audio.py": "9374c75f76f226d2ca6f9da7cd8ebcb01e01179d357fb93c268eb1bcddfffb65",
+    ".cache/cleared-games/memory/memory-spc.bin": "8824c7fb3e9bd776d1ee6c21d1fbbffc53ca24e25d57e8eb1c6dd938b2c809e4",
+    ".cache/cleared-games/memory/src/audio.s": "69f4294df9269ccb2a0e7feb0ccbebcc0781c48f526d99ea2ff33492768f908d"
+  },
+  "limits": [
+    "Original score/driver coverage does not establish third-party music-driver compatibility or reference hardware audio fidelity.",
+    "Castle remains silent. Original upstream release ROMs remain outside the cleared allowlist.",
+    "No push, merge, deployment or Issue closure was performed."
+  ]
+}

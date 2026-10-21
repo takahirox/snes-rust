@@ -10,7 +10,7 @@ Nothing fetches a prebuilt ROM. Game binaries and build products remain ignored.
 | Artifact | Bytes | SHA-256 |
 | --- | --- | --- |
 | `.cache/cleared-games/castle/castle.sfc` | 131072 | `197a176355e42f7984ab090baf7b2ac895c59409a9ffeec6c6017d7c5c28c869` |
-| `.cache/cleared-games/memory/memory.sfc` | 131072 | `08bc46ab6ac44adee7b593cdbc6d30a2dadaefd37b5040296b952b8893d630c7` |
+| `.cache/cleared-games/memory/memory.sfc` | 131072 | `6b57b34416676d2dfddfef6bb450ffacc7336900adb916648bc1dea0317494b1` |
 
 Decision: allow automatic acquisition of **only the listed sources**, building
 and redistribution of these modified images with their generated `NOTICE.txt`.
@@ -87,17 +87,23 @@ Memory includes the original sound extension described below.
 
 ## Original sound extension in the modified Memory Game
 
-Upstream Memory Game is silent. This build adds original sound effects for card
-reveals, matching pairs, winning and choosing a wrong pair. These are audible
-feedback for real game events, not an emulator-side tone or the diagnostic ROM.
+Upstream Memory Game is silent. This build adds original looping gameplay music
+and sound effects for card reveals, matching pairs, winning and choosing a wrong
+pair. These are audible feedback for real game events, not an emulator-side tone or the diagnostic ROM.
 The game uploads an original SPC700 program through the IPL protocol, then sends
-pitch/sequence commands through the APU ports when its game routines execute.
-The SPC program programs a BRR voice and uses timer 0 to key it off after roughly
-125 ms. The title and idle gameplay are silent. No background music is added;
-this does not demonstrate compatibility with an upstream third-party music driver.
+pitch/sequence and music start/stop commands through the APU ports when its game
+routines execute. Timer 0 keys the effect voice off after roughly 125 ms; timer 1
+advances a separate BRR music voice every 250 ms. An original 16-beat, four-second
+C-major tune loops during play, including idle card selection. Its two answering
+phrases, pitches and rests are written directly in `tools/memory-audio.py`; it is
+not an arrangement of an external composition. Music starts when Start opens the
+cards and stops on win/loss/title. Final win/loss effects can finish on the title;
+boot/reset titles are silent. Music is centered, effects are left-panned, allowing
+tests to distinguish them from stereo waveform output. This does not demonstrate
+compatibility with an upstream third-party music driver.
 The Rust core, Wasm adapter and audio playback path have no game-specific changes.
 
-All driver instructions, waveform data, upload code and event integration are
+All score data, driver instructions, waveform data, upload code and event integration are
 original MIT work, Copyright (c) 2026 snes-rust contributors. The applicable full
 notice is [the repository LICENSE](../../LICENSE), also copied to each generated
 `NOTICE.txt`. No sound recording, external instrument, firmware, external sound
@@ -108,14 +114,15 @@ the annotated SPC instruction bytes without another assembler.
 
 | Exact original build input / derived artifact | SHA-256 |
 | --- | --- |
-| `tools/memory-audio.py` (tracked original source; hash enforced by builder) | `302ba82e4a5da5ef0dcf1613bd4c0cbedb4b7994d2b59e44aaa33b6302ac00d4` |
-| `.cache/cleared-games/memory/memory-spc.bin` (281 bytes, program/directory/BRR) | `54dbf2fe274b14bc8ff7e0c63a4468d2030cf53656ffe39f922ccfe433ff33a1` |
-| `.cache/cleared-games/memory/src/audio.s` (generated 65C816 upload/command code) | `975b5e6213dd6a43b3a2838a2f3a6107b9503a80d776eddaf94cd831b30827eb` |
+| `tools/memory-audio.py` (tracked original source; hash enforced by builder) | `9374c75f76f226d2ca6f9da7cd8ebcb01e01179d357fb93c268eb1bcddfffb65` |
+| `.cache/cleared-games/memory/memory-spc.bin` (537 bytes, program/score/directory/BRR) | `8824c7fb3e9bd776d1ee6c21d1fbbffc53ca24e25d57e8eb1c6dd938b2c809e4` |
+| `.cache/cleared-games/memory/src/audio.s` (generated 65C816 upload/command code) | `69f4294df9269ccb2a0e7feb0ccbebcc0781c48f526d99ea2ff33492768f908d` |
 
 The tracked generator also inserts calls in the pinned `src/main.s` and
 `src/gameloop.s`. It preserves the existing game decisions and adds audio at
 `EnterState_SelectSecond`, `EnterState_WaitForDoors` and the match/loss/win
-branches of `CheckMatch`. Redistribution of this exact modified build with both
+branches of `CheckMatch`. Music starts at `EnterState_OpenAllDoors` and stops
+on each assignment of `PRESS_START`. Redistribution of this exact modified build with both
 MIT notices remains allowed; it does not clear any original upstream release.
 
 ## Build and validation
@@ -161,13 +168,21 @@ Memory's equally long run uses reads of the shuffled card grid to choose
 matches, then performs all actions through joypad input, without changing RAM.
 Every window asserts cursor movement, card selection, active play, changing
 video and more than 10,000 nonzero finite audio samples with RMS above 0.001; the
-run must win and restart more than once. A separate interactive test uses the
-normal ROM picker, Play gesture and keyboard input to verify non-silent game
-buffers are scheduled through Web Audio. It checks title silence, a card sound,
-the effect ending while idle, pause and reset returning to a silent title. Input
+run must win and restart more than once. Every window separately requires music
+and effect RMS above 0.001. A separate idle-gameplay waveform test records 600
+frames (about ten seconds), recovers the notes from positive zero crossings and
+checks their order, rests, quarter-second durations and looping. It then reveals
+a card and verifies a finite effect while music continues. Its JSON evidence and
+32 kHz stereo `music-and-card-effect.wav` are generated in `web/test-results`.
+The first approximately ten seconds contain music alone, followed by a card
+reveal and two seconds of continuing music. A separate real-time interactive
+test uses the normal ROM picker, Play gesture and keyboard input to verify
+music and effect buffers are scheduled through Web Audio. It checks title
+silence, more than one full music loop while idle, a card sound, the effect ending
+while music continues, pause and reset returning to a silent title. Input
 selection is automated play, not a claim that an unaided human completed the game.
 
-Castle remains silent; Memory now produces original game sound effects.
+Castle remains silent; Memory produces original gameplay music and sound effects.
 **Issue #3 remains incomplete:** the remaining timing/PPU/audio fidelity checks
 are still required. Castle's finish/credits progression is now covered. License-cleared
 gameplay here does not certify the previous release ROMs, full hardware accuracy or commercial
