@@ -1,0 +1,277 @@
+use snes_core::{
+    cartridge::{Cartridge, Mapping},
+    cpu::{Bus, Cpu, C, D, I, M, N, V, X, Z},
+    frame_hash, Machine,
+};
+struct Ram {
+    data: Vec<u8>,
+    reads: Vec<u32>,
+    writes: Vec<(u32, u8)>,
+    idle: usize,
+}
+impl Ram {
+    fn new(code: &[u8]) -> Self {
+        let mut r = Self {
+            data: vec![0; 1 << 24],
+            reads: Vec::new(),
+            writes: Vec::new(),
+            idle: 0,
+        };
+        r.data[0x8000..0x8000 + code.len()].copy_from_slice(code);
+        r
+    }
+}
+impl Bus for Ram {
+    fn read(&mut self, a: u32) -> u8 {
+        self.reads.push(a);
+        self.data[a as usize]
+    }
+    fn write(&mut self, a: u32, v: u8) {
+        self.writes.push((a, v));
+        self.data[a as usize] = v;
+    }
+    fn idle(&mut self) {
+        self.idle += 1;
+    }
+}
+fn execute(code: &[u8], n: usize) -> (Cpu, Ram) {
+    let mut ram = Ram::new(code);
+    let mut cpu = Cpu {
+        pc: 0x8000,
+        ..Cpu::default()
+    };
+    for _ in 0..n {
+        cpu.step(&mut ram);
+    }
+    (cpu, ram)
+}
+fn fixture() -> Vec<u8> {
+    include_bytes!("../../../tests/roms/smoke.bin").to_vec()
+}
+#[test]
+fn native_width_transitions_preserve_b_and_clear_index_high_bytes() {
+    let (c, _) = execute(
+        &[
+            0x18, 0xfb, 0xc2, 0x30, 0xa9, 0x34, 0x12, 0xa2, 0xcd, 0xab, 0xe2, 0x30, 0xa9, 0x56,
+        ],
+        7,
+    );
+    assert!(!c.e);
+    assert_eq!(c.a, 0x1256);
+    assert_eq!(c.x, 0xcd);
+    assert_eq!(c.p & (M | X), M | X);
+}
+#[test]
+fn arithmetic_binary_and_decimal_carries() {
+    let (c, _) = execute(&[0xa9, 0x7f, 0x18, 0x69, 1], 3);
+    assert_eq!(c.a, 0x80);
+    assert_eq!(c.p & (N | V | C | Z), N | V);
+    let (c, _) = execute(&[0xf8, 0x18, 0xa9, 0x99, 0x69, 1, 0xe9, 1], 5);
+    assert_eq!(c.a, 0x99);
+    assert_eq!(c.p & (C | D), D);
+    let (c, _) = execute(
+        &[
+            0x18, 0xfb, 0xc2, 0x20, 0xf8, 0x18, 0xa9, 0x99, 0x99, 0x69, 1, 0,
+        ],
+        7,
+    );
+    assert_eq!(c.a, 0);
+    assert_ne!(c.p & C, 0);
+    assert_ne!(c.p & Z, 0);
+}
+#[test]
+fn direct_indirect_wrap_and_long_bank_carry() {
+    let mut r = Ram::new(&[0xb2, 0xff, 0xaf, 0xff, 0xff, 0x7e]);
+    r.data[255] = 0x00;
+    r.data[0] = 0x90;
+    r.data[0x9000] = 0x42;
+    r.data[0x7effff] = 0x12;
+    r.data[0x7f0000] = 0x34;
+    let mut c = Cpu {
+        pc: 0x8000,
+        ..Cpu::default()
+    };
+    c.step(&mut r);
+    assert_eq!(c.a, 0x42);
+    c.e = false;
+    c.p &= !M;
+    c.step(&mut r);
+    assert_eq!(c.a, 0x3412);
+}
+#[test]
+fn nmi_stack_and_rti_restore_native_state() {
+    let mut r = Ram::new(&[0xcb, 0xea]);
+    r.data[0xffea] = 0;
+    r.data[0xffeb] = 0x90;
+    r.data[0x9000] = 0x40;
+    let mut c = Cpu {
+        pc: 0x8000,
+        e: false,
+        p: D,
+        pb: 0,
+        s: 0x1ff,
+        ..Cpu::default()
+    };
+    c.step(&mut r);
+    assert!(c.waiting);
+    c.interrupt(&mut r, true);
+    assert!(!c.waiting);
+    assert_eq!(c.pc, 0x9000);
+    assert_eq!(c.p & (D | I), I);
+    c.step(&mut r);
+    assert_eq!(c.pc, 0x8001);
+    assert_eq!(c.s, 0x1ff);
+    assert_eq!(c.p, D);
+}
+#[test]
+fn masked_irq_wakes_wai_but_stp_needs_reset() {
+    let (mut c, mut r) = execute(&[0xcb, 0xdb], 1);
+    c.interrupt(&mut r, false);
+    assert!(!c.waiting);
+    assert_eq!(c.pc, 0x8001);
+    c.step(&mut r);
+    assert!(c.stopped);
+    c.interrupt(&mut r, true);
+    c.step(&mut r);
+    assert!(c.stopped);
+}
+#[test]
+fn every_cpu_opcode_decodes_without_panic() {
+    for op in 0u8..=255 {
+        let mut r = Ram::new(&[op, 0, 0, 0]);
+        let mut c = Cpu {
+            pc: 0x8000,
+            ..Cpu::default()
+        };
+        c.step(&mut r);
+    }
+}
+#[test]
+fn cartridge_headers_mapping_and_sram() {
+    let rom = fixture();
+    let c = Cartridge::load(&rom).unwrap();
+    assert_eq!(c.mapping, Mapping::LoRom);
+    assert_eq!(c.read(0x008000), c.read(0x808000));
+    let mut copy = vec![0; 512];
+    copy.extend_from_slice(&rom);
+    assert_eq!(Cartridge::load(&copy).unwrap().rom, rom);
+    let mut c = c;
+    c.write(0x700000, 0x42);
+    assert_eq!(c.read(0xf00000), Some(0x42));
+    let mut hi = vec![0; 65536];
+    hi[0xffc0..].copy_from_slice(&rom[0x7fc0..]);
+    hi[0xffd5] = 0x21;
+    let c = Cartridge::load(&hi).unwrap();
+    assert_eq!(c.mapping, Mapping::HiRom);
+    assert_eq!(c.read(0xc08000), c.read(0x008000));
+    assert!(Cartridge::load(&[]).is_err());
+    let mut bad = rom.clone();
+    bad[0x7fd6] = 0x13;
+    assert!(Cartridge::load(&bad).is_err());
+    bad = rom;
+    bad[0x7fd9] = 2;
+    assert!(Cartridge::load(&bad).is_err());
+}
+#[test]
+fn memory_open_bus_wram_and_joypad_serial() {
+    let mut m = Machine::new(&fixture()).unwrap();
+    m.bus.write(0x7e1234, 0x82);
+    assert_eq!(m.bus.read(0x001234), 0x82);
+    assert_eq!(m.bus.read(0x003000), 0x82);
+    m.set_buttons(0x9000);
+    m.bus.write(0x4016, 1);
+    m.bus.write(0x4016, 0);
+    let mut bits = 0;
+    for _ in 0..16 {
+        bits = (bits << 1) | (m.bus.read(0x4016) & 1) as u16;
+    }
+    assert_eq!(bits, 0x9000);
+    assert_eq!(m.bus.read(0x4016) & 1, 1);
+}
+#[test]
+fn bus_access_timing_is_region_dependent() {
+    let mut m = Machine::new(&fixture()).unwrap();
+    let start = m.bus.clocks;
+    m.bus.read(0x008000);
+    assert_eq!(m.bus.clocks - start, 8);
+    let start = m.bus.clocks;
+    m.bus.read(0x002100);
+    assert_eq!(m.bus.clocks - start, 6);
+    let start = m.bus.clocks;
+    m.bus.read(0x004016);
+    assert_eq!(m.bus.clocks - start, 12);
+    m.bus.write(0x420d, 1);
+    let start = m.bus.clocks;
+    m.bus.read(0x808000);
+    assert_eq!(m.bus.clocks - start, 6);
+}
+#[test]
+fn diagnostic_has_deterministic_video_dma_input_and_spc_audio() {
+    let mut a = Machine::new(&fixture()).unwrap();
+    let mut b = Machine::new(&fixture()).unwrap();
+    let mut hashes = std::collections::BTreeSet::new();
+    let mut energy = 0.0;
+    for _ in 0..90 {
+        a.set_buttons(0x8100);
+        b.set_buttons(0x8100);
+        a.run_frame().unwrap();
+        b.run_frame().unwrap();
+        assert_eq!(a.cpu.pc, b.cpu.pc);
+        assert_eq!(a.bus.clocks, b.bus.clocks);
+        assert_eq!(a.framebuffer(), b.framebuffer());
+        hashes.insert(frame_hash(a.framebuffer()));
+        let aa = a.take_audio();
+        assert_eq!(aa, b.take_audio());
+        energy += aa.iter().map(|v| (*v as f64).powi(2)).sum::<f64>();
+    }
+    assert!(hashes.len() >= 30);
+    assert!(energy > 1.0);
+    assert_eq!(a.bus.wram[0x11], 0x81);
+    assert!(a.bus.wram[0x10] > 80);
+    assert_eq!(&a.bus.ppu.vram[..16], &fixture()[0x1000..0x1010]);
+    assert!(a.framebuffer().as_chunks::<4>().0.iter().any(|p| p[0] > 0));
+}
+#[test]
+fn reset_preserves_sram_and_invalid_restore_is_atomic() {
+    let mut m = Machine::new(&fixture()).unwrap();
+    let save = vec![0x93; m.bus.cart.sram.len()];
+    m.load_sram(&save).unwrap();
+    m.bus.wram[0] = 12;
+    assert!(m.load_sram(&[1]).is_err());
+    assert_eq!(m.bus.cart.sram, save);
+    m.reset();
+    assert_eq!(m.bus.cart.sram, save);
+    assert_eq!(m.bus.wram[0], 0);
+    assert_eq!(m.bus.buttons, 0);
+}
+#[test]
+fn spc_word_arithmetic_timer_and_direct_page() {
+    let mut apu = snes_core::apu::Apu::default();
+    let program = [0xe8, 0xff, 0x8d, 0x7f, 0x7a, 0x10, 0x40, 0x8f, 0x34, 0x20];
+    apu.ram[0x200..0x200 + program.len()].copy_from_slice(&program);
+    apu.ram[0x10] = 1;
+    apu.cpu.pc = 0x200;
+    for _ in 0..5 {
+        apu.step();
+    }
+    assert_eq!(apu.cpu.a, 0);
+    assert_eq!(apu.cpu.y, 0x80);
+    assert_eq!(apu.cpu.p & 0xc0, 0xc0);
+    assert_eq!(apu.ram[0x120], 0x34);
+    apu.write(0xfa, 1);
+    apu.write(0xf1, 1);
+    apu.tick(21_478);
+    let count = apu.read(0xfd);
+    assert_eq!(count, 8);
+    assert_eq!(apu.read(0xfd), 0);
+}
+#[test]
+fn every_spc_opcode_decodes_without_fallback() {
+    for op in 0u8..=255 {
+        let mut apu = snes_core::apu::Apu::default();
+        apu.cpu.pc = 0x200;
+        apu.ram[0x200] = op;
+        apu.step();
+        assert!(apu.error.is_none(), "opcode {op:02x}");
+    }
+}

@@ -1,0 +1,12 @@
+/target/
+/.cache/
+/web/dist/
+/web/node_modules/
+/test-results/
+/playwright-report/
+*.sfc
+*.smc
+*.srm
+*.ppm
+/web/test-results/
+/web/playwright-report/

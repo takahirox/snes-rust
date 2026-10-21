@@ -1,0 +1,116 @@
+{
+  "status": "partial; Issue #3 remains open",
+  "date": "2026-10-21",
+  "platform": "macOS arm64; Rust core 1.94 and 1.99; wasm 1.99; Chromium via Playwright 1.61.1",
+  "checks": {
+    "rustIntegrationTests": 13,
+    "browserTests": 5,
+    "cpuSemanticSuites": [
+      {
+        "suite": "cputest-full",
+        "sha256": "1727e7c46ebb5df55711598264ba19005986bd34e915621383966adf674b3cfa",
+        "terminal_pc": "0081a2",
+        "last_test": "0649"
+      },
+      {
+        "suite": "cputest-basic",
+        "sha256": "514d58950ae1ca940d6673c2a028b258b2ab17293bbc7cbd7cb54dded32abc5b",
+        "terminal_pc": "0081a2",
+        "last_test": "0452"
+      },
+      {
+        "suite": "spctest",
+        "sha256": "279d6a92d051ff8a98e190ce73e40482ff2cc981812509c7bca35a047484507e",
+        "terminal_pc": "008060",
+        "last_test": "0557"
+      }
+    ],
+    "hdmaScanlineFixture": {
+      "source": "ac6ef8006809c0ff5dabc8ff137a4623967697fe",
+      "romSha256": "aef339e5d4a7319db31de577b253d977b45f5c45f09adfaa99a302ca300a957a",
+      "verified": "11 grayscale bands, each 16 scanlines; final shade persists to line 223"
+    },
+    "gameInvestigations": [
+      {
+        "name": "Gothicvania",
+        "frames": 18100,
+        "emulatedSeconds": 301.17073885002696,
+        "nonzero": 11929270,
+        "audioRms": 0.18616589688439744,
+        "distinctHashes": 246,
+        "observations": [
+          {
+            "frame": 179,
+            "hash": "6907ed94"
+          },
+          {
+            "frame": 299,
+            "hash": "38a68c59"
+          },
+          {
+            "frame": 359,
+            "hash": "f8778ca6"
+          },
+          {
+            "frame": 599,
+            "hash": "2243b3f5"
+          },
+          {
+            "frame": 899,
+            "hash": "2243b3f5"
+          },
+          {
+            "frame": 18099,
+            "hash": "657b9314"
+          }
+        ],
+        "elapsedMs": 39664.2999997139
+      },
+      {
+        "name": "Castle Platformer",
+        "frames": 18100,
+        "emulatedSeconds": 301.17073885002696,
+        "nonzero": 0,
+        "audioRms": 0,
+        "distinctHashes": 373,
+        "observations": [
+          {
+            "frame": 179,
+            "hash": "ae4abff8"
+          },
+          {
+            "frame": 299,
+            "hash": "0e7ff935"
+          },
+          {
+            "frame": 359,
+            "hash": "d889be93"
+          },
+          {
+            "frame": 599,
+            "hash": "5966827c"
+          },
+          {
+            "frame": 899,
+            "hash": "5966827c"
+          },
+          {
+            "frame": 18099,
+            "hash": "932b2158"
+          }
+        ],
+        "elapsedMs": 32831.699999809265
+      }
+    ]
+  },
+  "mandatoryRemaining": [
+    "Complete both game binary/build and every embedded art/audio/font/runtime license audit",
+    "Verify a sufficient sustained gameplay path and game-state transitions against independent baselines; samples include idle death screens and restarts",
+    "Complete or bound hardware timing/audio/PPU deviations required by the selected games; current checks do not prove absence of desynchronization",
+    "Execute the configured Linux CI jobs on GitHub; local equivalents pass but this node does not push or trigger CI"
+  ],
+  "frameHashAlgorithms": {
+    "native": "FNV-1a 64-bit over RGBA framebuffer",
+    "browser": "FNV-1a 32-bit over RGBA framebuffer"
+  }
+}

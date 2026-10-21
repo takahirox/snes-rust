@@ -5,4 +5,5 @@ Follow the [development flow](docs/development-flow.md), including its
 and the [review and merge guidelines](docs/review-guidelines.md).
 
 Use the source Issue to choose the smallest complete change. Validate with the
-tooling actually present; no build or test commands are currently configured.
+workspace and browser checks documented in README.md. Keep ROM licensing and
+provenance decisions explicit; do not count partial Issue #3 work as completion.

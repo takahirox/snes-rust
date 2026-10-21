@@ -1,0 +1,10 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, copyFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+execFileSync('cargo', ['build', '--release', '-p', 'snes-wasm', '--target', 'wasm32-unknown-unknown', '--locked'], { cwd: root, stdio: 'inherit' });
+mkdirSync(resolve(root, 'web/dist'), { recursive: true });
+for (const name of ['index.html', 'app.js', 'style.css']) copyFileSync(resolve(root, 'web', name), resolve(root, 'web/dist', name));
+copyFileSync(resolve(root, 'target/wasm32-unknown-unknown/release/snes_wasm.wasm'), resolve(root, 'web/dist/snes_wasm.wasm'));
+console.log('Built web/dist; serve it over HTTP.');
