@@ -370,6 +370,77 @@ fn indirect_jumps_wrap_pointers_within_their_bank() {
     }
 }
 #[test]
+fn indirect_jumps_follow_documented_bus_order() {
+    use Access::{Idle, Read};
+    // W65C816S Table 5-7: $DC reads low/high/bank in order; $7C's
+    // internal cycle precedes both pointer reads, including at bank wrap.
+    for e in [false, true] {
+        for base in [0x90feu16, 0xfffe, 0xffff] {
+            for index in [0, 1] {
+                for op in [0x7c, 0xdc] {
+                    let mut r = Ram::new(&[]);
+                    r.data[0x7e8000..0x7e8003].copy_from_slice(&[
+                        op,
+                        base as u8,
+                        (base >> 8) as u8,
+                    ]);
+                    let bank = if op == 0x7c { 0x7e0000 } else { 0 };
+                    let pointer = if op == 0x7c {
+                        base.wrapping_add(index)
+                    } else {
+                        base
+                    };
+                    let low = bank | pointer as u32;
+                    let high = bank | pointer.wrapping_add(1) as u32;
+                    r.data[low as usize] = 0x34;
+                    r.data[high as usize] = 0x12;
+                    if op == 0xdc {
+                        r.data[pointer.wrapping_add(2) as usize] = 0x42;
+                    }
+                    let mut c = Cpu {
+                        pc: 0x8000,
+                        pb: 0x7e,
+                        db: 0x7f,
+                        x: index,
+                        e,
+                        ..Cpu::default()
+                    };
+                    c.step(&mut r);
+                    let mut expected = vec![Read(0x7e8000), Read(0x7e8001), Read(0x7e8002)];
+                    if op == 0x7c {
+                        expected.push(Idle);
+                    }
+                    expected.extend([Read(low), Read(high)]);
+                    if op == 0xdc {
+                        expected.push(Read(pointer.wrapping_add(2) as u32));
+                    }
+                    assert_eq!(
+                        r.accesses, expected,
+                        "opcode {op:02x}, base {base:04x}, index {index}, E={e}"
+                    );
+                    assert_eq!((c.pb, c.pc), (if op == 0xdc { 0x42 } else { 0x7e }, 0x1234));
+                }
+            }
+        }
+    }
+}
+#[test]
+fn long_indirect_jump_reads_wram_port_before_open_bus_bytes() {
+    for e in [false, true] {
+        let mut rom = fixture();
+        rom[..3].copy_from_slice(&[0xdc, 0x80, 0x21]); // JML [$2180]
+        let mut m = Machine::new(&rom).unwrap();
+        m.cpu.e = e;
+        m.bus.wram[0] = 0x34;
+        m.bus.wram[1] = 0x56;
+        m.step();
+        // $2180 supplies the low byte; write-only $2181/$2182 return
+        // that value on open bus for both the high byte and bank.
+        assert_eq!((m.cpu.pb, m.cpu.pc), (0x34, 0x3434));
+        assert_eq!(m.bus.read(0x2180), 0x56); // The port advanced exactly once.
+    }
+}
+#[test]
 fn jumps_and_subroutine_calls_have_fixed_cycle_counts() {
     // W65C816S tables 5-4 and 5-7: indexed JSR has one internal cycle,
     // just like indexed JMP, plus the two return-address writes.

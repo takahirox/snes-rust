@@ -743,15 +743,16 @@ impl Cpu {
                     a = Self::rd16_in_bank(b, a as u32);
                 }
                 if name == "JXI" {
+                    b.idle();
                     a = Self::rd16_in_bank(
                         b,
                         ((self.pb as u32) << 16) | a.wrapping_add(self.x) as u32,
                     );
-                    b.idle();
                 }
                 if name == "JLI" {
-                    bank = b.read(a.wrapping_add(2) as u32);
-                    a = Self::rd16_in_bank(b, a as u32);
+                    let pointer = a;
+                    a = Self::rd16_in_bank(b, pointer as u32);
+                    bank = b.read(pointer.wrapping_add(2) as u32);
                 }
                 if name == "PEA" {
                     self.push16_full(b, a);
