@@ -570,6 +570,66 @@ fn cgram_completed_pairs_commit_both_bytes_and_wrap() {
     assert_eq!(&p.cgram[..2], &[0x55, 0x7f]);
 }
 #[test]
+fn subscreen_backdrop_uses_fixed_color_without_halving() {
+    for (enabled, opaque, masked) in [
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        let mut p = snes_core::ppu::Ppu::default();
+        p.write(0, 15); // Full brightness.
+        p.cgram[..2].copy_from_slice(&0x001fu16.to_le_bytes()); // Red main backdrop.
+        p.cgram[2..4].copy_from_slice(&0x7c00u16.to_le_bytes()); // Blue BG1 pixel.
+        p.write(0x32, 0x5f); // Green fixed color.
+        p.write(0x30, 2); // Use subscreen for color math.
+        p.write(0x2d, u8::from(enabled));
+        p.write(0x0b, 1); // BG1 tile data at $2000, tilemap at $0000.
+        p.vram[0x2002] = if opaque { 0x80 } else { 0 }; // First pixel of row 1.
+        p.write(0x23, 2); // BG1 window 1 enabled, covering x=0 only.
+        p.write(0x2f, u8::from(masked));
+        for half in [0, 0x40] {
+            p.write(0x31, 0x20 | half); // Add to main backdrop.
+            p.render_line(0);
+            assert_eq!(
+                &p.frame[..4],
+                &[255, 255, 0, 255],
+                "enabled={enabled}, opaque={opaque}, masked={masked}, half={half}"
+            );
+        }
+        // Disabling math must still display the main CGRAM backdrop.
+        p.write(0x31, 0);
+        p.render_line(0);
+        assert_eq!(&p.frame[..4], &[255, 0, 0, 255]);
+    }
+}
+#[test]
+fn opaque_subscreen_pixels_override_fixed_color_and_allow_halving() {
+    for (color, added, halved) in [
+        (0x7c00u16, [255, 0, 255, 255], [123, 0, 123, 255]),
+        (0, [255, 0, 0, 255], [123, 0, 0, 255]), // Opaque black is not transparent.
+    ] {
+        let mut p = snes_core::ppu::Ppu::default();
+        p.write(0, 15);
+        p.cgram[..2].copy_from_slice(&0x001fu16.to_le_bytes());
+        p.cgram[2..4].copy_from_slice(&color.to_le_bytes());
+        p.write(0x32, 0x5f);
+        p.write(0x30, 2);
+        p.write(0x2d, 1); // BG1 only on subscreen.
+        p.write(0x0b, 1);
+        p.vram[0x2002] = 0x80; // x=0 opaque, x=1 transparent.
+        for (half, expected) in [(0, added), (0x40, halved)] {
+            p.write(0x31, 0x20 | half);
+            p.render_line(0);
+            assert_eq!(&p.frame[..4], &expected);
+            assert_eq!(&p.frame[4..8], &[255, 255, 0, 255]);
+        }
+        // Direct fixed-color math halves even with a transparent subscreen.
+        p.write(0x30, 0);
+        p.render_line(0);
+        assert_eq!(&p.frame[..8], &[123, 123, 0, 255, 123, 123, 0, 255]);
+    }
+}
+#[test]
 fn hardware_and_software_interrupts_take_seven_or_eight_bus_cycles() {
     // W65C816S table 5-7: BRK/COP consume opcode + signature reads;
     // NMI/IRQ consume a discarded opcode read + internal cycle instead.

@@ -439,6 +439,8 @@ impl Ppu {
             }
             return;
         }
+        let fixed_color =
+            self.fixed[0] as u16 | ((self.fixed[1] as u16) << 5) | ((self.fixed[2] as u16) << 10);
         let objects = self.objects(y);
         for (x, obj) in objects.iter().enumerate() {
             let back = Pixel {
@@ -447,7 +449,15 @@ impl Ppu {
                 layer: 5,
                 math: true,
             };
-            let mut screens = [back; 2];
+            // Transparent subscreen pixels use COLDATA, retaining the backdrop
+            // layer marker so the color-math result is not halved there.
+            let mut screens = [
+                back,
+                Pixel {
+                    color: fixed_color,
+                    ..back
+                },
+            ];
             for (screen, pixel) in screens.iter_mut().enumerate() {
                 let enable = self.regs[0x2c + screen];
                 let mask = self.regs[0x2e + screen];
@@ -489,9 +499,7 @@ impl Ppu {
             let sub = if use_sub {
                 screens[1].color
             } else {
-                self.fixed[0] as u16
-                    | ((self.fixed[1] as u16) << 5)
-                    | ((self.fixed[2] as u16) << 10)
+                fixed_color
             };
             let bright = (self.regs[0] & 15) as u16;
             let i = (y * 256 + x) * 4;
