@@ -7,6 +7,8 @@ let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastT
 let keyboard = 0;
 let operationError = '', persistenceError = '', restorePending = false;
 const sources = new Set();
+const frameMilliseconds = 1000 * 1364 * 262 / 21477272;
+const audioLead = .04, maxAudioLead = .15, maxSources = 12;
 const keys = { ArrowUp: 0x800, ArrowDown: 0x400, ArrowLeft: 0x200, ArrowRight: 0x100, KeyZ: 0x8000, KeyX: 0x80, KeyA: 0x4000, KeyS: 0x40, KeyQ: 0x20, KeyW: 0x10, Enter: 0x1000, ShiftLeft: 0x2000, ShiftRight: 0x2000 };
 const held = new Set();
 const bytes = (pointer, length) => new Uint8Array(core.memory.buffer, pointer, length);
@@ -54,7 +56,7 @@ function queueAudio() {
   const buffer = audio.createBuffer(2, count / 2, 32000);
   for (let channel = 0; channel < 2; channel++) { const data = buffer.getChannelData(channel); for (let i = 0; i < data.length; i++) data[i] = samples[i * 2 + channel]; }
   const now = audio.currentTime;
-  if (nextAudio < now || nextAudio > now + .15) { flushAudio(); nextAudio = now + .04; }
+  if (nextAudio < now || nextAudio + buffer.duration > now + maxAudioLead || sources.size >= maxSources) { flushAudio(); nextAudio = now + audioLead; }
   const source = audio.createBufferSource(); source.buffer = buffer; source.connect(audio.destination); sources.add(source);
   source.onended = () => sources.delete(source); source.start(nextAudio); nextAudio += buffer.duration;
 }
@@ -72,10 +74,12 @@ function buttons() {
 function animate(time) {
   requestAnimationFrame(animate);
   if (!playing) { lastTime = time; return; }
-  debt += Math.min(time - lastTime, 50); lastTime = time;
+  // Discard stale wall time after a stall. Catch-up stays within three frames;
+  // video and audio restart together instead of accumulating an unbounded debt.
+  debt = Math.min(debt + Math.max(time - lastTime, 0), frameMilliseconds * 3); lastTime = time;
   try {
     let frames = 0;
-    while (debt >= 1000 / 60.0988 && frames < 3) { check(core.run_frame(buttons())); queueAudio(); debt -= 1000 / 60.0988; frames++; }
+    while (debt >= frameMilliseconds && frames < 3) { check(core.run_frame(buttons())); queueAudio(); debt -= frameMilliseconds; frames++; }
     if (frames) draw();
     if (time - saveClock > 5000) { save(); saveClock = time; }
   } catch (e) { pause(); report(e); }
@@ -107,7 +111,7 @@ $('play').addEventListener('click', async () => {
   if (playing) { pause(); return; }
   clearError(); await activateAudio();
   if (restorePending) return;
-  debt = 1000 / 60.0988; lastTime = performance.now(); playing = true; $('play').textContent = 'Pause'; $('status').textContent = 'Playing';
+  debt = frameMilliseconds; lastTime = performance.now(); playing = true; $('play').textContent = 'Pause'; $('status').textContent = 'Playing';
 });
 $('reset').addEventListener('click', () => { pause(); try { check(core.reset()); draw(); clearError(); $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
 $('sound').addEventListener('change', () => { flushAudio(); if ($('sound').checked) void activateAudio(); });

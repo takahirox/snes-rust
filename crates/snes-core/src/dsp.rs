@@ -1,4 +1,5 @@
-//! Provisional 32 kHz BRR voice mixer. Linear interpolation; simplified envelopes.
+//! 32 kHz BRR voice mixer, authored from S-DSP register documentation.
+use crate::gaussian::GAUSSIAN;
 #[derive(Default, Clone, Copy)]
 struct Voice {
     addr: u16,
@@ -6,8 +7,8 @@ struct Voice {
     header: u8,
     nibble: u8,
     history: [i32; 2],
-    current: i32,
-    previous: i32,
+    decoded: [i32; 4],
+    key_delay: u8,
     phase: u32,
     env: i32,
     stage: u8,
@@ -42,7 +43,10 @@ impl Default for Dsp {
 impl Dsp {
     pub fn write(&mut self, r: u8, v: u8) {
         match r {
-            0x4c => self.kon |= v,
+            0x4c => {
+                self.kon = v;
+                self.regs[0x4c] = v;
+            }
             0x7c => self.regs[0x7c] = 0,
             _ => self.regs[r as usize] = v,
         }
@@ -56,6 +60,8 @@ impl Dsp {
             if v.header & 1 != 0 {
                 if v.header & 2 == 0 {
                     v.active = false;
+                    v.env = 0;
+                    v.decoded = [0; 4];
                     return true;
                 }
                 v.addr = v.loop_addr;
@@ -92,13 +98,22 @@ impl Dsp {
         sample = (sample.clamp(-32768, 32767) as i16).wrapping_mul(2) as i32 >> 1;
         v.history[1] = p;
         v.history[0] = sample;
-        v.previous = v.current;
-        v.current = sample * 2;
+        v.decoded.rotate_left(1);
+        v.decoded[3] = sample;
         v.nibble += 1;
         if v.nibble == 16 {
             v.addr = v.addr.wrapping_add(8);
         }
         ended
+    }
+    fn interpolate(samples: [i32; 4], phase: u32) -> i32 {
+        let index = (phase >> 4) as usize;
+        // The first three taps wrap at 16 bits; the final sum saturates.
+        // BRR history is stored at half amplitude (15 bits).
+        let partial = ((GAUSSIAN[255 - index] * samples[0]) >> 10)
+            + ((GAUSSIAN[511 - index] * samples[1]) >> 10)
+            + ((GAUSSIAN[256 + index] * samples[2]) >> 10);
+        ((partial as i16 as i32) + ((GAUSSIAN[index] * samples[3]) >> 10)).clamp(-32768, 32767) & !1
     }
     pub fn sample(&mut self, ram: &mut [u8]) -> (i16, i16) {
         self.counter = self.counter.wrapping_add(1);
@@ -115,6 +130,7 @@ impl Dsp {
                     addr: start,
                     loop_addr,
                     active: true,
+                    key_delay: 5,
                     ..Voice::default()
                 };
                 self.regs[0x7c] &= !(1 << i);
@@ -128,6 +144,12 @@ impl Dsp {
                 v.env = 0;
             }
             if !v.active {
+                self.regs[base + 8] = 0;
+                self.regs[base + 9] = 0;
+                continue;
+            }
+            if v.key_delay > 0 {
+                v.key_delay -= 1;
                 self.regs[base + 8] = 0;
                 self.regs[base + 9] = 0;
                 continue;
@@ -190,8 +212,7 @@ impl Dsp {
                     self.regs[0x7c] |= 1 << i;
                 }
             }
-            let sample =
-                ((v.previous + (((v.current - v.previous) * v.phase as i32) >> 12)) * v.env) >> 11;
+            let sample = ((Self::interpolate(v.decoded, v.phase) * v.env) >> 11) & !1;
             self.regs[base + 8] = (v.env >> 4) as u8;
             self.regs[base + 9] = (sample >> 8) as u8;
             for side in 0..2 {
@@ -274,3 +295,102 @@ const RATES: [u32; 32] = [
     2,
     1,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gaussian_impulses_and_partial_overflow_match_hardware_coefficients() {
+        // Independent vectors at phase zero: taps 370,1305,374,0 / 1024.
+        assert_eq!(Dsp::interpolate([1024, 0, 0, 0], 0), 370);
+        assert_eq!(Dsp::interpolate([0, 1024, 0, 0], 0), 1304);
+        assert_eq!(Dsp::interpolate([0, 0, 1024, 0], 0), 374);
+        assert_eq!(Dsp::interpolate([0, 0, 0, 1024], 0), 0);
+        // The three-tap wrap is audible for the documented -8, range-12 case.
+        assert_eq!(Dsp::interpolate([-16384; 4], 0), 32752);
+        assert_eq!(Dsp::interpolate([1024, 0, 0, 0], 4080), 0);
+        assert_eq!(Dsp::interpolate([0, 0, 0, 1024], 4080), 370);
+    }
+
+    #[test]
+    fn brr_filter_zero_sign_range_and_loop_are_numerical() {
+        let mut ram = vec![0; 65536];
+        ram[0x300] = 0x93; // range 9, filter 0, end+loop
+        ram[0x301..0x309].copy_from_slice(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]);
+        let mut voice = Voice {
+            addr: 0x300,
+            loop_addr: 0x300,
+            active: true,
+            ..Voice::default()
+        };
+        for pass in 0..2 {
+            for i in 0..16 {
+                assert_eq!(Dsp::decode(&mut voice, &ram), pass == 1 && i == 0);
+                let signed = if i < 8 { i } else { i - 16 };
+                assert_eq!(voice.decoded[3], signed * 256);
+            }
+        }
+        for shift in 13..=15 {
+            ram[0x300] = shift << 4;
+            ram[0x301] = 0x78;
+            voice = Voice {
+                addr: 0x300,
+                active: true,
+                ..Voice::default()
+            };
+            Dsp::decode(&mut voice, &ram);
+            assert_eq!(voice.decoded[3], 0);
+            Dsp::decode(&mut voice, &ram);
+            assert_eq!(voice.decoded[3], -2048);
+        }
+    }
+
+    #[test]
+    fn direct_gain_stereo_key_delay_release_and_retrigger_have_expected_levels() {
+        let mut ram = vec![0; 65536];
+        ram[0x200..0x204].copy_from_slice(&[0, 3, 0, 3]);
+        ram[0x300] = 0x93;
+        ram[0x301..0x309].fill(0x77);
+        let mut dsp = Dsp::default();
+        for (r, v) in [
+            (0x6c, 0x20),
+            (0x5d, 2),
+            (0x0c, 127),
+            (0x1c, 127),
+            (0, 127),
+            (1, 0x80),
+            (3, 0x10),
+            (7, 127),
+            (0x4c, 1),
+        ] {
+            dsp.write(r, v);
+        }
+        for _ in 0..5 {
+            assert_eq!(dsp.sample(&mut ram), (0, 0));
+        }
+        for _ in 0..20 {
+            dsp.sample(&mut ram);
+        }
+        // Constant decoded sample is 1792. Gaussian output=3584,
+        // direct gain=2032/2048, then signed voice/master volumes /128.
+        assert_eq!(dsp.sample(&mut ram), (3500, -3529));
+        dsp.write(0x5c, 1);
+        for i in 1..=254 {
+            dsp.sample(&mut ram);
+            assert_eq!(dsp.voices[0].env, 2032 - i * 8);
+        }
+        assert_eq!(dsp.sample(&mut ram), (0, 0));
+        dsp.write(0x5c, 0);
+        dsp.write(0x4c, 1);
+        for _ in 0..5 {
+            assert_eq!(dsp.sample(&mut ram), (0, 0));
+        }
+        for _ in 0..20 {
+            dsp.sample(&mut ram);
+        }
+        assert_eq!(dsp.sample(&mut ram), (3500, -3529));
+        dsp.write(0x6c, 0x60);
+        assert_eq!(dsp.sample(&mut ram), (0, 0));
+    }
+}

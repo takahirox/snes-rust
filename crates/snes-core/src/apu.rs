@@ -831,3 +831,53 @@ const SPC_CYCLES: [u8; 256] = [
     3, 2, 8, 4, 5, 3, 4, 3, 6, 2, 4, 5, 3, 4, 3, 4, 3, 2, 8, 4, 5, 4, 5, 5, 6, 3, 4, 5, 4, 2, 2, 4,
     3,
 ];
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+
+    #[test]
+    fn sample_clock_is_32khz_and_independent_of_cpu_tick_partition() {
+        fn configured() -> Apu {
+            let mut a = Apu::default();
+            a.ram[0x200..0x204].copy_from_slice(&[0, 3, 0, 3]);
+            a.ram[0x300] = 0x93;
+            a.ram[0x301..0x309].fill(0x77);
+            for (r, v) in [
+                (0x6c, 0x20),
+                (0x5d, 2),
+                (0x0c, 127),
+                (0x1c, 127),
+                (0, 127),
+                (1, 127),
+                (3, 0x10),
+                (7, 127),
+                (0x4c, 1),
+            ] {
+                a.dsp.write(r, v);
+            }
+            a.write(0xfa, 125);
+            a.write(0xf1, 1);
+            a
+        }
+        let mut whole = configured();
+        let mut split = configured();
+        whole.tick(21477272);
+        for _ in 0..21477 {
+            split.tick(1000);
+        }
+        split.tick(272);
+        assert_eq!(whole.samples.len(), 64000);
+        assert_eq!(whole.samples, split.samples);
+        assert!(whole
+            .samples
+            .iter()
+            .all(|s| s.is_finite() && s.abs() <= 1.0));
+        assert_eq!(*whole.samples.last().unwrap(), 3500.0 / 32768.0);
+        // 1.024 MHz / (128 * 125) = 64 ticks per second, modulo 16.
+        assert_eq!(whole.read(0xfd), 0);
+        whole.tick(335582); // Another 1/64 s, within one SPC cycle.
+        assert_eq!(whole.read(0xfd), 1);
+        assert_eq!(whole.read(0xfd), 0);
+    }
+}

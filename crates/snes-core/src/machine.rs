@@ -40,12 +40,14 @@ pub struct SystemBus {
     serial: u16,
     strobe: bool,
     auto_until: u64,
+    auto_buttons: u16,
     dma_pending: u8,
     hdma_active: u8,
     hdma_line: [u8; 8],
     hdma_transfer: [bool; 8],
     hdma_pending: bool,
     hdma_init: bool,
+    math: Option<(u8, u16, u16)>,
 }
 impl Machine {
     pub fn new(rom: &[u8]) -> Result<Self, String> {
@@ -136,16 +138,19 @@ impl SystemBus {
             serial: 0,
             strobe: false,
             auto_until: 0,
+            auto_buttons: 0,
             dma_pending: 0,
             hdma_active: 0,
             hdma_line: [0; 8],
             hdma_transfer: [false; 8],
             hdma_pending: false,
             hdma_init: false,
+            math: None,
         }
     }
-    fn tick(&mut self, mut n: u64) {
+    fn tick(&mut self, n: u64) {
         self.apu.tick(n);
+        let mut n = n;
         let htime = (u16::from_le_bytes([self.io[7], self.io[8] & 1]) as u64) * 4;
         let vtime = u16::from_le_bytes([self.io[9], self.io[10] & 1]);
         let mode = self.io[0] & 0x30;
@@ -193,13 +198,32 @@ impl SystemBus {
                     self.nmi_pending = true;
                 }
                 if self.io[0] & 1 != 0 {
-                    self.joy = self.buttons;
+                    self.auto_buttons = self.buttons;
                     self.auto_until = self.clocks + 4224;
                 }
             }
         }
+        if self.auto_until != 0 && self.clocks >= self.auto_until {
+            self.joy = self.auto_buttons;
+            self.auto_until = 0;
+        }
         self.ppu.h = self.h as u16;
         self.ppu.v = self.v;
+    }
+    fn cpu_cycle(&mut self) {
+        if let Some((remaining, quotient, product)) = self.math {
+            if remaining == 1 {
+                self.io[20..24].copy_from_slice(&[
+                    quotient as u8,
+                    (quotient >> 8) as u8,
+                    product as u8,
+                    (product >> 8) as u8,
+                ]);
+                self.math = None;
+            } else {
+                self.math = Some((remaining - 1, quotient, product));
+            }
+        }
     }
     fn speed(&self, a: u32) -> u64 {
         let bank = a >> 16;
@@ -346,8 +370,7 @@ impl SystemBus {
                         }
                         0x4203 => {
                             let r = self.io[2] as u16 * v as u16;
-                            self.io[22] = r as u8;
-                            self.io[23] = (r >> 8) as u8;
+                            self.math = Some((8, v as u16, r));
                         }
                         0x4206 => {
                             let n = u16::from_le_bytes([self.io[4], self.io[5]]);
@@ -356,10 +379,7 @@ impl SystemBus {
                             } else {
                                 (n / v as u16, n % v as u16)
                             };
-                            self.io[20] = q as u8;
-                            self.io[21] = (q >> 8) as u8;
-                            self.io[22] = r as u8;
-                            self.io[23] = (r >> 8) as u8;
+                            self.math = Some((16, q, r));
                         }
                         0x420b => self.dma_pending = v,
                         _ => {}
@@ -375,32 +395,33 @@ impl SystemBus {
         }
         self.cart.write(a, v);
     }
+    // A CPU/DMA access can straddle refresh. The 40-clock hold must advance
+    // every other device, without consuming another CPU cycle or DMA byte.
+    fn bus_tick(&mut self, mut clocks: u64) {
+        while clocks > 0 {
+            let boundary = if self.h < 538 { 538 } else { LINE };
+            let n = clocks.min(boundary - self.h);
+            self.tick(n);
+            clocks -= n;
+            if self.h == 538 {
+                self.tick(40);
+            }
+        }
+    }
     fn transfer(&mut self, channel: usize, a: u32, offset: u8) {
         let d = self.dma[channel];
         let b = 0x2100 | d[1].wrapping_add(offset) as u32;
-        if d[0] & 128 == 0 {
-            let v = self.read_raw(a);
-            self.write_raw(b, v);
-        } else {
-            let v = self.read_raw(b);
-            self.write_raw(a, v);
-        }
-        self.tick(8);
+        self.bus_tick(4);
+        let v = self.read_raw(if d[0] & 128 == 0 { a } else { b });
+        self.bus_tick(4);
+        self.write_raw(if d[0] & 128 == 0 { b } else { a }, v);
+        self.open = v;
     }
     fn events(&mut self) {
-        if self.hdma_init {
-            self.hdma_init = false;
-            self.hdma_active = self.io[12];
-            for i in 0..8 {
-                self.dma[i][8] = self.dma[i][2];
-                self.dma[i][9] = self.dma[i][3];
-                self.hdma_line[i] = 0;
-                self.hdma_transfer[i] = true;
-            }
-        }
+        self.hdma_events();
         if self.dma_pending != 0 {
             let pending = std::mem::take(&mut self.dma_pending);
-            self.tick(8);
+            self.bus_tick(8);
             for i in 0..8 {
                 if pending & (1 << i) == 0 {
                     continue;
@@ -410,8 +431,11 @@ impl SystemBus {
                 let count = u16::from_le_bytes([d[5], d[6]]);
                 let count = if count == 0 { 65536 } else { count as usize };
                 let mut addr = u16::from_le_bytes([d[2], d[3]]);
-                self.tick(8);
+                self.bus_tick(8);
                 for j in 0..count {
+                    // HDMA owns the bus between DMA bytes; do not collapse
+                    // multiple HBlanks into one event after a long transfer.
+                    self.hdma_events();
                     self.transfer(
                         i,
                         ((d[4] as u32) << 16) | addr as u32,
@@ -428,6 +452,19 @@ impl SystemBus {
                 self.hdma_active &= !(1 << i);
             }
             self.io[11] = 0;
+        }
+        self.hdma_events();
+    }
+    fn hdma_events(&mut self) {
+        if self.hdma_init {
+            self.hdma_init = false;
+            self.hdma_active = self.io[12];
+            for i in 0..8 {
+                self.dma[i][8] = self.dma[i][2];
+                self.dma[i][9] = self.dma[i][3];
+                self.hdma_line[i] = 0;
+                self.hdma_transfer[i] = true;
+            }
         }
         if self.hdma_pending {
             self.hdma_pending = false;
@@ -477,24 +514,30 @@ impl SystemBus {
         let next = addr.wrapping_add(1);
         self.dma[i][8] = next as u8;
         self.dma[i][9] = (next >> 8) as u8;
-        self.tick(8);
+        self.bus_tick(8);
         v
     }
 }
 impl Bus for SystemBus {
     fn read(&mut self, a: u32) -> u8 {
-        self.tick(self.speed(a));
+        self.events();
+        self.bus_tick(self.speed(a));
+        self.cpu_cycle();
         let v = self.read_raw(a);
         self.open = v;
         v
     }
     fn write(&mut self, a: u32, v: u8) {
-        self.tick(self.speed(a));
+        self.events();
+        self.bus_tick(self.speed(a));
+        self.cpu_cycle();
         self.open = v;
         self.write_raw(a, v);
     }
     fn idle(&mut self) {
-        self.tick(6);
+        self.events();
+        self.bus_tick(6);
+        self.cpu_cycle();
     }
 }
 
@@ -502,6 +545,172 @@ impl Bus for SystemBus {
 mod tests {
     use super::*;
     use crate::cpu::{M, X};
+
+    fn blank_bus() -> SystemBus {
+        SystemBus::new(Cartridge::load(include_bytes!("../../../tests/roms/smoke.bin")).unwrap())
+    }
+
+    #[test]
+    fn refresh_stalls_one_bus_access_but_keeps_audio_and_raster_running() {
+        let mut bus = blank_bus();
+        bus.tick(534);
+        bus.read(0x7e0000); // 8 clocks plus the 40-clock refresh hold.
+        assert_eq!(bus.clocks, 582);
+        assert_eq!(bus.h, 582);
+        let before = bus.clocks;
+        bus.read(0x7e0000);
+        assert_eq!(bus.clocks - before, 8);
+        // Enough complete scanlines to observe the independent 32 kHz clock.
+        for _ in 0..1000 {
+            bus.idle();
+        }
+        let stereo_frames = bus.apu.samples.len() as f64 / 2.0;
+        assert!((stereo_frames - bus.clocks as f64 * 32000.0 / 21477272.0).abs() <= 1.0);
+    }
+
+    #[test]
+    fn math_results_wait_cpu_cycles_in_fast_and_slow_regions() {
+        for address in [0x008000, 0x808000, 0x7e0000, 0x004016] {
+            let mut bus = blank_bus();
+            bus.write_raw(0x420d, 1);
+            bus.write(0x4202, 13);
+            bus.write(0x4203, 17);
+            for _ in 0..7 {
+                bus.read(address);
+            }
+            assert_eq!(bus.io[22], 0, "multiply completed early");
+            bus.read(address);
+            assert_eq!(&bus.io[20..24], &[17, 0, 221, 0]);
+            bus.write(0x4204, 0xe8);
+            bus.write(0x4205, 3);
+            bus.write(0x4206, 7);
+            for _ in 0..15 {
+                bus.read(address);
+            }
+            assert_eq!(&bus.io[20..24], &[17, 0, 221, 0], "divide completed early");
+            bus.read(address);
+            assert_eq!(&bus.io[20..24], &[142, 0, 6, 0]);
+            bus.write(0x4206, 0);
+            for _ in 0..16 {
+                bus.idle();
+            }
+            assert_eq!(&bus.io[20..24], &[255, 255, 0xe8, 3]);
+        }
+    }
+
+    #[test]
+    fn hdma_preempts_long_dma_instead_of_losing_scanlines() {
+        for start_line in [0, 261] {
+            let mut bus = blank_bus();
+            // Original HDMA brightness table: 3 rows, then end. DMA on another
+            // channel runs across all three HBlanks. White backdrop, no BGs.
+            bus.wram[..5].copy_from_slice(&[0x83, 15, 8, 1, 0]);
+            bus.ppu.cgram[..2].copy_from_slice(&[0xff, 0x7f]);
+            bus.dma[0] = [0; 16];
+            bus.dma[0][4] = 0x7e;
+            bus.io[12] = 1;
+            bus.hdma_init = true;
+            bus.events();
+            bus.dma[1] = [0; 16];
+            bus.dma[1][1] = 0x80;
+            bus.dma[1][4] = 0x40;
+            let bytes = if start_line == 0 { 600u16 } else { 800u16 };
+            bus.dma[1][5..7].copy_from_slice(&bytes.to_le_bytes());
+            bus.ppu.write(0, 15);
+            bus.waddr = 0x10000; // DMA destination must not overwrite the HDMA table.
+            bus.tick(1000);
+            bus.v = start_line;
+            bus.ppu.v = start_line;
+            if start_line == 261 {
+                bus.hdma_active = 0;
+            }
+            bus.dma_pending = 2;
+            bus.events();
+            assert!(bus.clocks > LINE * 4);
+            // Lines 1,2,3 use data transferred at preceding HBlanks 0,1,2.
+            for (y, shade) in [(0, 255), (1, 136), (2, 17)] {
+                assert_eq!(
+                    &bus.ppu.frame[y * 256 * 4..y * 256 * 4 + 4],
+                    &[shade, shade, shade, 255]
+                );
+            }
+            assert_eq!(bus.hdma_active, 0);
+            assert_eq!(bus.dma[1][5..7], [0, 0]);
+            assert_eq!(bus.frames, u64::from(start_line == 261));
+        }
+    }
+
+    #[test]
+    fn dma_holds_cpu_and_nmi_until_completion_without_stopping_audio() {
+        let mut rom = include_bytes!("../../../tests/roms/smoke.bin").to_vec();
+        rom[0x100] = 0xea; // NMI handler NOP; isolate the interrupt's stack use.
+        rom[0x7ffa..0x7ffc].copy_from_slice(&[0, 0x81]);
+        let mut m = Machine::new(&rom).unwrap();
+        m.cpu.pc = 0x8000;
+        m.cpu.waiting = true;
+        m.bus.io[0] = 0x80;
+        m.bus.tick(LINE * 225 - m.bus.clocks - 40);
+        m.bus.dma[0] = [0; 16];
+        m.bus.dma[0][1] = 0x80;
+        m.bus.dma[0][4] = 0x40;
+        m.bus.dma[0][5] = 64;
+        m.bus.dma_pending = 1;
+        let pc = m.cpu.pc;
+        let samples = m.bus.apu.samples.len();
+        m.bus.events();
+        assert_eq!(m.cpu.pc, pc);
+        assert!(m.cpu.waiting);
+        assert!(m.bus.nmi_pending);
+        assert!(m.bus.apu.samples.len() > samples);
+        assert_eq!(m.bus.io[11], 0);
+        m.step();
+        assert!(!m.cpu.waiting);
+        assert!(!m.bus.nmi_pending);
+        assert_eq!(m.cpu.s, 0x1fc); // Exactly one hardware interrupt frame.
+    }
+
+    #[test]
+    fn dma_samples_source_before_ppu_write_and_commits_at_the_access_boundary() {
+        for (line, expected) in [(224, 0x5a), (261, 0)] {
+            let mut bus = blank_bus();
+            bus.ppu.write(0, 15);
+            bus.ppu.write(0x15, 0x80);
+            bus.dma[0][0] = 0;
+            bus.dma[0][1] = 0x18;
+            bus.wram[0] = 0x5a;
+            bus.v = line;
+            bus.h = LINE - 6;
+            bus.ppu.v = line;
+            bus.ppu.h = (LINE - 6) as u16;
+            // Read occurs at +4 in the old line; write at +8 in the new
+            // line. Only the transition into VBlank can commit to VRAM.
+            bus.transfer(0, 0x7e0000, 0);
+            assert_eq!(bus.clocks, 8);
+            assert_eq!(bus.ppu.vram[0], expected);
+        }
+    }
+
+    #[test]
+    fn nmi_enable_edge_status_ack_and_autojoy_completion_are_ordered() {
+        let mut bus = blank_bus();
+        bus.buttons = 0x9180;
+        bus.write_raw(0x4200, 1);
+        bus.tick(LINE * 225);
+        assert!(bus.nmi_flag);
+        assert!(!bus.nmi_pending);
+        assert_ne!(bus.read_raw(0x4212) & 1, 0);
+        bus.write_raw(0x4200, 0x81);
+        assert!(std::mem::take(&mut bus.nmi_pending));
+        bus.write_raw(0x4200, 0x81);
+        assert!(!bus.nmi_pending, "a level is not a second NMI edge");
+        assert_ne!(bus.read_raw(0x4210) & 128, 0);
+        assert_eq!(bus.read_raw(0x4210) & 128, 0);
+        bus.tick(4223);
+        assert_ne!(bus.read_raw(0x4212) & 1, 0);
+        bus.tick(1);
+        assert_eq!(bus.read_raw(0x4212) & 1, 0);
+        assert_eq!([bus.read_raw(0x4218), bus.read_raw(0x4219)], [0x80, 0x91]);
+    }
 
     #[test]
     fn stack_reads_sample_nmi_status_at_the_vblank_boundary() {

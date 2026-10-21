@@ -22,6 +22,10 @@ pub struct Ppu {
     pub v: u16,
     hflip: bool,
     vflip: bool,
+    counters: [u16; 2],
+    counter_latched: bool,
+    open1: u8,
+    open2: u8,
 }
 impl Default for Ppu {
     fn default() -> Self {
@@ -29,7 +33,11 @@ impl Default for Ppu {
             vram: vec![0; 65536],
             cgram: [0; 512],
             oam: [0; 544],
-            regs: [0; 64],
+            regs: {
+                let mut r = [0; 64];
+                r[0] = 0x80;
+                r
+            },
             frame: vec![0; WIDTH * HEIGHT * 4],
             vaddr: 0,
             vbuffer: 0,
@@ -46,6 +54,10 @@ impl Default for Ppu {
             v: 0,
             hflip: false,
             vflip: false,
+            counters: [0; 2],
+            counter_latched: false,
+            open1: 0,
+            open2: 0,
         }
     }
 }
@@ -124,7 +136,11 @@ impl Ppu {
             0x18 | 0x19 => {
                 let high = r == 0x19;
                 let a = self.va() + usize::from(high);
-                self.vram[a & 65535] = v;
+                // VRAM is unavailable during active display, including HBlank.
+                // The address increment still occurs on a blocked write.
+                if self.regs[0] & 128 != 0 || self.v >= 225 {
+                    self.vram[a & 65535] = v;
+                }
                 self.vinc(high);
             }
             0x1b..=0x20 => {
@@ -151,15 +167,19 @@ impl Ppu {
             _ => {}
         }
     }
+    pub fn latch_counters(&mut self) {
+        self.counters = [self.h / 4, self.v];
+        self.counter_latched = true;
+    }
     pub fn read(&mut self, r: u8, open: u8) -> u8 {
-        match r & 63 {
+        let r = r & 63;
+        let value = match r {
             0x34..=0x36 => {
                 let product = self.m7[0] as i32 * (self.m7[1] >> 8) as i32;
                 (product >> ((r - 0x34) * 8)) as u8
             }
             0x37 => {
-                self.hflip = false;
-                self.vflip = false;
+                self.latch_counters();
                 open
             }
             0x38 => {
@@ -182,28 +202,53 @@ impl Ppu {
                 v
             }
             0x3b => {
-                let v = self.cgram[self.caddr];
+                let v = self.cgram[self.caddr]
+                    | if self.caddr & 1 != 0 {
+                        self.open2 & 128
+                    } else {
+                        0
+                    };
                 self.caddr = (self.caddr + 1) & 511;
                 v
             }
             0x3c => {
-                let v = ((self.h / 4) >> if self.hflip { 8 } else { 0 }) as u8;
+                let v = if self.hflip {
+                    (self.open2 & 0xfe) | (self.counters[0] >> 8) as u8
+                } else {
+                    self.counters[0] as u8
+                };
                 self.hflip = !self.hflip;
                 v
             }
             0x3d => {
-                let v = (self.v >> if self.vflip { 8 } else { 0 }) as u8;
+                let v = if self.vflip {
+                    (self.open2 & 0xfe) | (self.counters[1] >> 8) as u8
+                } else {
+                    self.counters[1] as u8
+                };
                 self.vflip = !self.vflip;
                 v
             }
-            0x3e => 1,
+            0x3e => (self.open1 & 0x10) | 1,
             0x3f => {
                 self.hflip = false;
                 self.vflip = false;
-                3
+                let status = (self.open2 & 0x20) | if self.counter_latched { 0x40 } else { 0 } | 3;
+                self.counter_latched = false;
+                status
+            }
+            0x04..=0x06 | 0x08..=0x0a | 0x14..=0x16 | 0x18..=0x1a | 0x24..=0x26 | 0x28..=0x2a => {
+                self.open1
             }
             _ => open,
+        };
+        if matches!(r, 0x34..=0x36 | 0x38..=0x3a | 0x3e) {
+            self.open1 = value;
         }
+        if matches!(r, 0x3b..=0x3d | 0x3f) {
+            self.open2 = value;
+        }
+        value
     }
     fn tile_pixel(&self, base: usize, tile: usize, x: usize, y: usize, bpp: usize) -> u8 {
         let address = base + tile * bpp * 8 + y * 2;
@@ -521,5 +566,86 @@ impl Ppu {
             }
             self.frame[i + 3] = 255;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counters_hold_the_latched_position_and_keep_independent_read_flipflops() {
+        let mut p = Ppu {
+            h: 1200,
+            v: 260,
+            ..Ppu::default()
+        };
+        assert_eq!(p.read(0x37, 0xa5), 0xa5);
+        p.h = 4;
+        p.v = 1;
+        assert_eq!(p.read(0x3c, 0), 44);
+        assert_eq!(p.read(0x3d, 0), 4);
+        assert_eq!(p.read(0x3c, 0) & 1, 1);
+        assert_eq!(p.read(0x3d, 0) & 1, 1);
+        assert_eq!(p.read(0x3f, 0) & 0x40, 0x40);
+        assert_eq!(p.read(0x3f, 0) & 0x40, 0);
+        assert_eq!(p.read(0x3c, 0), 44);
+    }
+
+    #[test]
+    fn vram_prefetch_dummy_read_increment_remapping_and_display_write_gate() {
+        let mut p = Ppu::default();
+        p.vram[..6].copy_from_slice(&[0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc]);
+        p.write(0x15, 0x80);
+        p.write(0x16, 0);
+        p.write(0x17, 0);
+        // The address write prefetches, then the first high read reloads that
+        // same word and increments: the first pair is the documented dummy.
+        for expected in [0x12, 0x12, 0x56] {
+            assert_eq!(p.read(0x39, 0), expected);
+            p.read(0x3a, 0);
+        }
+        p.write(0, 0x0f);
+        p.v = 100;
+        p.h = 1200; // HBlank is insufficient.
+        p.write(0x16, 0);
+        p.write(0x17, 0);
+        p.write(0x18, 0xaa);
+        p.write(0x19, 0xbb);
+        assert_eq!(&p.vram[..2], &[0x12, 0x34]);
+        assert_eq!(p.vaddr, 1);
+        p.v = 225;
+        p.write(0x18, 0xcc);
+        p.write(0x19, 0xdd);
+        assert_eq!(&p.vram[2..4], &[0xcc, 0xdd]);
+        p.write(0x15, 0x84);
+        p.write(0x16, 0x21);
+        p.write(0x17, 0);
+        p.write(0x18, 0xee);
+        p.write(0x19, 0xff);
+        // Remapping mode 1: word $21 -> word $09 -> byte $12.
+        assert_eq!(&p.vram[0x12..0x14], &[0xee, 0xff]);
+    }
+
+    #[test]
+    fn oam_pairs_high_table_mirror_and_cgram_open_bit_are_separate_latches() {
+        let mut p = Ppu::default();
+        p.write(2, 0);
+        p.write(3, 0);
+        p.write(4, 0x81);
+        assert_eq!(p.oam[0], 0);
+        p.write(4, 0x23);
+        assert_eq!(&p.oam[..2], &[0x81, 0x23]);
+        p.write(2, 0x10);
+        p.write(3, 1);
+        p.write(4, 0x55);
+        assert_eq!(p.oam[512], 0x55);
+        p.write(0x21, 0);
+        p.write(0x22, 0x80);
+        p.write(0x22, 0xff);
+        p.write(0x21, 0);
+        assert_eq!(p.read(0x3b, 0), 0x80);
+        assert_eq!(p.read(0x3b, 0), 0xff); // bit 7 is PPU2's bus, not CGRAM.
+        assert_eq!(p.cgram[1], 0x7f);
     }
 }

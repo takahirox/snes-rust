@@ -11,9 +11,27 @@ async function load(page, name) {
   await page.addInitScript(() => {
     const original = WebAssembly.instantiate;
     WebAssembly.instantiate = async (...args) => { const result = await original(...args); window.testCore = result.instance.exports; return result; };
+    const active = new Set();
+    const metrics = window.audioSchedule = { starts: 0, maxActive: 0, minLead: 1, maxLead: 0,
+      invalid: 0, records: [] };
+    const stop = AudioBufferSourceNode.prototype.stop;
+    AudioBufferSourceNode.prototype.stop = function (...args) { active.delete(this); return stop.apply(this, args); };
     const start = AudioBufferSourceNode.prototype.start;
     AudioBufferSourceNode.prototype.start = function (...args) {
       const samples = this.buffer?.getChannelData(0);
+      const now = this.context.currentTime, when = args[0] ?? now;
+      metrics.starts++;
+      metrics.minLead = Math.min(metrics.minLead, when - now);
+      metrics.maxLead = Math.max(metrics.maxLead, when + this.buffer.duration - now);
+      active.add(this); metrics.maxActive = Math.max(metrics.maxActive, active.size);
+      this.addEventListener('ended', () => active.delete(this));
+      window.activeAudioSources = () => active.size;
+      window.audioClock = () => this.context.currentTime;
+      for (let channel = 0; channel < 2; channel++) {
+        for (const v of this.buffer.getChannelData(channel)) if (!Number.isFinite(v) || Math.abs(v) > 1) metrics.invalid++;
+      }
+      // Bounded test evidence; these are real Web Audio buffers, not a mock.
+      if (metrics.records.length < 1500) metrics.records.push({ now, when, duration: this.buffer.duration });
       const right = this.buffer?.getChannelData(1);
       // Original score is centered; effects use the left voice. These observe
       // actual buffers submitted to Web Audio, without replacing the samples.
@@ -74,6 +92,7 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
     let movements = 0, selections = 0, active = 0, hashes = new Set();
     let nonzero = 0, energy = 0, sampleCount = 0, musicEnergy = 0, effectEnergy = 0;
     const windows = [], transitions = {};
+    let totalSamples = 0, audioBaseline = 0, maxAudioDrift = 0;
     for (let frame = 0; frame < 18100; frame++) {
       const state = word(stateAddress), cursor = word(cursorAddress);
       titleFrames = state === 2 ? titleFrames + 1 : 0;
@@ -106,7 +125,14 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
         musicEnergy += audio[i + 1] ** 2;
         effectEnergy += (audio[i] - audio[i + 1]) ** 2;
       }
-      sampleCount += audio.length;
+      sampleCount += audio.length; totalSamples += audio.length;
+      const expectedSamples = (frame + 1) * 1364 * 262 / 21477272 * 64000;
+      if (frame === 899) audioBaseline = totalSamples - expectedSamples;
+      if (frame >= 900) {
+        maxAudioDrift = Math.max(maxAudioDrift, Math.abs(totalSamples - expectedSamples - audioBaseline));
+        require(audio.length >= 960 && audio.length <= 1170, 'unbounded audio buffer', frame);
+        require(maxAudioDrift <= 128, `cumulative audio drift ${maxAudioDrift} samples exceeds 2 ms`, frame);
+      }
       const nextState = word(stateAddress), nextCursor = word(cursorAddress);
       if (titleFrames >= 15 && nextState === 2) {
         require(audio.every((v) => v === 0), 'music/effect persisted on the title', frame);
@@ -135,7 +161,7 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
       }
       if (frame % 120 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    return { frames: 18100, emulatedSeconds: 18100 * 1364 * 262 / 21477272, wins, windows, transitions };
+    return { frames: 18100, emulatedSeconds: 18100 * 1364 * 262 / 21477272, wins, windows, transitions, audioCadence: { maxAudioDrift, totalSamples } };
   });
   expect(result.wins).toBeGreaterThan(1);
   expect(result.windows).toHaveLength(20);
@@ -290,4 +316,79 @@ test('cleared Memory Game plays music and finite effects through gesture-activat
   await expect(page.locator('#error')).toBeEmpty();
   await evidence(testInfo, { musicBuffers: await music(), effectBuffers: afterEffect,
     idleMusicSampleSeconds: 4.5, effectEndedWhileMusicContinued: true, pauseAndResetSilent: true });
+});
+
+
+test('cleared Memory Game bounds real Web Audio queues and drift across stalls and repeat playback', async ({ page }, testInfo) => {
+  test.setTimeout(45000);
+  await load(page, 'memory');
+  expect(await page.evaluate(() => audioSchedule.starts)).toBe(0);
+  await page.locator('#play').click();
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x7e2c1e))).toBe(2);
+  await page.keyboard.press('Enter', { delay: 80 });
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x7e2c1e))).toBe(6);
+  await page.keyboard.press('KeyZ', { delay: 80 });
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x7e2c1e))).toBe(10);
+  const intervals = [];
+  for (let pass = 0; pass < 2; pass++) {
+    const start = await page.evaluate(() => ({ index: audioSchedule.records.length, clock: audioClock() }));
+    await page.waitForTimeout(4000);
+    const end = await page.evaluate(() => ({ index: audioSchedule.records.length, clock: audioClock(), records: audioSchedule.records }));
+    const records = end.records.slice(start.index, end.index);
+    const generatedSeconds = records.reduce((sum, r) => sum + r.duration, 0);
+    const elapsedSeconds = end.clock - start.clock;
+    // A running sample count alone would miss a growing playback queue. Compare
+    // actual buffer durations AND schedule endpoints to the real device clock.
+    expect(Math.abs(generatedSeconds - elapsedSeconds)).toBeLessThan(.12);
+    expect(records.at(-1).when - records[0].when).toBeGreaterThan(3.7);
+    for (let i = 1; i < records.length; i++) {
+      expect(Math.abs(records[i].when - records[i - 1].when - records[i - 1].duration)).toBeLessThan(.09);
+    }
+    intervals.push({ generatedSeconds, elapsedSeconds, buffers: records.length });
+    // A real main-thread stall must rebase stale audio/video time, not leave
+    // an ever-growing queue or catch-up debt. The following interval measures
+    // recovery on the same AudioContext and the same running game.
+    if (pass === 0) await page.evaluate(() => { const end = performance.now() + 400; while (performance.now() < end) {} });
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    await page.locator('#play').click();
+    expect(await page.evaluate(() => activeAudioSources())).toBe(0);
+    const before = await page.evaluate(() => audioSchedule.starts);
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => audioSchedule.starts)).toBe(before);
+    await page.locator('#play').click();
+    await expect.poll(() => page.evaluate(() => audioSchedule.starts)).toBeGreaterThan(before + 10);
+  }
+  await page.locator('#reset').click();
+  expect(await page.evaluate(() => activeAudioSources())).toBe(0);
+  await page.locator('#play').click();
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x7e2c1e))).toBe(2);
+  const sound = await page.evaluate(() => window.gameAudioBuffers ?? 0);
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => window.gameAudioBuffers ?? 0)).toBe(sound);
+  await page.locator('#play').click();
+  const metrics = await page.evaluate(() => ({ ...audioSchedule, records: undefined }));
+  expect(metrics.minLead).toBeGreaterThanOrEqual(0);
+  expect(metrics.maxLead).toBeLessThanOrEqual(.151);
+  expect(metrics.maxActive).toBeLessThanOrEqual(12);
+  expect(metrics.invalid).toBe(0);
+  await expect(page.locator('#error')).toBeEmpty();
+  await evidence(testInfo, { intervals, ...metrics, gestureActivation: true, stallMilliseconds: 400,
+    repeatPlayback: 2, resetTitleSilent: true, stoppedSources: true });
+});
+
+
+test('cleared Castle gameplay replay rejects a freeze after a valid window', async ({ page }) => {
+  test.setTimeout(60000);
+  await load(page, 'castle');
+  await page.evaluate(() => {
+    const real = window.testCore; let frames = 0, frozen;
+    window.testCore = { ...real,
+      run_frame(buttons) { const ok = real.run_frame(buttons); if (++frames === 901) frozen = [real.peek(0x205), real.peek(0x206)]; return ok; },
+      peek(a) { return frozen && (a === 0x205 || a === 0x206) ? frozen[a - 0x205] : real.peek(a); },
+    };
+  });
+  await expect(replay(page, { name: 'Castle Platformer (modified)', playing: 0, sound: false,
+    state: 0x1421, x: 0x205, y: 0x208, vy: 0x220, ground: 0x222, groundBytes: 2 }, 1800))
+    .rejects.toThrow(/window 900-1799: controller-driven movement stopped/);
 });
