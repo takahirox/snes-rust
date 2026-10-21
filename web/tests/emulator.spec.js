@@ -124,3 +124,44 @@ test('invalid cartridges report errors without crashing the browser', async ({ p
   await expect(page.locator('#error')).toContainText('Expected a 32 KiB');
   await expect(page.locator('#play')).toBeDisabled();
 });
+for (const failure of ['read', 'base64', 'size']) {
+  test(`failed SRAM restoration (${failure}) preserves persisted bytes until retry`, async ({ page }) => {
+    await load(page); await expect(page.locator('#status')).toContainText('loaded');
+    await page.evaluate(() => { new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79; });
+    await page.locator('#reset').click();
+    await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
+    await page.evaluate((failure) => {
+      window.saveKey = Object.keys(localStorage).find((k) => k.startsWith('snes-rust:sram:'));
+      window.validSave = localStorage.getItem(window.saveKey);
+      if (failure === 'base64') localStorage.setItem(window.saveKey, '%invalid%');
+      if (failure === 'size') localStorage.setItem(window.saveKey, btoa('short'));
+      window.persistedSave = localStorage.getItem(window.saveKey);
+      window.originalGetItem = Storage.prototype.getItem;
+      if (failure === 'read') Storage.prototype.getItem = () => { throw new DOMException('Storage unavailable', 'SecurityError'); };
+    }, failure);
+    await load(page); await expect(page.locator('#error')).toContainText('Save could not be restored');
+    await expect(page.locator('#play')).toBeDisabled(); await expect(page.locator('#reset')).toBeDisabled();
+    // Restoring access alone must not enable periodic/page-exit/reset writes.
+    await page.evaluate(() => {
+      Storage.prototype.getItem = window.originalGetItem;
+      document.getElementById('reset').dispatchEvent(new Event('click'));
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    const other = Buffer.from(fixture); other[0x7fc0] ^= 1;
+    await load(page, other, 'other.sfc');
+    await expect(page.locator('#error')).toContainText('Save could not be restored');
+    expect(await page.evaluate(() => localStorage.getItem(window.saveKey))).toBe(await page.evaluate(() => window.persistedSave));
+    if (failure !== 'read') {
+      await page.locator('#retry-save').click();
+      await expect(page.locator('#play')).toBeDisabled();
+      await page.evaluate(() => localStorage.setItem(window.saveKey, window.validSave));
+    }
+    await page.locator('#retry-save').click();
+    await expect(page.locator('#error')).toBeEmpty(); await expect(page.locator('#play')).toBeEnabled();
+    expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+    await page.locator('#reset').click();
+    await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
+    await load(page); await expect(page.locator('#status')).toContainText('loaded');
+    expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+  });
+}

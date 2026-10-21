@@ -8,9 +8,10 @@ Nintendo firmware, commercial ROM, or third-party game ROM is included.
 Audited, source-built modified versions of Castle Platformer and Memory Game run
 through the same core in five-minute browser regressions. Their exact sources,
 assets, notices, alterations and ROM hashes are recorded in the
-[cleared-game audit](tests/roms/CLEARED-GAMES.md). Both games are silent; a cleared
-game with working music/sound and further gameplay/hardware verification remain
-release requirements. Gothicvania and the original Castle release remain
+[cleared-game audit](tests/roms/CLEARED-GAMES.md). The modified Memory Game adds
+original card/match/win/loss sound effects through an uploaded SPC program;
+Castle remains silent. Further gameplay/hardware and audio fidelity verification
+remain release requirements. Gothicvania and the original Castle release remain
 user-supplied investigations with unresolved binary/build licensing. This is not
 a completed release or a claim of broad commercial compatibility. See the
 [delivery checklist and evidence](docs/issue-3-progress.md).
@@ -46,8 +47,12 @@ SRAM. Saves are persisted every five seconds, on pause/reset/ROM changes and on
 page exit; browser storage failure is reported. A failed save blocks opening
 another cartridge, preserving the current machine's recoverable SRAM. Play and
 Reset retain the warning until a later save succeeds. Keep the tab open while
-storage is unavailable. Clearing browser storage erases persisted saves. There
-are no save states or save-file import/export controls yet.
+storage is unavailable. A failed save restoration blocks saving, Play, Reset and
+cartridge replacement so existing persisted bytes cannot be overwritten by empty
+SRAM. Use **Retry restoring save** after restoring storage access (or repairing
+corrupt stored data); recovery must succeed before playing. Clearing browser
+storage erases persisted saves. There are no save states or save-file import/export
+controls yet.
 
 If Homebrew Cargo picks a different `rustc` from rustup on macOS, select the
 compiler that owns the installed wasm standard library:
@@ -84,7 +89,10 @@ are downloaded only from the allowlist, then converted and assembled locally;
 their ROMs are never downloaded. Repeating the build verifies the expected hashes
 from fresh build directories. Chromium runs 18,100 frames (301.17 emulated seconds)
 per game, asserting gameplay throughout the run. Memory also wins and restarts
-using controller input. CI performs these builds and runs. Generated images and
+using controller input, requiring non-silent game sound effects in every window.
+A separate real-time keyboard test verifies its card sounds reach Web Audio
+after clicking Play, end while idle, and stay silent on the title after reset.
+CI performs these builds and runs. Generated images and
 their accompanying notices stay under `.cache/cleared-games`; select them with
 the ordinary ROM picker to play locally. See the audit for coverage and limits.
 

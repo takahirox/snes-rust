@@ -223,6 +223,11 @@ def memory_assets(dest):
     convert(pixels, 0, dest / 'resources/tiles4bpp/sprites', False)
     config = dest / 'config.h'
     config.write_text(config.read_text().replace('.define REGION PAL', '.define REGION NTSC'))
+    extension = ROOT / 'tools/memory-audio.py'
+    expected = json.loads(MANIFEST.read_text())['memory']['audioExtensionSha256']
+    if hashlib.sha256(extension.read_bytes()).hexdigest() != expected:
+        raise ValueError('Memory audio extension source hash mismatch')
+    runpy.run_path(str(extension))['install'](dest)
 
 
 def main():
@@ -266,9 +271,11 @@ def main():
                   'Game and runtime: The UnDisbeliever, 2015.\n'
                   + ('Castle art: Jetrel, qubodup, Jason-Em / GrafxKid, CC0 1.0.\n'
                      'https://creativecommons.org/publicdomain/zero/1.0/\n' if name == 'castle' else '')
-                  + 'Original replacement lettering/converters: snes-rust contributors, 2026.\n'
+                  + 'Original lettering/converters and Memory sound extension:\n'
+                  'snes-rust contributors, 2026, MIT.\n'
                   'Alterations: regenerated graphics/checksum and replacement lettering;\n'
-                  'Castle reset/MVN assembler notation; Memory NTSC region declaration.\n\n'
+                  'Castle reset/MVN assembler notation; Memory NTSC region declaration\n'
+                  'and original card-reveal, match, win and wrong-pair sound effects.\n\n'
                   + (dest / 'LICENSE').read_text() + '\n' + (ROOT / 'LICENSE').read_text())
         (dest / 'NOTICE.txt').write_text(notice)
         sha = hashlib.sha256(data).hexdigest()

@@ -10,13 +10,14 @@ Nothing fetches a prebuilt ROM. Game binaries and build products remain ignored.
 | Artifact | Bytes | SHA-256 |
 | --- | --- | --- |
 | `.cache/cleared-games/castle/castle.sfc` | 131072 | `197a176355e42f7984ab090baf7b2ac895c59409a9ffeec6c6017d7c5c28c869` |
-| `.cache/cleared-games/memory/memory.sfc` | 131072 | `989ea4c48e4a9e82a39e5283352252ca42f5257814c37f745251d934a8291380` |
+| `.cache/cleared-games/memory/memory.sfc` | 131072 | `08bc46ab6ac44adee7b593cdbc6d30a2dadaefd37b5040296b952b8893d630c7` |
 
 Decision: allow automatic acquisition of **only the listed sources**, building
 and redistribution of these modified images with their generated `NOTICE.txt`.
 This decision does not clear either original release image. All game/library
-code is assembly; no C runtime, emulator, Nintendo firmware, audio driver,
-soundbank, recorded sample or external font is linked into either image.
+code is assembly; no C runtime, emulator, Nintendo firmware, third-party audio
+driver, soundbank, recorded sample or external font is linked into either image.
+Memory includes the original sound extension described below.
 
 ## Castle Platformer
 
@@ -84,6 +85,39 @@ soundbank, recorded sample or external font is linked into either image.
   stays user-supplied and excluded from CI. Its prior optional audio checks
   remain investigation evidence, not cleared-game audio acceptance.
 
+## Original sound extension in the modified Memory Game
+
+Upstream Memory Game is silent. This build adds original sound effects for card
+reveals, matching pairs, winning and choosing a wrong pair. These are audible
+feedback for real game events, not an emulator-side tone or the diagnostic ROM.
+The game uploads an original SPC700 program through the IPL protocol, then sends
+pitch/sequence commands through the APU ports when its game routines execute.
+The SPC program programs a BRR voice and uses timer 0 to key it off after roughly
+125 ms. The title and idle gameplay are silent. No background music is added;
+this does not demonstrate compatibility with an upstream third-party music driver.
+The Rust core, Wasm adapter and audio playback path have no game-specific changes.
+
+All driver instructions, waveform data, upload code and event integration are
+original MIT work, Copyright (c) 2026 snes-rust contributors. The applicable full
+notice is [the repository LICENSE](../../LICENSE), also copied to each generated
+`NOTICE.txt`. No sound recording, external instrument, firmware, external sound
+compiler or additional submodule is used. The 16-sample triangular waveform is
+specified directly as signed nibbles with BRR filter 0, range 9 and loop flags.
+The existing pinned ca65/ld65 tools assemble the main CPU extension; Python emits
+the annotated SPC instruction bytes without another assembler.
+
+| Exact original build input / derived artifact | SHA-256 |
+| --- | --- |
+| `tools/memory-audio.py` (tracked original source; hash enforced by builder) | `302ba82e4a5da5ef0dcf1613bd4c0cbedb4b7994d2b59e44aaa33b6302ac00d4` |
+| `.cache/cleared-games/memory/memory-spc.bin` (281 bytes, program/directory/BRR) | `54dbf2fe274b14bc8ff7e0c63a4468d2030cf53656ffe39f922ccfe433ff33a1` |
+| `.cache/cleared-games/memory/src/audio.s` (generated 65C816 upload/command code) | `975b5e6213dd6a43b3a2838a2f3a6107b9503a80d776eddaf94cd831b30827eb` |
+
+The tracked generator also inserts calls in the pinned `src/main.s` and
+`src/gameloop.s`. It preserves the existing game decisions and adds audio at
+`EnterState_SelectSecond`, `EnterState_WaitForDoors` and the match/loss/win
+branches of `CheckMatch`. Redistribution of this exact modified build with both
+MIT notices remains allowed; it does not clear any original upstream release.
+
 ## Build and validation
 
 ```sh
@@ -116,12 +150,16 @@ asserts movement, grounded jumps, active gameplay, changing video, bounded audio
 cadence and death/restart transitions in every complete 900-frame window.
 Memory's equally long run uses reads of the shuffled card grid to choose
 matches, then performs all actions through joypad input, without changing RAM.
-Every window asserts cursor movement, card selection, active play and changing
-video; the run must win and restart more than once. Input selection is automated
-play, not a claim that an unaided human completed the game.
+Every window asserts cursor movement, card selection, active play, changing
+video and more than 10,000 nonzero finite audio samples with RMS above 0.001; the
+run must win and restart more than once. A separate interactive test uses the
+normal ROM picker, Play gesture and keyboard input to verify non-silent game
+buffers are scheduled through Web Audio. It checks title silence, a card sound,
+the effect ending while idle, pause and reset returning to a silent title. Input
+selection is automated play, not a claim that an unaided human completed the game.
 
-Both games are silent. **Issue #3 remains incomplete:** a cleared game with
-working music/sound, Castle finish/credits progression, and the remaining
-timing/PPU/audio checks are still required. License-cleared gameplay here does
-not certify the previous release ROMs, full hardware accuracy or commercial
+Castle remains silent; Memory now produces original game sound effects.
+**Issue #3 remains incomplete:** Castle finish/credits progression and the
+remaining timing/PPU/audio fidelity checks are still required. License-cleared
+gameplay here does not certify the previous release ROMs, full hardware accuracy or commercial
 cartridge compatibility. No commercial ROM is shipped or fetched.

@@ -5,7 +5,7 @@ const image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
 let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
 let keyboard = 0;
-let operationError = '', persistenceError = '';
+let operationError = '', persistenceError = '', restorePending = false;
 const sources = new Set();
 const keys = { ArrowUp: 0x800, ArrowDown: 0x400, ArrowLeft: 0x200, ArrowRight: 0x100, KeyZ: 0x8000, KeyX: 0x80, KeyA: 0x4000, KeyS: 0x40, KeyQ: 0x20, KeyW: 0x10, Enter: 0x1000, ShiftLeft: 0x2000, ShiftRight: 0x2000 };
 const held = new Set();
@@ -18,12 +18,28 @@ function report(error) { operationError = error.message || String(error); showEr
 function clearError() { operationError = ''; showErrors(); }
 function save() {
   if (!loaded || !key || !core.battery() || !core.sram_len()) return true;
+  if (restorePending) return false;
   try {
     const data = bytes(core.sram_buffer(), core.sram_len()); let encoded = ''; for (const v of data) encoded += String.fromCharCode(v); localStorage.setItem(key, btoa(encoded));
     persistenceError = ''; showErrors(); return true;
   }
   catch (e) { persistenceError = `Could not persist SRAM: ${e.message}. Keep this tab open to retain the current save. Cartridge changes are blocked until saving succeeds.`; showErrors(); return false; }
 }
+function restoreSave() {
+  // Block writes until restoration completes, including corrupt/wrong-size saves.
+  restorePending = true;
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved !== null) { copyInput(Uint8Array.from(atob(saved), (c) => c.charCodeAt(0))); check(core.load_sram()); }
+    restorePending = false; persistenceError = '';
+  } catch (e) {
+    persistenceError = `Save could not be restored: ${e.message}. Saving and cartridge changes are blocked. Retry restoring the save when storage is available.`;
+  }
+  $('retry-save').hidden = !restorePending;
+  $('play').disabled = restorePending; $('reset').disabled = restorePending;
+  showErrors();
+}
+$('retry-save').addEventListener('click', () => { restoreSave(); if (!restorePending) { draw(); $('status').textContent = 'Save restored — click Play'; } });
 function flushAudio() { for (const source of sources) source.stop(); sources.clear(); nextAudio = 0; }
 function pause() { playing = false; keyboard = 0; held.clear(); $('play').textContent = 'Play'; flushAudio(); const saved = save(); if (loaded) $('status').textContent = 'Paused'; return saved; }
 async function activateAudio() {
@@ -80,15 +96,18 @@ $('rom').addEventListener('change', async (event) => {
     // in case playback or storage availability changed while loading the file.
     if (!pause()) return;
     copyInput(data); check(core.load_rom()); key = newKey; loaded = true;
-    try { const saved = localStorage.getItem(key); if (saved && core.battery()) { copyInput(Uint8Array.from(atob(saved), (c) => c.charCodeAt(0))); check(core.load_sram()); } }
-    catch (e) { report(new Error(`Save could not be restored: ${e.message}`)); }
-    $('play').disabled = false; $('reset').disabled = false; $('status').textContent = `${file.name} loaded — click Play`; draw();
+    $('play').disabled = false; $('reset').disabled = false;
+    if (core.battery() && core.sram_len()) restoreSave();
+    $('status').textContent = restorePending ? `${file.name} loaded — restore save before playing` : `${file.name} loaded — click Play`; draw();
   } catch (e) { report(e); }
   finally { $('rom').disabled = false; event.target.value = ''; }
 });
 $('play').addEventListener('click', async () => {
+  if (!loaded || restorePending) return;
   if (playing) { pause(); return; }
-  clearError(); await activateAudio(); debt = 1000 / 60.0988; lastTime = performance.now(); playing = true; $('play').textContent = 'Pause'; $('status').textContent = 'Playing';
+  clearError(); await activateAudio();
+  if (restorePending) return;
+  debt = 1000 / 60.0988; lastTime = performance.now(); playing = true; $('play').textContent = 'Pause'; $('status').textContent = 'Playing';
 });
 $('reset').addEventListener('click', () => { pause(); try { check(core.reset()); draw(); clearError(); $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
 $('sound').addEventListener('change', () => { flushAudio(); if ($('sound').checked) void activateAudio(); });

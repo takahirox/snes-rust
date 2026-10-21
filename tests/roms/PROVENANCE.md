@@ -7,11 +7,13 @@ is not a redistribution decision. The only committed binary is our original
 `smoke.bin` diagnostic. The original-release investigations below remain
 incomplete. **Two different source-built modified game images are now cleared:**
 Castle Platformer with replacement credits and Memory Game with replacement
-lettering. Their complete allowlist, build decisions, notices and output hashes
+lettering and original game-event sound effects. Their complete allowlist,
+build decisions, notices and output hashes
 are in [CLEARED-GAMES.md](CLEARED-GAMES.md) and
 [cleared-games.json](cleared-games.json). That approval does not apply to the
-original release binaries below. Both cleared builds are silent; Issue #3's
-licensed game-audio requirement remains open.
+original release binaries below. Castle remains silent. Modified Memory Game
+executes an original MIT SPC program and BRR waveform through the generic core;
+this does not demonstrate an upstream music driver or complete Issue #3.
 
 ## Original diagnostic: approved
 

@@ -10,6 +10,12 @@ async function load(page, name) {
   await page.addInitScript(() => {
     const original = WebAssembly.instantiate;
     WebAssembly.instantiate = async (...args) => { const result = await original(...args); window.testCore = result.instance.exports; return result; };
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      const samples = this.buffer?.getChannelData(0);
+      if (samples?.some((v) => v !== 0)) window.gameAudioBuffers = (window.gameAudioBuffers ?? 0) + 1;
+      return start.apply(this, args);
+    };
   });
   await page.goto('/'); await expect(page.locator('#status')).toContainText('Open a local');
   await page.locator('#rom').setInputFiles({ name: `${name}.sfc`, mimeType: 'application/octet-stream', buffer });
@@ -47,6 +53,7 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
     const stateAddress = 0x7e2c1e, cursorAddress = 0x7e2c20, guessesAddress = 0x7e2c28;
     let previousState = 2, previousCursor = 0, titleFrames = 0, wins = 0;
     let movements = 0, selections = 0, active = 0, hashes = new Set();
+    let nonzero = 0, energy = 0, sampleCount = 0;
     const windows = [], transitions = {};
     for (let frame = 0; frame < 18100; frame++) {
       const state = word(stateAddress), cursor = word(cursorAddress);
@@ -70,6 +77,13 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
         }
       }
       require(core.run_frame(buttons), 'core execution failed', frame);
+      const audio = new Float32Array(core.memory.buffer, core.audio_buffer(), core.audio_len());
+      for (const v of audio) {
+        require(Number.isFinite(v) && Math.abs(v) <= 1, 'invalid audio sample', frame);
+        if (v !== 0) nonzero++;
+        energy += v * v;
+      }
+      sampleCount += audio.length;
       const nextState = word(stateAddress), nextCursor = word(cursorAddress);
       if (nextState !== previousState) {
         const key = `${previousState}:${nextState}`;
@@ -84,8 +98,11 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
       if (frame % 900 === 899) {
         require(movements >= 20 && selections >= 2 && active >= 100 && hashes.size >= 10,
           `gameplay stalled: movement=${movements}, selections=${selections}, active=${active}, hashes=${hashes.size}`, frame);
-        windows.push({ end: frame, movements, selections, active, hashes: hashes.size });
+        const audioRms = Math.sqrt(energy / sampleCount);
+        require(nonzero > 10000 && audioRms > .001, 'game sound effects went silent', frame);
+        windows.push({ end: frame, movements, selections, active, hashes: hashes.size, nonzero, audioRms });
         movements = 0; selections = 0; active = 0; hashes = new Set();
+        nonzero = 0; energy = 0; sampleCount = 0;
       }
       if (frame % 120 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
     }
@@ -94,4 +111,39 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
   expect(result.wins).toBeGreaterThan(1);
   expect(result.windows).toHaveLength(20);
   await evidence(testInfo, result);
+});
+
+test('cleared Memory Game plays finite card sound effects through gesture-activated Web Audio', async ({ page }) => {
+  await load(page, 'memory');
+  const state = () => page.evaluate(() => testCore.peek(0x7e2c1e));
+  const audible = () => page.evaluate(() => window.gameAudioBuffers ?? 0);
+  await page.locator('#play').click();
+  await expect.poll(state).toBe(2);
+  await page.waitForTimeout(300);
+  expect(await audible()).toBe(0); // No boot/title tone posing as gameplay sound.
+  await page.keyboard.press('Enter', { delay: 80 });
+  await expect.poll(state).toBe(6);
+  await page.keyboard.press('KeyZ', { delay: 80 });
+  await expect.poll(state).toBe(10);
+  expect(await audible()).toBe(0);
+  await page.keyboard.press('KeyZ', { delay: 80 });
+  await expect.poll(state).toBe(12);
+  await expect.poll(audible).toBeGreaterThan(0);
+  // The effect must end while the player remains idle on the same card.
+  await page.waitForTimeout(400);
+  const afterEffect = await audible();
+  await page.waitForTimeout(250);
+  expect(await audible()).toBe(afterEffect);
+  await page.locator('#play').click();
+  await expect(page.locator('#status')).toHaveText('Paused');
+  const pathCount = await audible();
+  await page.waitForTimeout(100);
+  expect(await audible()).toBe(pathCount);
+  await page.locator('#reset').click();
+  await page.locator('#play').click();
+  await expect.poll(state).toBe(2);
+  await page.waitForTimeout(300);
+  expect(await audible()).toBe(pathCount);
+  await page.locator('#play').click();
+  await expect(page.locator('#error')).toBeEmpty();
 });

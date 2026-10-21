@@ -213,6 +213,7 @@
       "metasprite",
       "resourceloader"
     ],
-    "romSha256": "989ea4c48e4a9e82a39e5283352252ca42f5257814c37f745251d934a8291380"
+    "romSha256": "08bc46ab6ac44adee7b593cdbc6d30a2dadaefd37b5040296b952b8893d630c7",
+    "audioExtensionSha256": "302ba82e4a5da5ef0dcf1613bd4c0cbedb4b7994d2b59e44aaa33b6302ac00d4"
   }
 }

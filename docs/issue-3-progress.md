@@ -23,16 +23,22 @@ throughout the sample. Castle verifies movement, grounded jumps, active play,
 changing video and death/restart. Memory performs complete wins and restarts
 using controller input, with cursor/selection/video assertions in every window.
 The build runs twice with exact output-hash verification, and CI now builds and
-tests both artifacts. Both games are silent: a cleared music/sound-producing game
-is still required before Issue #3 can close. Castle finish/credits progression
-and hardware-fidelity gaps also remain open.
+tests both artifacts. The modified Memory Game now includes original MIT sound
+effects executed by its uploaded SPC program, with sustained non-silent sample
+and interactive Web Audio assertions. Upstream Memory and Castle are silent;
+no upstream music-driver compatibility is claimed. Castle finish/credits
+progression and hardware-fidelity gaps also remain open.
 
 Failed browser SRAM writes now block ROM replacement and preserve the machine's
-recoverable save; Play and Reset retain the warning until saving succeeds. Two
+recoverable save; Play and Reset retain the warning until saving succeeds.
+Failed restorations now block all writes and playing until an explicit retry
+succeeds; read, Base64 and size failures have Chromium recovery regressions. Two
 Chromium regression tests cover quota/security failures, reset, cartridge
-switch/reopen attempts and recovery after storage is restored. The five smoke
-checks and two cleared game runs pass. PR #4 references #3 without a closing
-directive. No push or merge is performed by this node.
+switch/reopen attempts and recovery after storage is restored. Current validation
+results are recorded in
+[review-audio-save-fixes.json](../tests/results/review-audio-save-fixes.json).
+PR #4 references #3 without a closing directive. No push or merge is performed
+by this node.
 
 ## Implementation
 
@@ -63,7 +69,8 @@ directive. No push or merge is performed by this node.
   frame hashes/PPM export, bounded CPU/SPC traces and useful failures.
 - [x] Audit two exact modified ROM/build/art/font inventories and source-build
   both games reproducibly; keep the unaudited original releases ignored/local.
-- [ ] Clear a game with music/sound; the two cleared builds are silent.
+- [x] Audit modified Memory Game with original game-event sound effects and
+  require non-silent samples and interactive Web Audio playback in CI.
 - [ ] Establish sufficiently representative sustained gameplay coverage and
   independently verified transitions, accounting for idle/death/restart time.
 
@@ -83,8 +90,9 @@ it references #3 as partial work.
 - WebAssembly release/static production build: pass. Chromium checks: 7 pass
   when both optional game images are supplied (two long replays and two late
   freeze negative controls). Those are historical original-release results.
-  Current CI runs five diagnostic smoke tests and two cleared, source-built
-  gameplay tests; it never downloads prebuilt game images.
+  Current CI runs eight diagnostic/UI/SRAM tests, two cleared source-built
+  gameplay tests and one interactive cleared-game audio test; it never downloads
+  prebuilt game images.
 - Original 32 KiB diagnostic reproduces byte-for-byte, exercises actual DMA,
   planar graphics, frame counter, controller input, uploaded SPC execution and
   non-silent BRR audio. Browser tests assert keyboard and virtual gamepad
