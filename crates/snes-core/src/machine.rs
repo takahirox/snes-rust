@@ -501,6 +501,59 @@ impl Bus for SystemBus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cpu::{M, X};
+
+    #[test]
+    fn stack_reads_sample_nmi_status_at_the_vblank_boundary() {
+        // At clock 306876 a byte PLA must read $4210 at 306902, after
+        // VBlank begins at 306900. Reading before the second idle returns $62.
+        for p in [0, M, X, M | X] {
+            for op in [0x28, 0xab, 0x2b, 0x68, 0xfa, 0x7a, 0x40, 0x60, 0x6b] {
+                for before_vblank in [27, 26, 25, 21, 20] {
+                    let mut rom = include_bytes!("../../../tests/roms/smoke.bin").to_vec();
+                    rom[0] = op;
+                    let mut bus = SystemBus::new(Cartridge::load(&rom).unwrap());
+                    let start = LINE * 225 - before_vblank;
+                    bus.tick(start);
+                    let mut cpu = Cpu {
+                        pc: 0x8000,
+                        e: false,
+                        p,
+                        s: 0x420f,
+                        ..Cpu::default()
+                    };
+                    cpu.step(&mut bus);
+                    let low = match op {
+                        0x28 | 0x40 => cpu.p,
+                        0xab => cpu.db,
+                        0x2b => cpu.d as u8,
+                        0x68 => cpu.a as u8,
+                        0xfa => cpu.x as u8,
+                        0x7a => cpu.y as u8,
+                        _ => cpu.pc.wrapping_sub(1) as u8,
+                    };
+                    let expected = (op & 0x70) | 2 | if before_vblank <= 26 { 0x80 } else { 0 };
+                    assert_eq!(low, expected, "opcode {op:02x}, P={p:02x}, start={start}");
+                    let bytes = match op {
+                        0x40 => 4,
+                        0x6b => 3,
+                        0x2b | 0x60 => 2,
+                        0x68 if p & M == 0 => 2,
+                        0xfa | 0x7a if p & X == 0 => 2,
+                        _ => 1,
+                    };
+                    assert_eq!(cpu.s, 0x420f + bytes);
+                    assert_eq!(
+                        bus.clocks,
+                        start + 20 + 6 * u64::from(bytes) + if op == 0x60 { 6 } else { 0 }
+                    );
+                    // An early read leaves the later VBlank flag pending; an
+                    // on-time read consumes it exactly once.
+                    assert_eq!(bus.nmi_flag, before_vblank > 26 && bytes > 1);
+                }
+            }
+        }
+    }
 
     fn timer_bus(mode: u8, htime: u16, vtime: u16) -> SystemBus {
         let cart = Cartridge::load(include_bytes!("../../../tests/roms/smoke.bin")).unwrap();

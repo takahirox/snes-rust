@@ -775,12 +775,12 @@ impl Cpu {
             "PER" | "BRL" => {
                 let v = self.word(b);
                 let target = self.pc.wrapping_add(v);
+                b.idle();
                 if name == "PER" {
                     self.push16_full(b, target);
                 } else {
                     self.pc = target;
                 }
-                b.idle();
                 return;
             }
             _ => {}
@@ -900,11 +900,14 @@ impl Cpu {
                     self.push(b, v as u8);
                 }
                 "PLP" => {
+                    // Table 5-7: pulls and returns idle twice before reading S+1.
+                    // The first internal cycle is shared by all implied opcodes.
+                    b.idle();
                     let v = self.pop(b);
                     self.status(v);
-                    b.idle();
                 }
                 "PLB" => {
+                    b.idle();
                     let e = self.e;
                     self.e = false;
                     self.db = self.pop(b);
@@ -913,14 +916,14 @@ impl Cpu {
                         self.s = 0x100 | (self.s & 255);
                     }
                     self.nz(self.db as u16, true);
-                    b.idle();
                 }
                 "PLD" => {
+                    b.idle();
                     self.d = self.pop16_full(b);
                     self.nz(self.d, false);
-                    b.idle();
                 }
                 "PLA" | "PLX" | "PLY" => {
+                    b.idle();
                     let byte = if name == "PLA" { mb } else { xb };
                     let v = if byte {
                         self.pop(b) as u16
@@ -937,14 +940,14 @@ impl Cpu {
                         }
                         self.nz(v, byte);
                     }
-                    b.idle();
                 }
                 "RTS" => {
-                    self.pc = self.pop16(b).wrapping_add(1);
                     b.idle();
+                    self.pc = self.pop16(b).wrapping_add(1);
                     b.idle();
                 }
                 "RTL" => {
+                    b.idle();
                     let e = self.e;
                     self.e = false;
                     self.pc = self.pop16(b).wrapping_add(1);
@@ -953,16 +956,15 @@ impl Cpu {
                     if e {
                         self.s = 0x100 | (self.s & 255);
                     }
-                    b.idle();
                 }
                 "RTI" => {
+                    b.idle();
                     let p = self.pop(b);
                     self.status(p);
                     self.pc = self.pop16(b);
                     if !self.e {
                         self.pb = self.pop(b);
                     }
-                    b.idle();
                 }
                 "WAI" => {
                     self.waiting = true;

@@ -836,6 +836,200 @@ fn hardware_and_software_interrupts_take_seven_or_eight_bus_cycles() {
     assert!(r.reads.is_empty() && r.writes.is_empty() && r.idle == 0);
 }
 #[test]
+fn stack_pulls_follow_documented_bus_order_in_all_widths_and_modes() {
+    use Access::{Idle, Read};
+    // W65C816S Table 5-7, 22b: both internal cycles precede REG Low.
+    for (e, p) in [
+        (true, M | X),
+        (false, 0),
+        (false, M),
+        (false, X),
+        (false, M | X),
+    ] {
+        for s in [0x1fdu16, 0x1fe, 0x1ff, 0xffff] {
+            if e && s == 0xffff {
+                continue;
+            }
+            for op in [0x28, 0xab, 0x2b, 0x68, 0xfa, 0x7a] {
+                let mut r = Ram::new(&[op]);
+                let mut c = Cpu {
+                    pc: 0x8000,
+                    e,
+                    p,
+                    s,
+                    a: 0xab00,
+                    ..Cpu::default()
+                };
+                let bytes = match op {
+                    0x2b => 2,
+                    0x68 if p & M == 0 => 2,
+                    0xfa | 0x7a if p & X == 0 => 2,
+                    _ => 1,
+                };
+                let mut expected = vec![Read(0x8000), Idle, Idle];
+                let mut stack = s;
+                for value in [0x85, 0x92].into_iter().take(bytes) {
+                    stack = stack.wrapping_add(1);
+                    if e && !matches!(op, 0xab | 0x2b) {
+                        stack = 0x100 | (stack & 255);
+                    }
+                    r.data[stack as usize] = value;
+                    expected.push(Read(stack as u32));
+                }
+                c.step(&mut r);
+                assert_eq!(
+                    r.accesses, expected,
+                    "opcode {op:02x}, S={s:04x}, E={e}, P={p:02x}"
+                );
+                assert_eq!(c.s, if e { 0x100 | (stack & 255) } else { stack });
+                assert_eq!((c.pc, c.e), (0x8001, e));
+                let value = if bytes == 2 { 0x9285 } else { 0x85 };
+                match op {
+                    0x28 => assert_eq!(c.p, 0x85 | if e { M | X } else { 0 }),
+                    0xab => assert_eq!(c.db, 0x85),
+                    0x2b => assert_eq!(c.d, value),
+                    0x68 => assert_eq!(c.a, if bytes == 1 { 0xab85 } else { value }),
+                    0xfa => assert_eq!(c.x, value),
+                    0x7a => assert_eq!(c.y, value),
+                    _ => unreachable!(),
+                }
+                if op != 0x28 {
+                    assert_eq!(c.p, (p | N) & !Z);
+                }
+            }
+        }
+    }
+}
+#[test]
+fn stack_returns_follow_documented_bus_order_and_wrap() {
+    use Access::{Idle, Read};
+    // Table 5-7, 22g-i: RTS alone retains an internal cycle after the reads.
+    for (e, p) in [
+        (true, M | X),
+        (false, 0),
+        (false, M),
+        (false, X),
+        (false, M | X),
+    ] {
+        for s in [0x1fcu16, 0x1fd, 0x1fe, 0x1ff, 0xffff] {
+            if e && s == 0xffff {
+                continue;
+            }
+            for op in [0x40, 0x60, 0x6b] {
+                let mut r = Ram::new(&[]);
+                r.data[0x7e8000] = op;
+                let mut c = Cpu {
+                    pc: 0x8000,
+                    pb: 0x7e,
+                    e,
+                    p,
+                    s,
+                    ..Cpu::default()
+                };
+                let values = match op {
+                    0x40 if e => vec![0x85, 0xff, 0xff],
+                    0x40 => vec![0x85, 0xff, 0xff, 0x42],
+                    0x60 => vec![0xff, 0xff],
+                    _ => vec![0xff, 0xff, 0x42],
+                };
+                let mut expected = vec![Read(0x7e8000), Idle, Idle];
+                let mut stack = s;
+                for value in values {
+                    stack = stack.wrapping_add(1);
+                    if e && op != 0x6b {
+                        stack = 0x100 | (stack & 255);
+                    }
+                    r.data[stack as usize] = value;
+                    expected.push(Read(stack as u32));
+                }
+                if op == 0x60 {
+                    expected.push(Idle);
+                }
+                c.step(&mut r);
+                assert_eq!(
+                    r.accesses, expected,
+                    "opcode {op:02x}, S={s:04x}, E={e}, P={p:02x}"
+                );
+                assert_eq!(c.s, if e { 0x100 | (stack & 255) } else { stack });
+                assert_eq!(c.pc, if op == 0x40 { 0xffff } else { 0 });
+                assert_eq!(
+                    c.pb,
+                    if op == 0x60 || (op == 0x40 && e) {
+                        0x7e
+                    } else {
+                        0x42
+                    }
+                );
+                assert_eq!(
+                    c.p,
+                    if op == 0x40 {
+                        0x85 | if e { M | X } else { 0 }
+                    } else {
+                        p
+                    }
+                );
+                assert_eq!(c.e, e);
+            }
+        }
+    }
+}
+#[test]
+fn per_idles_before_stack_writes_in_both_modes() {
+    use Access::{Idle, Read, Write};
+    // Table 5-7, 22f: operand reads, internal cycle, high/low writes.
+    for e in [false, true] {
+        for s in [0x1ffu16, 0x100, 0] {
+            if e && s == 0 {
+                continue;
+            }
+            for pc in [0x8000u16, 0xfffe] {
+                for offset in [0x1234u16, 0xfffc] {
+                    let mut r = Ram::new(&[]);
+                    let mut expected = Vec::new();
+                    for (i, byte) in [0x62, offset as u8, (offset >> 8) as u8]
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let address = 0x7e0000 | pc.wrapping_add(i as u16) as u32;
+                        r.data[address as usize] = byte;
+                        expected.push(Read(address));
+                    }
+                    let target = pc.wrapping_add(3).wrapping_add(offset);
+                    expected.extend([
+                        Idle,
+                        Write(s as u32, (target >> 8) as u8),
+                        Write(s.wrapping_sub(1) as u32, target as u8),
+                    ]);
+                    let mut c = Cpu {
+                        pc,
+                        pb: 0x7e,
+                        e,
+                        s,
+                        ..Cpu::default()
+                    };
+                    c.step(&mut r);
+                    assert_eq!(
+                        r.accesses, expected,
+                        "S={s:04x}, E={e}, PC={pc:04x}, offset={offset:04x}"
+                    );
+                    assert_eq!(
+                        c.s,
+                        if e {
+                            0x100 | (s.wrapping_sub(2) & 255)
+                        } else {
+                            s.wrapping_sub(2)
+                        }
+                    );
+                    assert_eq!(
+                        (c.pc, c.pb, c.e, c.p),
+                        (pc.wrapping_add(3), 0x7e, e, M | X | I)
+                    );
+                }
+            }
+        }
+    }
+}
+#[test]
 fn nmi_stack_and_rti_restore_native_state() {
     let mut r = Ram::new(&[0xcb, 0xea]);
     r.data[0xffea] = 0;
