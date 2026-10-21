@@ -264,7 +264,7 @@ impl Ppu {
         if entry & 0x8000 != 0 {
             py = size - 1 - py;
         }
-        let tile = (entry as usize & 1023) + (px / 8) + (py / 8) * 16;
+        let tile = ((entry as usize & 1023) + (px / 8) + (py / 8) * 16) & 1023;
         let base = ((self.regs[0x0b + bg / 2] >> ((bg & 1) * 4)) as usize & 15) * 8192;
         let color = self.tile_pixel(base, tile, px & 7, py & 7, bpp);
         if color == 0 {

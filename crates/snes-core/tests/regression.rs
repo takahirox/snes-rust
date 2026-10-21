@@ -570,6 +570,63 @@ fn cgram_completed_pairs_commit_both_bytes_and_wrap() {
     assert_eq!(&p.cgram[..2], &[0x55, 0x7f]);
 }
 #[test]
+fn background_16x16_subtiles_wrap_at_ten_bits_with_flipped_quadrants() {
+    for (bg, bpp) in [(0, 4), (2, 2)] {
+        for (tile, quadrants) in [
+            (0x2ffu16, [0x2ff, 0x300, 0x30f, 0x310]), // Carry across a row.
+            (0x3ef, [0x3ef, 0x3f0, 0x3ff, 0x000]),    // Only bottom right wraps.
+            (0x3ff, [0x3ff, 0x000, 0x00f, 0x010]),    // Both offsets wrap.
+        ] {
+            let mut p = snes_core::ppu::Ppu::default();
+            p.write(0, 15);
+            p.write(5, 1 | (16 << bg)); // Mode 1: BG1 4bpp or BG3 2bpp, 16x16 tiles.
+            p.write(7 + bg, 0x60); // Tilemap at byte $C000, away from tile data.
+            p.write(0x2c, 1 << bg);
+            p.write(0x0e + bg * 2, 0xff); // Scroll -1 to expose tile row 0.
+            p.write(0x0e + bg * 2, 0xff);
+            for (i, color) in [0u16, 0x001f, 0x03e0, 0x7c00].iter().enumerate() {
+                p.cgram[i * 2..i * 2 + 2].copy_from_slice(&color.to_le_bytes());
+            }
+            for (q, subtile) in quadrants.into_iter().enumerate() {
+                // Give each quadrant a different color, including transparency.
+                // Poison unwrapped addresses with a different color so erroneous
+                // reads cannot accidentally match the expected wrapped tile.
+                let unwrapped = tile as usize + [0, 1, 16, 17][q];
+                for index in [subtile, unwrapped] {
+                    let color = if index == subtile { q } else { (q + 1) % 4 };
+                    for y in 0..8 {
+                        let address = index * bpp * 8 + y * 2;
+                        p.vram[address] = if color & 1 != 0 { 0xff } else { 0 };
+                        p.vram[address + 1] = if color & 2 != 0 { 0xff } else { 0 };
+                    }
+                }
+            }
+            for flip in [0, 0x4000, 0x8000, 0xc000] {
+                p.vram[0xc000..0xc002].copy_from_slice(&(tile | flip).to_le_bytes());
+                for y in 0..16 {
+                    p.render_line(y);
+                    for x in 0..16 {
+                        let qx = if flip & 0x4000 != 0 { 1 - x / 8 } else { x / 8 };
+                        let qy = if flip & 0x8000 != 0 { 1 - y / 8 } else { y / 8 };
+                        let expected = [
+                            [0, 0, 0, 255],
+                            [255, 0, 0, 255],
+                            [0, 255, 0, 255],
+                            [0, 0, 255, 255],
+                        ][qy * 2 + qx];
+                        let i = (y * 256 + x) * 4;
+                        assert_eq!(
+                            &p.frame[i..i + 4],
+                            &expected,
+                            "{bpp}bpp, tile=${tile:03x}, flip=${flip:04x}, ({x},{y})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+#[test]
 fn subscreen_backdrop_uses_fixed_color_without_halving() {
     for (enabled, opaque, masked) in [
         (false, true, false),
