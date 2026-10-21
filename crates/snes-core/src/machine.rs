@@ -144,31 +144,47 @@ impl SystemBus {
             hdma_init: false,
         }
     }
-    fn tick(&mut self, n: u64) {
-        let old_h = self.h;
-        self.clocks += n;
-        self.h += n;
+    fn tick(&mut self, mut n: u64) {
         self.apu.tick(n);
-        if old_h < 1096 && self.h >= 1096 && self.v <= 224 {
-            if self.v > 0 {
-                self.ppu.render_line(self.v as usize - 1);
-            }
-            self.hdma_pending = true;
-        }
         let htime = (u16::from_le_bytes([self.io[7], self.io[8] & 1]) as u64) * 4;
         let vtime = u16::from_le_bytes([self.io[9], self.io[10] & 1]);
         let mode = self.io[0] & 0x30;
-        if mode & 0x10 != 0
-            && old_h < htime
-            && self.h >= htime
-            && (mode & 0x20 == 0 || self.v == vtime)
-        {
-            self.irq = true;
-        }
-        while self.h >= LINE {
-            self.h -= LINE;
+        while n > 0 {
+            // Compare within one scanline, then handle H=0 on the new line.
+            let old_h = self.h;
+            let elapsed = n.min(LINE - self.h);
+            self.clocks += elapsed;
+            self.h += elapsed;
+            n -= elapsed;
+            if old_h < 1096 && self.h >= 1096 && self.v <= 224 {
+                if self.v > 0 {
+                    self.ppu.render_line(self.v as usize - 1);
+                }
+                self.hdma_pending = true;
+            }
+            if mode & 0x10 != 0
+                && old_h < htime
+                && self.h >= htime
+                && htime < LINE
+                && (mode & 0x20 == 0 || self.v == vtime)
+            {
+                self.irq = true;
+            }
+            if self.h < LINE {
+                break;
+            }
+            self.h = 0;
             self.v += 1;
-            if mode == 0x20 && self.v == vtime {
+            if self.v == 262 {
+                self.v = 0;
+                self.frames += 1;
+                self.nmi_flag = false;
+                self.hdma_init = true;
+            }
+            // V=0 is a valid comparison only after the frame counter wraps.
+            if (mode == 0x20 && self.v == vtime)
+                || (mode & 0x10 != 0 && htime == 0 && (mode & 0x20 == 0 || self.v == vtime))
+            {
                 self.irq = true;
             }
             if self.v == 225 {
@@ -180,12 +196,6 @@ impl SystemBus {
                     self.joy = self.buttons;
                     self.auto_until = self.clocks + 4224;
                 }
-            }
-            if self.v == 262 {
-                self.v = 0;
-                self.frames += 1;
-                self.nmi_flag = false;
-                self.hdma_init = true;
             }
         }
         self.ppu.h = self.h as u16;
@@ -485,5 +495,89 @@ impl Bus for SystemBus {
     }
     fn idle(&mut self) {
         self.tick(6);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timer_bus(mode: u8, htime: u16, vtime: u16) -> SystemBus {
+        let cart = Cartridge::load(include_bytes!("../../../tests/roms/smoke.bin")).unwrap();
+        let mut bus = SystemBus::new(cart);
+        bus.write_raw(0x4207, htime as u8);
+        bus.write_raw(0x4208, (htime >> 8) as u8);
+        bus.write_raw(0x4209, vtime as u8);
+        bus.write_raw(0x420a, (vtime >> 8) as u8);
+        bus.write_raw(0x4200, mode);
+        bus
+    }
+
+    fn timeup(bus: &mut SystemBus) -> bool {
+        bus.read_raw(0x4211) & 0x80 != 0
+    }
+
+    #[test]
+    fn horizontal_zero_timer_fires_once_per_scanline_across_frames() {
+        let mut bus = timer_bus(0x10, 0, 0);
+        for line in 1..=3 * 262 {
+            bus.tick(LINE - 1);
+            assert!(!timeup(&mut bus), "early IRQ on line {line}");
+            bus.tick(1);
+            assert!(timeup(&mut bus), "missing IRQ on line {line}");
+            assert!(!timeup(&mut bus), "TIMEUP must acknowledge IRQ");
+        }
+        assert_eq!(bus.frames, 3);
+    }
+
+    #[test]
+    fn vertical_zero_timer_fires_once_per_frame_after_wrap() {
+        let mut bus = timer_bus(0x20, 0, 0);
+        for frame in 1..=3 {
+            bus.tick(LINE * 262 - 1);
+            assert!(!timeup(&mut bus), "early IRQ in frame {frame}");
+            bus.tick(1);
+            assert!(timeup(&mut bus), "missing IRQ in frame {frame}");
+            assert!(!timeup(&mut bus));
+            assert_eq!((bus.frames, bus.v, bus.h), (frame, 0, 0));
+        }
+    }
+
+    #[test]
+    fn combined_timers_match_zero_and_nonzero_coordinates() {
+        for (htime, vtime) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+            let mut bus = timer_bus(0x30, htime, vtime);
+            // Start after the initial frame's comparison, then verify three
+            // complete frames, including the lines that must not trigger.
+            bus.tick(LINE * vtime as u64 + 4 * htime as u64 + 1);
+            timeup(&mut bus);
+            for frame in 1..=3 {
+                bus.tick(LINE * 262 - 2);
+                assert!(!timeup(&mut bus), "early IRQ at ({htime}, {vtime})");
+                bus.tick(1);
+                assert!(timeup(&mut bus), "missing IRQ at ({htime}, {vtime})");
+                assert_eq!((bus.frames, bus.v, bus.h), (frame, vtime, 4 * htime as u64));
+                bus.tick(1);
+                assert!(!timeup(&mut bus), "duplicate IRQ at ({htime}, {vtime})");
+            }
+        }
+    }
+
+    #[test]
+    fn horizontal_timer_uses_the_scanline_after_rollover() {
+        for vtime in [0, 1, 261] {
+            let mut bus = timer_bus(0x30, 1, vtime);
+            bus.v = 261;
+            bus.h = LINE - 2;
+            bus.tick(8); // Cross H=1 on V=0 in a single bus access.
+            assert_eq!((bus.frames, bus.v, bus.h), (1, 0, 6));
+            assert_eq!(timeup(&mut bus), vtime == 0, "VTIME={vtime}");
+        }
+        let mut bus = timer_bus(0x10, 341, 0);
+        bus.tick(LINE + 8);
+        assert!(!timeup(&mut bus), "out-of-range HTIME must not match");
+        let mut bus = timer_bus(0x20, 0, 262);
+        bus.tick(LINE * 262);
+        assert!(!timeup(&mut bus), "out-of-range VTIME must not match");
     }
 }
