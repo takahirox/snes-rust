@@ -4,17 +4,21 @@ An experimental SNES interpreter written from scratch in Rust, with a dependency
 WebAssembly adapter and a local browser frontend. No existing emulator core,
 Nintendo firmware, commercial ROM, or third-party game ROM is included.
 
-**Issue [#3](https://github.com/takahirox/snes-rust/issues/3) remains in progress.**
-Audited, source-built modified versions of Castle Platformer and Memory Game run
-through the same core in five-minute browser regressions. Their exact sources,
-assets, notices, alterations and ROM hashes are recorded in the
-[cleared-game audit](tests/roms/CLEARED-GAMES.md). The modified Memory Game adds
-original looping gameplay music and card/match/win/loss sound effects through
-an uploaded SPC program; Castle remains silent. Hardware and audio fidelity verification remain release
-requirements. Gothicvania and the original Castle release remain
-user-supplied investigations with unresolved binary/build licensing. This is not
-a completed release or a claim of broad commercial compatibility. See the
-[delivery checklist and evidence](docs/issue-3-progress.md).
+The first-playable baseline runs audited, source-built modified versions of
+**Castle Platformer** and **Memory Game** through the same generic core. Both
+have five-minute controller replays; Castle also has a complete five-map/credits
+route. Memory plays original game-generated music and finite sound effects.
+Their exact sources, assets, notices, alterations and ROM hashes are in the
+[cleared-game audit](tests/roms/CLEARED-GAMES.md).
+
+Issue [#3](https://github.com/takahirox/snes-rust/issues/3) was closed as a tracking
+handoff to [#5](https://github.com/takahirox/snes-rust/issues/5). The
+[delivery checklist](docs/issue-3-progress.md) maps its requirements to current
+code and executable evidence; [final validation](docs/issue-5-validation.md)
+distinguishes the verified target behavior from optional hardware accuracy.
+This is a first-playable baseline for these artifacts, not broad commercial
+compatibility. Gothicvania and the original Castle release are optional,
+user-supplied investigations with unresolved binary/build licensing.
 
 ## Run the browser app
 
@@ -77,6 +81,7 @@ npm --prefix web run build
 cd web
 npx playwright install chromium
 npm test -- --grep-invert '301 seconds'
+# If port 8080 is occupied, prefix the test command with SNES_TEST_PORT=18085.
 ```
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
@@ -179,24 +184,35 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   WRAM/SRAM mirrors, open bus, multiply/divide I/O and region-specific bus waits.
 - All 256 65C816 opcode decodings; native/emulation and register-width modes,
   decimal arithmetic, stack edge cases, software interrupts, NMI/IRQ, WAI/STP.
-  The full/basic licensed semantic suites pass. Internal instruction cycles,
-  interrupt latency, DRAM refresh, multiplication/division delays, IRQ edges,
-  DMA/HDMA conflicts and bus access ordering are **not hardware accurate**.
+  Licensed full/basic semantic suites pass. Independent bus-order/count tests
+  cover addressing, stacks, interrupts and RMW writes. CPU-cycle multiply/divide
+  latency and a 40-master-clock scanline refresh hold are implemented. This is
+  not a claim of every instruction/interrupt edge on every CPU revision.
 - A master-clock scheduler, NTSC scanlines, VBlank/HBlank, NMI, timer IRQs,
-  serial/automatic joypad reads, general DMA and direct/indirect HDMA.
+  serial/automatic joypad reads with busy/completion behavior, general DMA and
+  direct/indirect HDMA. HDMA preempts DMA between bytes; all devices advance
+  during transfers. Tests check DMA writes across the VBlank access boundary,
+  deferred NMI, IRQ comparisons and guest-generated HDMA raster bands.
 - Planar BG modes, tilemaps, scroll/mosaic, sprites, priorities, windows and
   color math, plus a basic Mode 7 transform. Rendering snapshots registers per
   scanline. Mid-scanline raster effects, offset-per-tile modes 2/4/6, hires/
   interlace/overscan, direct color, exact object overflow/rotation and Mode 7
-  edge behavior are incomplete or unverified. VRAM/OAM access restrictions,
-  register read latches and PPU open bus are simplified.
+  edge behavior are outside the tested targets. VRAM writes obey forced/VBlank
+  access and still increment when blocked. VRAM prefetch, OAM/CGRAM write pairs,
+  latched counters and separate PPU read buses have numerical regressions.
+  Active-display OAM/CGRAM corruption and dot-level pixel fetches are not modeled;
+  the selected games update video memory during forced/VBlank.
 - SPC700 execution/timers and CPU communication using a firmware-free,
   high-level IPL upload protocol. All licensed SPC semantic tests pass; IPL
   instruction timing and general firmware execution are not emulated.
-  DSP provides BRR voices, simplified ADSR/gain, stereo mixing and FIR echo.
-  It uses linear interpolation; Gaussian interpolation, noise, pitch modulation,
-  exact envelope/key-on delays, echo saturation and sample-clock fidelity remain
-  incomplete. Non-silent audio does not prove reference audio accuracy.
+  DSP provides BRR voices, Gaussian interpolation, ADSR/gain, signed stereo
+  mixing, five-sample key-on delay and FIR echo. Numerical tests cover the
+  selected game's filter-0 BRR, interpolation/overflow, direct gain, pitch,
+  release/retrigger and deterministic 32 kHz output. Noise, pitch modulation,
+  exact ADSR rate phase, DSP subcycle register polling and reference echo
+  saturation are unverified/unsupported and unused by these targets.
+  Browser tests bound device-clock drift, queue duration and live sources,
+  including main-thread stalls and repeated pause/reset/play.
 - Enhancement chips, ExLoROM/ExHiROM, PAL, save states and broad commercial
   compatibility are unsupported. Unsupported cartridge hardware/region errors
   are explicit. High-resolution ROM behavior may render incorrectly rather

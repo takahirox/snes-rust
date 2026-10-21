@@ -183,7 +183,31 @@ while music continues, pause and reset returning to a silent title. Input
 selection is automated play, not a claim that an unaided human completed the game.
 
 Castle remains silent; Memory produces original gameplay music and sound effects.
-**Issue #3 remains incomplete:** the remaining timing/PPU/audio fidelity checks
-are still required. Castle's finish/credits progression is now covered. License-cleared
-gameplay here does not certify the previous release ROMs, full hardware accuracy or commercial
-cartridge compatibility. No commercial ROM is shipped or fetched.
+The [#5 validation](../../docs/issue-5-validation.md) supersedes the historical
+partial-delivery status of #3. The selected first-playable behavior is covered by
+numerical timing/PPU/DSP and browser synchronization checks. These results do not
+clear previous release ROMs or establish full hardware/catalog accuracy.
+No commercial ROM is shipped or fetched.
+
+## Independent-game selection decision for #3 / #5
+
+Accept this pair for the original requirement of two independently developed
+SNES programs. The author is shared, as are generic routines in separately pinned
+versions of `1gam-common`. The game programs themselves are separate upstream
+repositories: Castle's entities, collision, map/chain/bridge progression and
+credits are not Memory's shuffled card grid, door transitions, selection,
+matching, guesses and win/loss state machine. Neither imports the other's game
+logic or assets. The manifest lists each game's own files and linked library
+modules, making this distinction reproducible. They are not reskins of the same
+game or variants of the diagnostic. The local alterations retain those gameplay
+programs and add audited presentation/audio, without emulator-side exceptions.
+
+#3 names candidate *independent SNES programs* and requires two distinct actual
+games; it does not require different authors or unrelated libraries. #5 explicitly
+says author identity alone is not a new gate. This decision therefore accepts
+independent gameplay development, while making no claim of two unrelated engine
+implementations. Gothicvania was replaced for the concrete runtime/audio/build
+licensing blockers recorded in [PROVENANCE.md](PROVENANCE.md), not to avoid a
+failing gameplay test. The original Castle image was replaced by an audited
+source build to remove its unidentified credits font and release-build mismatch.
+Both exact ROM hashes and all notices above remain unchanged by #5.

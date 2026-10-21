@@ -1170,12 +1170,13 @@ fn dsp_endx_reports_brr_ends_independently_of_looping() {
             ] {
                 dsp.write(register, value);
             }
-            for _ in 0..16 {
+            // Five silent key-on samples precede 16 decoded BRR samples.
+            for _ in 0..21 {
                 dsp.sample(&mut ram);
                 assert_eq!(dsp.regs[0x7c], 0);
             }
             let expected = if header & 1 != 0 { 1 << voice } else { 0 };
-            for _ in 16..100 {
+            for _ in 21..100 {
                 dsp.sample(&mut ram);
                 assert_eq!(
                     dsp.regs[0x7c], expected,

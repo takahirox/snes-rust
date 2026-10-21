@@ -2,6 +2,7 @@ pub mod apu;
 pub mod cartridge;
 pub mod cpu;
 pub mod dsp;
+mod gaussian;
 pub mod machine;
 pub mod ppu;
 pub use machine::Machine;

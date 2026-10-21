@@ -13,7 +13,10 @@ are in [CLEARED-GAMES.md](CLEARED-GAMES.md) and
 [cleared-games.json](cleared-games.json). That approval does not apply to the
 original release binaries below. Castle remains silent. Modified Memory Game
 executes an original MIT SPC program and BRR waveform through the generic core;
-this does not demonstrate an upstream music driver or complete Issue #3.
+this does not demonstrate an upstream music driver. Current first-playable
+acceptance is recorded in [the #5 validation](../../docs/issue-5-validation.md);
+#3 was closed only as a tracker handoff. The historical investigations below
+are not release acceptance evidence.
 
 ## Original diagnostic: approved
 

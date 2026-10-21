@@ -145,13 +145,13 @@
       }
     },
     {
-      "frame": 6099,
+      "frame": 6120,
       "label": "Fourth map",
       "map": 3,
-      "state": 4,
+      "state": 0,
       "x": 280,
-      "y": 1520,
-      "hash": "90fca29b"
+      "y": 1525,
+      "hash": "c1fe1581"
     },
     {
       "frame": 6881,
