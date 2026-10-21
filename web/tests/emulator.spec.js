@@ -41,6 +41,21 @@ test('real wasm renders frames, reads keyboard/gamepad, produces audio and pause
   await page.locator('#reset').click(); await expect(page.locator('#status')).toContainText('SRAM preserved');
   expect(errors).toEqual([]); expect(uploads).toEqual([]); await expect(page.locator('#error')).toBeEmpty();
 });
+for (const control of ['sound', 'scale']) test(`keyboard releases held buttons after focus moves to ${control}`, async ({ page }) => {
+  await load(page); await page.locator('#play').click();
+  await page.keyboard.down('ArrowRight');
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(1);
+  if (control === 'sound') await page.locator('#sound').click();
+  else await page.locator('#scale').focus();
+  await expect(page.locator(`#${control}`)).toBeFocused();
+  await page.keyboard.up('ArrowRight');
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(0);
+  // Controls still receive new key presses without sending them to the game.
+  await page.keyboard.down('ArrowRight');
+  await page.waitForTimeout(100);
+  expect(await page.evaluate(() => testCore.peek(0x11))).toBe(0);
+  await page.keyboard.up('ArrowRight');
+});
 test('SRAM survives reset, page reload, and copier-header ROM identity', async ({ page }) => {
   await load(page);
   await page.evaluate(() => { new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79; });

@@ -193,6 +193,115 @@ fn indirect_pointers_wrap_in_bank_zero_but_resolved_data_can_carry() {
     assert_eq!(r.writes, [(0x7effff, 0xcd), (0x7f0000, 0xab)]);
 }
 #[test]
+fn indirect_jumps_wrap_pointers_within_their_bank() {
+    for e in [false, true] {
+        for (op, base, index) in [
+            (0x6c, 0xffffu16, 0), // JMP (absolute): bank zero
+            (0xdc, 0xfffe, 0),    // JML [absolute]: bank byte wraps
+            (0xdc, 0xffff, 0),    // JML [absolute]: high byte wraps
+            (0x7c, 0xffff, 0),    // JMP (absolute,X): program bank
+            (0xfc, 0xffff, 0),    // JSR (absolute,X): program bank
+            (0x7c, 0xfffe, 1),
+            (0xfc, 0xfffe, 1),
+            (0x7c, 0xffff, 1), // indexing itself also wraps
+            (0xfc, 0xffff, 1),
+        ] {
+            let mut r = Ram::new(&[]);
+            r.data[0x7e8000..0x7e8003].copy_from_slice(&[op, base as u8, (base >> 8) as u8]);
+            let bank = if matches!(op, 0x7c | 0xfc) {
+                0x7e0000
+            } else {
+                0
+            };
+            let pointer = base.wrapping_add(index);
+            let low = bank | pointer as u32;
+            let high = bank | pointer.wrapping_add(1) as u32;
+            r.data[low as usize] = 0x34;
+            r.data[high as usize] = 0x12;
+            r.data[(bank + 0x10000) as usize] = 0x56; // wrong bank-carry sentinel
+            if op == 0xdc {
+                r.data[pointer.wrapping_add(2) as usize] = 0x42;
+            }
+            let mut c = Cpu {
+                pc: 0x8000,
+                pb: 0x7e,
+                db: 0x7f,
+                e,
+                x: index,
+                ..Cpu::default()
+            };
+            c.step(&mut r);
+            assert_eq!(c.pc, 0x1234, "opcode {op:02x}, base {base:04x}, E={e}");
+            assert_eq!(c.pb, if op == 0xdc { 0x42 } else { 0x7e });
+            assert!(r.reads.contains(&low) && r.reads.contains(&high));
+            assert!(!r.reads.contains(&(bank + 0x10000)));
+            if op == 0xdc {
+                assert!(r.reads.contains(&(pointer.wrapping_add(2) as u32)));
+            }
+        }
+    }
+}
+#[test]
+fn jumps_and_subroutine_calls_have_fixed_cycle_counts() {
+    // W65C816S tables 5-4 and 5-7: indexed JSR has one internal cycle,
+    // just like indexed JMP, plus the two return-address writes.
+    for e in [false, true] {
+        for p in [M | X, 0] {
+            if e && p == 0 {
+                continue;
+            }
+            for index in [0, 1] {
+                for (op, cycles, reads, writes) in [
+                    (0x7c, 6, 5, 0),
+                    (0xfc, 8, 5, 2),
+                    (0x20, 6, 3, 2),
+                    (0x22, 8, 4, 3),
+                ] {
+                    let mut r = Ram::new(&[]);
+                    r.data[0x7e8000..0x7e8004].copy_from_slice(&[op, 0xfe, 0x90, 0x42]);
+                    let pointer = 0x7e90fe + index as usize;
+                    r.data[pointer..pointer + 2].copy_from_slice(&0x1234u16.to_le_bytes());
+                    let mut c = Cpu {
+                        pc: 0x8000,
+                        pb: 0x7e,
+                        e,
+                        p,
+                        x: index,
+                        ..Cpu::default()
+                    };
+                    c.step(&mut r);
+                    assert_eq!(
+                        r.reads.len() + r.writes.len() + r.idle,
+                        cycles,
+                        "opcode {op:02x}, index {index}, E={e}, P={p:02x}"
+                    );
+                    assert_eq!((r.reads.len(), r.writes.len(), r.idle), (reads, writes, 1));
+                    assert_eq!(
+                        c.pc,
+                        if matches!(op, 0x7c | 0xfc) {
+                            0x1234
+                        } else {
+                            0x90fe
+                        }
+                    );
+                    assert_eq!(c.pb, if op == 0x22 { 0x42 } else { 0x7e });
+                    if writes != 0 {
+                        let mut expected = Vec::new();
+                        if op == 0x22 {
+                            expected.push((0x1ff, 0x7e));
+                        }
+                        let stack = if op == 0x22 { 0x1fe } else { 0x1ff };
+                        expected
+                            .extend([(stack, 0x80), (stack - 1, if op == 0x22 { 3 } else { 2 })]);
+                        assert_eq!(r.writes, expected);
+                        assert_eq!(c.s, 0x1ff - writes as u16);
+                    }
+                }
+            }
+        }
+    }
+}
+#[test]
 fn hardware_and_software_interrupts_take_seven_or_eight_bus_cycles() {
     // W65C816S table 5-7: BRK/COP consume opcode + signature reads;
     // NMI/IRQ consume a discarded opcode read + internal cycle instead.

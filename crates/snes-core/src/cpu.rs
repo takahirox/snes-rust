@@ -371,6 +371,10 @@ impl Cpu {
         let l = b.read(a);
         u16::from_le_bytes([l, b.read((a + 1) & 0xffffff)])
     }
+    fn rd16_in_bank(b: &mut impl Bus, a: u32) -> u16 {
+        let next = (a & 0xff0000) | (a as u16).wrapping_add(1) as u32;
+        u16::from_le_bytes([b.read(a), b.read(next)])
+    }
     fn next_data_addr(mode: Mode, a: u32) -> u32 {
         // Direct and stack-relative operands stay in bank zero; resolved
         // indirect, absolute and long operands can carry into the next bank.
@@ -708,15 +712,20 @@ impl Cpu {
                     bank = self.fetch(b);
                 }
                 if name == "JMI" {
-                    a = Self::rd16(b, a as u32);
+                    a = Self::rd16_in_bank(b, a as u32);
                 }
                 if name == "JXI" || name == "JSI" {
-                    a = Self::rd16(b, ((self.pb as u32) << 16) | a.wrapping_add(self.x) as u32);
-                    b.idle();
+                    a = Self::rd16_in_bank(
+                        b,
+                        ((self.pb as u32) << 16) | a.wrapping_add(self.x) as u32,
+                    );
+                    if name == "JXI" {
+                        b.idle();
+                    }
                 }
                 if name == "JLI" {
                     bank = b.read(a.wrapping_add(2) as u32);
-                    a = Self::rd16(b, a as u32);
+                    a = Self::rd16_in_bank(b, a as u32);
                 }
                 if name == "PEA" {
                     self.push16_full(b, a);

@@ -113,7 +113,8 @@ $('reset').addEventListener('click', () => { pause(); try { check(core.reset());
 $('sound').addEventListener('change', () => { flushAudio(); if ($('sound').checked) void activateAudio(); });
 $('scale').addEventListener('change', () => { const scale = Number($('scale').value); canvas.style.width = `${256 * scale}px`; });
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {
-  if (!keys[event.code] || !playing || ['INPUT', 'SELECT'].includes(event.target.tagName)) return;
+  if (!keys[event.code] || !playing) return;
+  if (['INPUT', 'SELECT'].includes(event.target.tagName) && !(type === 'keyup' && held.has(event.code))) return;
   event.preventDefault(); if (type === 'keydown') held.add(event.code); else held.delete(event.code);
   keyboard = [...held].reduce((value, code) => value | keys[code], 0);
 });
