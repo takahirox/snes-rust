@@ -571,6 +571,99 @@ fn cartridge_headers_mapping_and_sram() {
     assert!(Cartridge::load(&bad).is_err());
 }
 #[test]
+fn lorom_sram_bank_boundaries_and_mirrors_preserve_wram() {
+    let mut rom = fixture();
+    rom[0x7fd8] = 8; // 256 KiB exposes bank offsets as well as address mirrors.
+    let mut m = Machine::new(&rom).unwrap();
+    for bank in (0x70u32..=0x7d).chain(0xf0..=0xff) {
+        for lo in [0, 3, 0x7fff] {
+            let address = (bank << 16) | lo;
+            let index = (((bank & 7) << 15) | lo) as usize;
+            m.bus.write(address, bank as u8);
+            assert_eq!(m.bus.read(address), bank as u8, "${address:06x}");
+            assert_eq!(m.bus.cart.sram[index], bank as u8);
+            // Each 32 KiB bank aliases again after the SRAM's 256 KiB.
+            let mirror = ((0xf0 | (bank & 7)) << 16) | lo;
+            assert_eq!(m.bus.read(mirror), bank as u8, "${mirror:06x}");
+        }
+    }
+    let saved = m.bus.cart.sram.clone();
+    for bank in [0x6fu32, 0x70, 0x7d, 0xef, 0xf0, 0xfd, 0xfe, 0xff] {
+        for lo in [0x8000, 0xffff] {
+            let address = (bank << 16) | lo;
+            let before = m.bus.read(address);
+            m.bus.write(address, before ^ 0xff);
+            assert_eq!(m.bus.read(address), before);
+        }
+    }
+    for bank in [0x6fu32, 0xef] {
+        for lo in [0, 3, 0x7fff] {
+            let address = (bank << 16) | lo;
+            let before = m.bus.read(address);
+            m.bus.write(address, before ^ 0xff);
+            assert_eq!(m.bus.read(address), before);
+        }
+    }
+    for bank in [0x7eu32, 0x7f] {
+        for lo in [0, 3, 0x7fff, 0x8000, 0xffff] {
+            let address = (bank << 16) | lo;
+            // Neither direct cartridge access nor the system bus may claim WRAM as SRAM.
+            m.bus.cart.write(address, 0x11);
+            m.bus.write(address, bank as u8);
+            assert_eq!(m.bus.read(address), bank as u8);
+        }
+    }
+    assert_eq!(m.bus.cart.sram, saved);
+}
+#[test]
+fn dsp_endx_reports_brr_ends_independently_of_looping() {
+    for voice in 0..8 {
+        for header in [0x80, 0x81, 0x82, 0x83] {
+            let mut ram = vec![0; 65536];
+            ram[0x200..0x204].copy_from_slice(&[0, 3, 0, 3]);
+            ram[0x300] = header;
+            ram[0x301..0x309].fill(0x77);
+            let mut dsp = snes_core::dsp::Dsp::default();
+            for (register, value) in [
+                (0x6c, 0x20), // Disable echo writes, enable output.
+                (0x5d, 2),
+                (0x0c, 127),
+                (0x1c, 127),
+                (voice * 16, 127),
+                (voice * 16 + 1, 127),
+                (voice * 16 + 3, 0x10), // One decoded BRR sample per output sample.
+                (voice * 16 + 7, 127),
+                (0x4c, 1 << voice),
+            ] {
+                dsp.write(register, value);
+            }
+            for _ in 0..16 {
+                dsp.sample(&mut ram);
+                assert_eq!(dsp.regs[0x7c], 0);
+            }
+            let expected = if header & 1 != 0 { 1 << voice } else { 0 };
+            for _ in 16..100 {
+                dsp.sample(&mut ram);
+                assert_eq!(
+                    dsp.regs[0x7c], expected,
+                    "voice {voice}, header ${header:02x}"
+                );
+            }
+            let audible = dsp.sample(&mut ram) != (0, 0);
+            assert_eq!(audible, header == 0x83);
+            dsp.write(0x7c, 0xff);
+            assert_eq!(dsp.regs[0x7c], 0);
+            for _ in 0..16 {
+                dsp.sample(&mut ram);
+            }
+            assert_eq!(dsp.regs[0x7c], if header == 0x83 { expected } else { 0 });
+            dsp.write(0x4c, 1 << voice);
+            dsp.sample(&mut ram);
+            assert_eq!(dsp.regs[0x7c], 0);
+        }
+    }
+}
+#[test]
 fn memory_open_bus_wram_and_joypad_serial() {
     let mut m = Machine::new(&fixture()).unwrap();
     m.bus.write(0x7e1234, 0x82);

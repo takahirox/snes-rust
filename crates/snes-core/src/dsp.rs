@@ -51,6 +51,7 @@ impl Dsp {
         u16::from_le_bytes([ram[a as usize], ram[a.wrapping_add(1) as usize]])
     }
     fn decode(v: &mut Voice, ram: &[u8]) -> bool {
+        let ended = v.nibble == 16 && v.header & 1 != 0;
         if v.nibble == 16 {
             if v.header & 1 != 0 {
                 if v.header & 2 == 0 {
@@ -97,7 +98,7 @@ impl Dsp {
         if v.nibble == 16 {
             v.addr = v.addr.wrapping_add(8);
         }
-        false
+        ended
     }
     pub fn sample(&mut self, ram: &mut [u8]) -> (i16, i16) {
         self.counter = self.counter.wrapping_add(1);

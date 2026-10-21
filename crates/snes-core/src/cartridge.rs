@@ -73,7 +73,10 @@ impl Cartridge {
             return None;
         }
         let i = match self.mapping {
-            Mapping::LoRom if (bank & 0x7f) >= 0x70 && (bank & 0x7f) <= 0x7d && lo < 0x8000 => {
+            Mapping::LoRom
+                if ((0x70..=0x7d).contains(&bank) || (0xf0..=0xff).contains(&bank))
+                    && lo < 0x8000 =>
+            {
                 ((bank & 15) << 15) | lo
             }
             Mapping::HiRom
