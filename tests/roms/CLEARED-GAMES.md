@@ -148,6 +148,15 @@ If redistributing an image, include that file; the MIT notices are required.
 The Chromium tests require these exact ROM hashes. Castle's 18,100-frame replay
 asserts movement, grounded jumps, active gameplay, changing video, bounded audio
 cadence and death/restart transitions in every complete 900-frame window.
+Its separate fixed joypad recording in
+[`castle-route.json`](../../web/tests/castle-route.json) starts from reset,
+operates the first map's three chain switches and the third map's bridge switch,
+traverses all five maps and reaches the modified build's scrolling credits.
+Assertions verify changed map tiles, ordered map transitions, movement/jumps,
+changing game-derived frames, checkpoint hashes and the completed credits scroll.
+Unexpected death fails the recording. No RAM writes, save-state restores, ROM
+patches or emulator shortcuts are used by this test. This is an automated route,
+not a claim of an unaided human playthrough or exhaustive gameplay coverage.
 Memory's equally long run uses reads of the shuffled card grid to choose
 matches, then performs all actions through joypad input, without changing RAM.
 Every window asserts cursor movement, card selection, active play, changing
@@ -159,7 +168,7 @@ the effect ending while idle, pause and reset returning to a silent title. Input
 selection is automated play, not a claim that an unaided human completed the game.
 
 Castle remains silent; Memory now produces original game sound effects.
-**Issue #3 remains incomplete:** Castle finish/credits progression and the
-remaining timing/PPU/audio fidelity checks are still required. License-cleared
+**Issue #3 remains incomplete:** the remaining timing/PPU/audio fidelity checks
+are still required. Castle's finish/credits progression is now covered. License-cleared
 gameplay here does not certify the previous release ROMs, full hardware accuracy or commercial
 cartridge compatibility. No commercial ROM is shipped or fetched.

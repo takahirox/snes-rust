@@ -193,6 +193,29 @@ fn indirect_pointers_wrap_in_bank_zero_but_resolved_data_can_carry() {
     assert_eq!(r.writes, [(0x7effff, 0xcd), (0x7f0000, 0xab)]);
 }
 #[test]
+fn pei_wraps_its_pointer_within_bank_zero() {
+    for e in [false, true] {
+        let mut r = Ram::new(&[0xd4, 0]); // PEI ($00) with D=$ffff
+        r.data[0xffff] = 0x34;
+        r.data[0] = 0x12;
+        r.data[0x10000] = 0x56; // wrong bank-carry sentinel
+        let mut c = Cpu {
+            pc: 0x8000,
+            e,
+            d: 0xffff,
+            db: 0x7e,
+            ..Cpu::default()
+        };
+        let p = c.p;
+        c.step(&mut r);
+        assert_eq!(r.reads, [0x8000, 0x8001, 0xffff, 0]);
+        assert_eq!(r.writes, [(0x1ff, 0x12), (0x1fe, 0x34)]);
+        assert_eq!(c.s, 0x1fd);
+        assert_eq!(c.pc, 0x8002);
+        assert_eq!(c.p, p);
+    }
+}
+#[test]
 fn indirect_jumps_wrap_pointers_within_their_bank() {
     for e in [false, true] {
         for (op, base, index) in [

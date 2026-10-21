@@ -1,10 +1,10 @@
 # Issue #3 delivery checklist and evidence
 
 Source Issue: <https://github.com/takahirox/snes-rust/issues/3>.
-**Status: partial implementation, keep the Issue open.** This checkpoint goes
-beyond a scaffold: the generic core runs two actual homebrew games in Chromium
-with real input-derived graphics and Gothicvania audio. It does not yet
-meet all legal audit, timing fidelity and gameplay acceptance requirements.
+**Status: partial implementation, keep the Issue open.** The generic core runs
+two audited, modified homebrew games in Chromium, with input-derived graphics,
+Memory sound effects and Castle's complete progression route. Timing, PPU and
+audio fidelity gaps remain release requirements.
 
 ## Current review fixes
 
@@ -27,7 +27,8 @@ tests both artifacts. The modified Memory Game now includes original MIT sound
 effects executed by its uploaded SPC program, with sustained non-silent sample
 and interactive Web Audio assertions. Upstream Memory and Castle are silent;
 no upstream music-driver compatibility is claimed. Castle finish/credits
-progression and hardware-fidelity gaps also remain open.
+progression is now covered by the fixed-input replay described below;
+hardware-fidelity gaps remain open.
 
 Failed browser SRAM writes now block ROM replacement and preserve the machine's
 recoverable save; Play and Reset retain the warning until saving succeeds.
@@ -39,6 +40,30 @@ results are recorded in
 [review-audio-save-fixes.json](../tests/results/review-audio-save-fixes.json).
 PR #4 references #3 without a closing directive. No push or merge is performed
 by this node.
+
+### Castle progression and PEI review fixes
+
+The fixed-input Castle replay starts from reset, operates the three first-map
+chain switches and the third-map bridge switch, traverses all five maps and
+finishes the credits scroll. It checks the modified map tiles, map order,
+controller-driven movement/jumps, changing video, checkpoint positions and
+framebuffer hashes, and the final scroll counter. Any death fails the run.
+It complements the existing five-minute movement/jump/death regression; the
+recording uses only joypad inputs, without RAM writes, saved states or ROM changes.
+The exact ROM hash and fixed inputs are in
+[`castle-route.json`](../web/tests/castle-route.json). Castle has no title screen
+and enters gameplay directly. This covers a reproducible completion route, not
+every enemy, optional path or hardware behavior.
+The recording runs 11,097 frames (184.65 emulated seconds), reaches the finish
+trigger at frame 9,936, displays `YOU WIN`, and finishes the credits at scroll
+row 287. Twenty checkpoints include frame hashes and source-derived state/RAM
+markers. Chromium captures both the win screen and final credits.
+
+PEI now wraps its second pointer-byte read within bank zero. A counting-bus
+regression reproduces the former `$00ffff/$010000` reads with `D=$ffff`, then
+requires `$00ffff/$000000` and the correct `$1234` stack value in both CPU modes.
+Validation and progression evidence are recorded in
+[`review-castle-pei-fixes.json`](../tests/results/review-castle-pei-fixes.json).
 
 ## Implementation
 
@@ -71,8 +96,8 @@ by this node.
   both games reproducibly; keep the unaudited original releases ignored/local.
 - [x] Audit modified Memory Game with original game-event sound effects and
   require non-silent samples and interactive Web Audio playback in CI.
-- [ ] Establish sufficiently representative sustained gameplay coverage and
-  independently verified transitions, accounting for idle/death/restart time.
+- [x] Cover sustained gameplay and game-state transitions with the five-minute
+  per-window regressions, Castle's complete fixed-input route and Memory wins.
 
 ## Reproducible local validation
 
@@ -116,6 +141,10 @@ was compiled with Rust 1.99 and its experimental-feature flag, without its
 separate emulator package. No external emulation implementation is used.
 
 ## Game investigations
+
+These are historical optional investigations of the original user-supplied
+release images. The cleared modified builds and current Castle completion
+coverage are described above.
 
 Both images were loaded from reset into the **same unmodified emulator core**.
 Game-specific logic exists only in input/snapshot tests, never in the core.
@@ -167,21 +196,16 @@ a standard gamepad is simulated in the automated UI test.
 
 ## Remaining release requirements
 
-1. Add a cleared game with working music/sound. The two audited modified builds
-   resolve the two-game licensing blocker through source builds and replacements,
-   but both are silent. Gothicvania's original runtime/audio/build terms and the
-   original Castle credits/build match remain unresolved; neither original
-   release is cleared. Do not use their optional runs for licensed audio
-   acceptance. The [new audit](../tests/roms/CLEARED-GAMES.md) specifies exactly
-   which modified artifacts are approved and why.
-2. Extend progression beyond the currently asserted recurring movement/jump and
-   death/restart paths, including reachable finish/credits behavior. Per-window
-   progress and active-duration accounting now pass, but no reference hardware
-   comparison or full level traversal has been performed.
-3. Resolve timing/audio/PPU deviations that affect those paths. Continue running
+1. Verify audio fidelity and synchronization beyond Memory's non-silent game-event
+   effects and interactive Web Audio checks. Castle remains silent. The
+   [audit](../tests/roms/CLEARED-GAMES.md) clears the exact modified builds;
+   Gothicvania's original runtime/audio/build terms and the original Castle
+   credits/build match remain unresolved. Neither original release is cleared,
+   and their optional runs do not establish licensed audio acceptance.
+2. Resolve timing/audio/PPU deviations that affect the tested paths. Continue running
    additional licensed timing fixtures and report failures explicitly. The
    passing CPU suites are semantic evidence, not cycle accuracy.
-4. Run the configured Linux CI gates on GitHub when a later workflow is
+3. Run the configured Linux CI gates on GitHub when a later workflow is
    authorized to push/open a PR. This node only prepares and commits files.
 
 Do not use this checkpoint's green checks to close Issue #3 or describe it as

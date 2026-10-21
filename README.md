@@ -10,8 +10,8 @@ through the same core in five-minute browser regressions. Their exact sources,
 assets, notices, alterations and ROM hashes are recorded in the
 [cleared-game audit](tests/roms/CLEARED-GAMES.md). The modified Memory Game adds
 original card/match/win/loss sound effects through an uploaded SPC program;
-Castle remains silent. Further gameplay/hardware and audio fidelity verification
-remain release requirements. Gothicvania and the original Castle release remain
+Castle remains silent. Hardware and audio fidelity verification remain release
+requirements. Gothicvania and the original Castle release remain
 user-supplied investigations with unresolved binary/build licensing. This is not
 a completed release or a claim of broad commercial compatibility. See the
 [delivery checklist and evidence](docs/issue-3-progress.md).
@@ -92,6 +92,12 @@ per game, asserting gameplay throughout the run. Memory also wins and restarts
 using controller input, requiring non-silent game sound effects in every window.
 A separate real-time keyboard test verifies its card sounds reach Web Audio
 after clicking Play, end while idle, and stay silent on the title after reset.
+A separate fixed-input Castle replay traverses all five maps from reset and
+finishes the credits scroll. It verifies switch-modified map tiles, ordered map
+transitions, controller-driven traversal, changing video and framebuffer hashes
+at recorded checkpoints, rejecting any player death. Castle boots directly into
+gameplay; it has no title screen. The input recording is
+[`web/tests/castle-route.json`](web/tests/castle-route.json).
 CI performs these builds and runs. Generated images and
 their accompanying notices stay under `.cache/cleared-games`; select them with
 the ordinary ROM picker to play locally. See the audit for coverage and limits.

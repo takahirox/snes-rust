@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { replay } from './game-replay.js';
+import { castleProgression } from './castle-progression.js';
 
 const manifest = JSON.parse(readFileSync(new URL('../../tests/roms/cleared-games.json', import.meta.url)));
 async function load(page, name) {
@@ -36,6 +37,19 @@ test('cleared Castle Platformer: five-minute gameplay replay', async ({ page }, 
   expect(result.transitions['0:2']).toBeGreaterThan(0);
   expect(result.transitions['2:0']).toBeGreaterThan(0);
   await evidence(testInfo, result);
+});
+test('cleared Castle Platformer: controller replay traverses all maps and finishes credits', async ({ page }, testInfo) => {
+  test.setTimeout(180000);
+  await load(page, 'castle');
+  const route = JSON.parse(readFileSync(new URL('./castle-route.json', import.meta.url)));
+  expect(route.romSha256).toBe(manifest.castle.romSha256);
+  const result = await castleProgression(page, route);
+  expect(result.frames).toBe(route.frames);
+  await evidence(testInfo, result);
+  await page.locator('canvas').screenshot({ path: testInfo.outputPath('credits.png') });
+  await page.evaluate(() => document.querySelector('canvas').getContext('2d')
+    .putImageData(new ImageData(window.castleWinFrame, 256, 224), 0, 0));
+  await page.locator('canvas').screenshot({ path: testInfo.outputPath('you-win.png') });
 });
 test('cleared Memory Game: five-minute playthroughs using controller inputs', async ({ page }, testInfo) => {
   test.setTimeout(180000);

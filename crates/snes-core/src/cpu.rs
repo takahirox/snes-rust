@@ -752,7 +752,7 @@ impl Cpu {
             }
             "PEI" => {
                 let a = self.addr(b, Dp, false);
-                let v = Self::rd16(b, a);
+                let v = Self::rd16_in_bank(b, a);
                 self.push16_full(b, v);
                 return;
             }
