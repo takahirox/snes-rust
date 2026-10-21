@@ -1,5 +1,5 @@
 {
-  "status": "incomplete; neither full release image is approved for redistribution or automatic acquisition",
+  "status": "two modified source-built game images approved; original Gothicvania/Castle release images remain uncleared",
   "gothicvania": {
     "repository": "https://github.com/donth77/snes-homebrew",
     "sourceCommit": "f94da8b5b79b019a9250fdae4b1667737d30412d",
@@ -79,5 +79,15 @@
       "Actual fonts resolved by GIMP Sans/Sans Bold aliases",
       "Exact generated graphics and source-to-release build/toolchain match"
     ]
+  },
+  "clearedBuilds": {
+    "manifest": "cleared-games.json",
+    "audit": "CLEARED-GAMES.md",
+    "targets": [
+      "Castle Platformer (modified credits and ca65 syntax)",
+      "Memory Game (modified lettering and NTSC region)"
+    ],
+    "decision": "approved for listed source acquisition and redistribution with generated NOTICE.txt; no prebuilt ROM acquisition",
+    "audioAcceptance": "pending: both cleared games are silent"
   }
 }

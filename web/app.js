@@ -5,6 +5,7 @@ const image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
 let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
 let keyboard = 0;
+let operationError = '', persistenceError = '';
 const sources = new Set();
 const keys = { ArrowUp: 0x800, ArrowDown: 0x400, ArrowLeft: 0x200, ArrowRight: 0x100, KeyZ: 0x8000, KeyX: 0x80, KeyA: 0x4000, KeyS: 0x40, KeyQ: 0x20, KeyW: 0x10, Enter: 0x1000, ShiftLeft: 0x2000, ShiftRight: 0x2000 };
 const held = new Set();
@@ -12,14 +13,19 @@ const bytes = (pointer, length) => new Uint8Array(core.memory.buffer, pointer, l
 function check(ok) { if (!ok) throw new Error(decoder.decode(bytes(core.error_buffer(), core.error_len())) || 'Emulator operation failed'); }
 function copyInput(data) { const pointer = core.input_buffer(data.length); if (!pointer) throw new Error('ROM exceeds the supported size'); bytes(pointer, data.length).set(data); }
 function draw() { image.data.set(bytes(core.framebuffer(), image.data.length)); context.putImageData(image, 0, 0); }
-function report(error) { $('error').textContent = error.message || String(error); }
+function showErrors() { $('error').textContent = [operationError, persistenceError].filter(Boolean).join('\n'); }
+function report(error) { operationError = error.message || String(error); showErrors(); }
+function clearError() { operationError = ''; showErrors(); }
 function save() {
-  if (!loaded || !key || !core.battery() || !core.sram_len()) return;
-  try { const data = bytes(core.sram_buffer(), core.sram_len()); let encoded = ''; for (const v of data) encoded += String.fromCharCode(v); localStorage.setItem(key, btoa(encoded)); }
-  catch (e) { report(new Error(`Could not persist SRAM: ${e.message}. Keep this tab open to retain the current save.`)); }
+  if (!loaded || !key || !core.battery() || !core.sram_len()) return true;
+  try {
+    const data = bytes(core.sram_buffer(), core.sram_len()); let encoded = ''; for (const v of data) encoded += String.fromCharCode(v); localStorage.setItem(key, btoa(encoded));
+    persistenceError = ''; showErrors(); return true;
+  }
+  catch (e) { persistenceError = `Could not persist SRAM: ${e.message}. Keep this tab open to retain the current save. Cartridge changes are blocked until saving succeeds.`; showErrors(); return false; }
 }
 function flushAudio() { for (const source of sources) source.stop(); sources.clear(); nextAudio = 0; }
-function pause() { playing = false; keyboard = 0; held.clear(); $('play').textContent = 'Play'; flushAudio(); save(); if (loaded) $('status').textContent = 'Paused'; }
+function pause() { playing = false; keyboard = 0; held.clear(); $('play').textContent = 'Play'; flushAudio(); const saved = save(); if (loaded) $('status').textContent = 'Paused'; return saved; }
 async function activateAudio() {
   if (!$('sound').checked) return;
   try { audio ??= new AudioContext({ sampleRate: 32000 }); await audio.resume(); }
@@ -60,14 +66,19 @@ function animate(time) {
 }
 $('rom').addEventListener('change', async (event) => {
   const file = event.target.files[0]; if (!file) return;
-  pause(); $('error').textContent = ''; $('rom').disabled = true;
+  $('rom').disabled = true;
   try {
+    if (!pause()) return;
+    clearError();
     if (!core) throw new Error('Emulator has not loaded');
     if (!/\.(sfc|smc)$/i.test(file.name)) throw new Error('Choose an .sfc or .smc cartridge image');
     if (file.size > 4 * 1024 * 1024 + 512) throw new Error('Maximum ROM size is 4 MiB plus a copier header');
     let data = new Uint8Array(await file.arrayBuffer()); if (data.length % 1024 === 512) data = data.subarray(512);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
     const newKey = `snes-rust:sram:${Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+    // Reading/hashing is asynchronous: save again at the replacement boundary
+    // in case playback or storage availability changed while loading the file.
+    if (!pause()) return;
     copyInput(data); check(core.load_rom()); key = newKey; loaded = true;
     try { const saved = localStorage.getItem(key); if (saved && core.battery()) { copyInput(Uint8Array.from(atob(saved), (c) => c.charCodeAt(0))); check(core.load_sram()); } }
     catch (e) { report(new Error(`Save could not be restored: ${e.message}`)); }
@@ -77,9 +88,9 @@ $('rom').addEventListener('change', async (event) => {
 });
 $('play').addEventListener('click', async () => {
   if (playing) { pause(); return; }
-  $('error').textContent = ''; await activateAudio(); debt = 1000 / 60.0988; lastTime = performance.now(); playing = true; $('play').textContent = 'Pause'; $('status').textContent = 'Playing';
+  clearError(); await activateAudio(); debt = 1000 / 60.0988; lastTime = performance.now(); playing = true; $('play').textContent = 'Pause'; $('status').textContent = 'Playing';
 });
-$('reset').addEventListener('click', () => { pause(); try { check(core.reset()); draw(); $('error').textContent = ''; $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
+$('reset').addEventListener('click', () => { pause(); try { check(core.reset()); draw(); clearError(); $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
 $('sound').addEventListener('change', () => { flushAudio(); if ($('sound').checked) void activateAudio(); });
 $('scale').addEventListener('change', () => { const scale = Number($('scale').value); canvas.style.width = `${256 * scale}px`; });
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {

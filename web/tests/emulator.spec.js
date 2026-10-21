@@ -50,6 +50,75 @@ test('SRAM survives reset, page reload, and copier-header ROM identity', async (
   await load(page, Buffer.concat([Buffer.alloc(512), fixture]), 'with-header.smc');
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
 });
+test('failed SRAM writes block cartridge changes until the save can be recovered', async ({ page }) => {
+  await load(page); await expect(page.locator('#status')).toContainText('smoke.sfc loaded');
+  await page.evaluate(() => {
+    new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79;
+    window.originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => { throw new DOMException('Storage full', 'QuotaExceededError'); };
+  });
+  const other = Buffer.from(fixture); other[0x7fc0] ^= 1;
+  await load(page, other, 'other.sfc');
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  await expect(page.locator('#status')).toHaveText('Paused');
+  expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+  await expect(page.locator('#rom')).toBeEnabled();
+  // Reopening even the same image must not replace its unsaved machine.
+  await load(page); await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+  await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
+  await load(page, other, 'other.sfc');
+  await expect(page.locator('#status')).toContainText('other.sfc loaded');
+  await expect(page.locator('#error')).toBeEmpty();
+  expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0);
+  await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
+  await load(page); await expect(page.locator('#status')).toContainText('smoke.sfc loaded');
+  expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+  // Storage can become unavailable during asynchronous file reading/hashing,
+  // after the initial save succeeded but before the machine is replaced.
+  await page.evaluate(() => {
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = async (...args) => { await new Promise((resolve) => { window.releaseHash = resolve; }); return digest(...args); };
+    window.originalSetItem = Storage.prototype.setItem;
+  });
+  await load(page, other, 'other.sfc');
+  await expect.poll(() => page.evaluate(() => typeof window.releaseHash)).toBe('function');
+  await page.evaluate(() => {
+    new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x48;
+    Storage.prototype.setItem = () => { throw new DOMException('Storage full', 'QuotaExceededError'); };
+    window.releaseHash();
+  });
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  await expect(page.locator('#rom')).toBeEnabled();
+  expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x48);
+  await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
+  await page.locator('#reset').click(); await expect(page.locator('#error')).toBeEmpty();
+  await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
+  await load(page); await expect(page.locator('#status')).toContainText('loaded');
+  expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x48);
+});
+test('reset and Play keep SRAM persistence failures visible and retain the save', async ({ page }) => {
+  await load(page); await expect(page.locator('#status')).toContainText('loaded');
+  await page.evaluate(() => {
+    new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79;
+    window.originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => { throw new DOMException('Storage unavailable', 'SecurityError'); };
+  });
+  await page.locator('#reset').click();
+  await expect(page.locator('#status')).toContainText('SRAM preserved');
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+  await page.locator('#play').click();
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  await page.locator('#play').click();
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
+  await page.locator('#reset').click(); await expect(page.locator('#error')).toBeEmpty();
+  await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
+  await load(page); await expect(page.locator('#status')).toContainText('loaded');
+  expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+});
 test('invalid cartridges report errors without crashing the browser', async ({ page }) => {
   await load(page, Buffer.from([1, 2, 3]), 'bad.sfc');
   await expect(page.locator('#error')).toContainText('Expected a 32 KiB');

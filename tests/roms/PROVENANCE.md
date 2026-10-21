@@ -4,7 +4,14 @@ No commercial ROM, Nintendo firmware, external game ROM, or third-party emulator
 implementation is distributed. `.sfc`, `.smc`, saves, downloads, compiler sources,
 build products and screenshots are ignored. A file being available to download
 is not a redistribution decision. The only committed binary is our original
-`smoke.bin` diagnostic. The game audits below remain incomplete.
+`smoke.bin` diagnostic. The original-release investigations below remain
+incomplete. **Two different source-built modified game images are now cleared:**
+Castle Platformer with replacement credits and Memory Game with replacement
+lettering. Their complete allowlist, build decisions, notices and output hashes
+are in [CLEARED-GAMES.md](CLEARED-GAMES.md) and
+[cleared-games.json](cleared-games.json). That approval does not apply to the
+original release binaries below. Both cleared builds are silent; Issue #3's
+licensed game-audio requirement remains open.
 
 ## Original diagnostic: approved
 

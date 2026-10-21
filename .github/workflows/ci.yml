@@ -46,6 +46,14 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build audited game artifacts from pinned source
+        run: |
+          python3 tools/build-test-tools.py
+          python3 tools/build-cleared-games.py
+          python3 tools/build-cleared-games.py
       - run: npm --prefix web ci
       - run: npm --prefix web run build
       - run: npx playwright install --with-deps chromium

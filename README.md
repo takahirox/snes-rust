@@ -5,11 +5,15 @@ WebAssembly adapter and a local browser frontend. No existing emulator core,
 Nintendo firmware, commercial ROM, or third-party game ROM is included.
 
 **Issue [#3](https://github.com/takahirox/snes-rust/issues/3) remains in progress.**
-Gothicvania and Castle Platformer run through the same core, including recorded
-301-second browser samples and Gothicvania audio. Their complete binary/build
-license audits are unfinished, so these games remain local, user-supplied files.
-This is not a completed, license-cleared release or a claim of broad commercial
-compatibility. See [delivery checklist and evidence](docs/issue-3-progress.md).
+Audited, source-built modified versions of Castle Platformer and Memory Game run
+through the same core in five-minute browser regressions. Their exact sources,
+assets, notices, alterations and ROM hashes are recorded in the
+[cleared-game audit](tests/roms/CLEARED-GAMES.md). Both games are silent; a cleared
+game with working music/sound and further gameplay/hardware verification remain
+release requirements. Gothicvania and the original Castle release remain
+user-supplied investigations with unresolved binary/build licensing. This is not
+a completed release or a claim of broad commercial compatibility. See the
+[delivery checklist and evidence](docs/issue-3-progress.md).
 
 ## Run the browser app
 
@@ -39,8 +43,11 @@ SRAM for battery-backed cartridges is stored locally under the SHA-256 of the
 ROM after removing any copier header. Reset clears volatile machine state and
 controllers, preserving SRAM. Opening a ROM resets it and restores its own saved
 SRAM. Saves are persisted every five seconds, on pause/reset/ROM changes and on
-page exit; browser storage failure is reported. Clearing browser storage erases
-these saves. There are no save states or save-file import/export controls yet.
+page exit; browser storage failure is reported. A failed save blocks opening
+another cartridge, preserving the current machine's recoverable SRAM. Play and
+Reset retain the warning until a later save succeeds. Keep the tab open while
+storage is unavailable. Clearing browser storage erases persisted saves. There
+are no save states or save-file import/export controls yet.
 
 If Homebrew Cargo picks a different `rustc` from rustup on macOS, select the
 compiler that owns the installed wasm standard library:
@@ -57,6 +64,10 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
+# Requires make and C/C++ compilers; builds local hash-pinned assemblers.
+python3 tools/build-test-tools.py
+python3 tools/build-cleared-games.py
+python3 tools/build-cleared-games.py
 npm --prefix web run build
 cd web
 npx playwright install chromium
@@ -66,7 +77,16 @@ npm test -- --grep-invert '301 seconds'
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
 execution and browser controls, audible buffers, pause/reset and save restoration.
-It is **not a game** and does not substitute for the two independent game targets.
+It is **not a game** and does not substitute for the two game targets.
+
+The cleared Castle and Memory builds are mandatory browser checks. Their sources
+are downloaded only from the allowlist, then converted and assembled locally;
+their ROMs are never downloaded. Repeating the build verifies the expected hashes
+from fresh build directories. Chromium runs 18,100 frames (301.17 emulated seconds)
+per game, asserting gameplay throughout the run. Memory also wins and restarts
+using controller input. CI performs these builds and runs. Generated images and
+their accompanying notices stay under `.cache/cleared-games`; select them with
+the ordinary ROM picker to play locally. See the audit for coverage and limits.
 
 The licensed CPU/SPC and HDMA suites build from hash-pinned source. Their fonts
 are replaced with zero bitmaps; native assertions inspect RAM, terminal PCs and

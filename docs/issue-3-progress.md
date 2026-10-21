@@ -6,6 +6,34 @@ beyond a scaffold: the generic core runs two actual homebrew games in Chromium
 with real input-derived graphics and Gothicvania audio. It does not yet
 meet all legal audit, timing fidelity and gameplay acceptance requirements.
 
+## Current review fixes
+
+The two cleared gameplay targets are now **modified source builds of Castle
+Platformer and Memory Game**, with complete pinned input inventories and exact
+ROM hashes in the [audit](../tests/roms/CLEARED-GAMES.md). Castle's unidentified
+credits font is removed; original lettering replaces it. Memory is a separate
+card-matching game chosen because Gothicvania's runtime/audio provenance remains
+blocked. Both are by The UnDisbeliever and share a game library; they are distinct
+gameplay programs. Their sources are compiled locally, never supplied as prebuilt
+images. The original-release investigations further below remain historical,
+optional evidence and do not clear those release images.
+
+Both cleared artifacts pass 18,100-frame browser regressions with assertions
+throughout the sample. Castle verifies movement, grounded jumps, active play,
+changing video and death/restart. Memory performs complete wins and restarts
+using controller input, with cursor/selection/video assertions in every window.
+The build runs twice with exact output-hash verification, and CI now builds and
+tests both artifacts. Both games are silent: a cleared music/sound-producing game
+is still required before Issue #3 can close. Castle finish/credits progression
+and hardware-fidelity gaps also remain open.
+
+Failed browser SRAM writes now block ROM replacement and preserve the machine's
+recoverable save; Play and Reset retain the warning until saving succeeds. Two
+Chromium regression tests cover quota/security failures, reset, cartridge
+switch/reopen attempts and recovery after storage is restored. The five smoke
+checks and two cleared game runs pass. PR #4 references #3 without a closing
+directive. No push or merge is performed by this node.
+
 ## Implementation
 
 - [x] Platform-independent Rust core, native runner, WebAssembly adapter, static
@@ -33,8 +61,9 @@ meet all legal audit, timing fidelity and gameplay acceptance requirements.
 - [x] Battery SRAM persistence, reset semantics and browser restoration tests.
 - [x] Bounded headless runner, input replay, markers/terminal PC assertions,
   frame hashes/PPM export, bounded CPU/SPC traces and useful failures.
-- [ ] Finish both games' entire ROM/build/art/audio/font/license audit before
-  bundling or automatically fetching. Their release ROMs remain ignored/local.
+- [x] Audit two exact modified ROM/build/art/font inventories and source-build
+  both games reproducibly; keep the unaudited original releases ignored/local.
+- [ ] Clear a game with music/sound; the two cleared builds are silent.
 - [ ] Establish sufficiently representative sustained gameplay coverage and
   independently verified transitions, accounting for idle/death/restart time.
 
@@ -53,8 +82,9 @@ it references #3 as partial work.
   unpenalized long indexing. Native release build: pass.
 - WebAssembly release/static production build: pass. Chromium checks: 7 pass
   when both optional game images are supplied (two long replays and two late
-  freeze negative controls). Default CI runs the 3 cleared
-  diagnostic smoke tests and does not download external games.
+  freeze negative controls). Those are historical original-release results.
+  Current CI runs five diagnostic smoke tests and two cleared, source-built
+  gameplay tests; it never downloads prebuilt game images.
 - Original 32 KiB diagnostic reproduces byte-for-byte, exercises actual DMA,
   planar graphics, frame counter, controller input, uploaded SPC execution and
   non-silent BRR audio. Browser tests assert keyboard and virtual gamepad
@@ -129,14 +159,13 @@ a standard gamepad is simulated in the automated UI test.
 
 ## Remaining release requirements
 
-1. Finish the exact two release images' embedded sound/font/runtime and build
-   audit. The revision records exact music/runtime and credits-source hashes,
-   retained runtime notices, a byte-matched SPC driver, the correct Castle
-   release submodule, and specific unresolved WDC/Linux/Flipcode-derived runtime
-   provenance and generic-font/build matches. Neither image is cleared; see
-   [audit evidence](../tests/roms/PROVENANCE.md#review-revision-additional-audit-evidence-still-not-cleared).
-   Reproduce from cleared source or replace a candidate if rights cannot be
-   established. No general MIT assumption.
+1. Add a cleared game with working music/sound. The two audited modified builds
+   resolve the two-game licensing blocker through source builds and replacements,
+   but both are silent. Gothicvania's original runtime/audio/build terms and the
+   original Castle credits/build match remain unresolved; neither original
+   release is cleared. Do not use their optional runs for licensed audio
+   acceptance. The [new audit](../tests/roms/CLEARED-GAMES.md) specifies exactly
+   which modified artifacts are approved and why.
 2. Extend progression beyond the currently asserted recurring movement/jump and
    death/restart paths, including reachable finish/credits behavior. Per-window
    progress and active-duration accounting now pass, but no reference hardware
