@@ -3,11 +3,18 @@ use snes_core::{
     cpu::{Bus, Cpu, C, D, I, M, N, V, X, Z},
     frame_hash, Machine,
 };
+#[derive(Debug, PartialEq, Eq)]
+enum Access {
+    Read(u32),
+    Write(u32, u8),
+    Idle,
+}
 struct Ram {
     data: Vec<u8>,
     reads: Vec<u32>,
     writes: Vec<(u32, u8)>,
     idle: usize,
+    accesses: Vec<Access>,
 }
 impl Ram {
     fn new(code: &[u8]) -> Self {
@@ -16,6 +23,7 @@ impl Ram {
             reads: Vec::new(),
             writes: Vec::new(),
             idle: 0,
+            accesses: Vec::new(),
         };
         r.data[0x8000..0x8000 + code.len()].copy_from_slice(code);
         r
@@ -23,14 +31,17 @@ impl Ram {
 }
 impl Bus for Ram {
     fn read(&mut self, a: u32) -> u8 {
+        self.accesses.push(Access::Read(a));
         self.reads.push(a);
         self.data[a as usize]
     }
     fn write(&mut self, a: u32, v: u8) {
+        self.accesses.push(Access::Write(a, v));
         self.writes.push((a, v));
         self.data[a as usize] = v;
     }
     fn idle(&mut self) {
+        self.accesses.push(Access::Idle);
         self.idle += 1;
     }
 }
@@ -417,6 +428,146 @@ fn jumps_and_subroutine_calls_have_fixed_cycle_counts() {
             }
         }
     }
+}
+#[test]
+fn subroutine_calls_follow_documented_bus_order() {
+    use Access::{Idle, Read, Write};
+    // W65C816S Table 5-7: absolute JSR, indexed indirect JSR and JSL.
+    for e in [false, true] {
+        for s in [0x1ffu16, 0x100] {
+            for op in [0x20, 0xfc, 0x22] {
+                let mut r = Ram::new(&[]);
+                r.data[0x7e8000..0x7e8004].copy_from_slice(&[op, 0xfe, 0x90, 0x42]);
+                r.data[0x7e90ff..0x7e9101].copy_from_slice(&[0x34, 0x12]);
+                let mut c = Cpu {
+                    pc: 0x8000,
+                    pb: 0x7e,
+                    db: 0x7f,
+                    x: 1,
+                    s,
+                    e,
+                    ..Cpu::default()
+                };
+                c.step(&mut r);
+                let mut expected = vec![Read(0x7e8000), Read(0x7e8001)];
+                let second = if e && op == 0x20 {
+                    0x100 | (s.wrapping_sub(1) & 255)
+                } else {
+                    s - 1
+                };
+                match op {
+                    0x20 => expected.extend([
+                        Read(0x7e8002),
+                        Idle,
+                        Write(s as u32, 0x80),
+                        Write(second as u32, 2),
+                    ]),
+                    0xfc => expected.extend([
+                        Write(s as u32, 0x80),
+                        Write(second as u32, 2),
+                        Read(0x7e8002),
+                        Idle,
+                        Read(0x7e90ff),
+                        Read(0x7e9100),
+                    ]),
+                    0x22 => expected.extend([
+                        Read(0x7e8002),
+                        Write(s as u32, 0x7e),
+                        Idle,
+                        Read(0x7e8003),
+                        Write(second as u32, 0x80),
+                        Write((s - 2) as u32, 3),
+                    ]),
+                    _ => unreachable!(),
+                }
+                assert_eq!(r.accesses, expected, "opcode {op:02x}, S={s:04x}, E={e}");
+                assert_eq!(c.pc, if op == 0xfc { 0x1234 } else { 0x90fe });
+                assert_eq!(c.pb, if op == 0x22 { 0x42 } else { 0x7e });
+                let final_s = s.wrapping_sub(if op == 0x22 { 3 } else { 2 });
+                assert_eq!(c.s, if e { 0x100 | (final_s & 255) } else { final_s });
+                assert_eq!(c.e, e);
+            }
+        }
+    }
+}
+#[test]
+fn indexed_jsr_reads_pointer_and_high_operand_after_stack_writes() {
+    for e in [false, true] {
+        // The return address replaces the destination pointer at $01fe.
+        let mut r = Ram::new(&[0xfc, 0xfe, 0x01]);
+        r.data[0x1fe..0x200].copy_from_slice(&[0x34, 0x12]);
+        let mut c = Cpu {
+            pc: 0x8000,
+            e,
+            ..Cpu::default()
+        };
+        c.step(&mut r);
+        assert_eq!((c.pb, c.pc, c.s), (0, 0x8002, 0x1fd));
+
+        // The high operand at $01ff is overwritten before it is fetched.
+        let mut r = Ram::new(&[]);
+        r.data[0x1fd..0x200].copy_from_slice(&[0xfc, 0x00, 0x90]);
+        r.data[0x100..0x102].copy_from_slice(&[0x78, 0x56]);
+        r.data[0x9000..0x9002].copy_from_slice(&[0x34, 0x12]);
+        let mut c = Cpu {
+            pc: 0x1fd,
+            e,
+            ..Cpu::default()
+        };
+        c.step(&mut r);
+        assert_eq!((c.pb, c.pc, c.s), (0, 0x5678, 0x1fd));
+    }
+}
+#[test]
+fn jsl_fetches_bank_after_pushing_program_bank() {
+    for e in [false, true] {
+        let mut r = Ram::new(&[]);
+        r.data[0x1fc..0x200].copy_from_slice(&[0x22, 0x34, 0x12, 0x42]);
+        let mut c = Cpu {
+            pc: 0x1fc,
+            e,
+            ..Cpu::default()
+        };
+        c.step(&mut r);
+        assert_eq!((c.pb, c.pc, c.s), (0, 0x1234, 0x1fc));
+        assert_eq!(&r.data[0x1fd..0x200], &[0xff, 0x01, 0x00]);
+    }
+}
+#[test]
+fn cgram_partial_write_keeps_palette_and_readback_unchanged() {
+    let mut p = snes_core::ppu::Ppu::default();
+    p.cgram[0x40..0x42].copy_from_slice(&[0x11, 0x22]);
+    p.write(0x21, 0x20);
+    p.write(0x22, 0x33);
+    assert_eq!(&p.cgram[0x40..0x42], &[0x11, 0x22]);
+    p.write(0x21, 0x20);
+    assert_eq!(p.read(0x3b, 0), 0x11);
+    assert_eq!(p.read(0x3b, 0), 0x22);
+}
+#[test]
+fn cgram_readdressing_discards_incomplete_pair() {
+    let mut p = snes_core::ppu::Ppu::default();
+    p.cgram[0x40..0x44].copy_from_slice(&[0x11, 0x22, 0x55, 0x66]);
+    p.write(0x21, 0x20);
+    p.write(0x22, 0x33);
+    p.write(0x21, 0x21);
+    p.write(0x22, 0x77);
+    assert_eq!(&p.cgram[0x40..0x44], &[0x11, 0x22, 0x55, 0x66]);
+    p.write(0x22, 0xc4);
+    assert_eq!(&p.cgram[0x40..0x44], &[0x11, 0x22, 0x77, 0x44]);
+}
+#[test]
+fn cgram_completed_pairs_commit_both_bytes_and_wrap() {
+    let mut p = snes_core::ppu::Ppu::default();
+    p.write(0x21, 0xff);
+    p.write(0x22, 0x33);
+    assert_eq!(&p.cgram[510..], &[0, 0]);
+    p.write(0x22, 0xa2);
+    assert_eq!(&p.cgram[510..], &[0x33, 0x22]);
+    p.write(0x22, 0x55);
+    assert_eq!(&p.cgram[..2], &[0, 0]);
+    p.write(0x22, 0xff);
+    assert_eq!(&p.cgram[..2], &[0x55, 0x7f]);
 }
 #[test]
 fn hardware_and_software_interrupts_take_seven_or_eight_bus_cycles() {

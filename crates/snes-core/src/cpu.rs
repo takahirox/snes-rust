@@ -705,23 +705,49 @@ impl Cpu {
                 b.idle();
                 return;
             }
-            "JMP" | "JSR" | "JMI" | "JXI" | "JSI" | "JLI" | "JSL" | "JML" | "PEA" => {
+            "JSI" => {
+                // Table 5-7: push the return address before fetching the high
+                // operand and destination pointer; either may overlap the stack.
+                let low = self.fetch(b);
+                self.push16_full(b, self.pc);
+                let high = self.fetch(b);
+                b.idle();
+                let pointer = u16::from_le_bytes([low, high]).wrapping_add(self.x);
+                self.pc = Self::rd16_in_bank(b, ((self.pb as u32) << 16) | pointer as u32);
+                return;
+            }
+            "JSL" => {
+                let a = self.word(b);
+                let e = self.e;
+                self.e = false;
+                self.push(b, self.pb);
+                b.idle();
+                // The bank operand is fetched after PBR is written to the stack.
+                let bank = self.fetch(b);
+                self.push16(b, self.pc.wrapping_sub(1));
+                self.e = e;
+                if e {
+                    self.s = 0x100 | (self.s & 255);
+                }
+                self.pc = a;
+                self.pb = bank;
+                return;
+            }
+            "JMP" | "JSR" | "JMI" | "JXI" | "JLI" | "JML" | "PEA" => {
                 let mut a = self.word(b);
                 let mut bank = self.pb;
-                if name == "JSL" || name == "JML" {
+                if name == "JML" {
                     bank = self.fetch(b);
                 }
                 if name == "JMI" {
                     a = Self::rd16_in_bank(b, a as u32);
                 }
-                if name == "JXI" || name == "JSI" {
+                if name == "JXI" {
                     a = Self::rd16_in_bank(
                         b,
                         ((self.pb as u32) << 16) | a.wrapping_add(self.x) as u32,
                     );
-                    if name == "JXI" {
-                        b.idle();
-                    }
+                    b.idle();
                 }
                 if name == "JLI" {
                     bank = b.read(a.wrapping_add(2) as u32);
@@ -731,20 +757,9 @@ impl Cpu {
                     self.push16_full(b, a);
                     return;
                 }
-                let e = self.e;
-                if name == "JSL" || name == "JSI" {
-                    self.e = false;
-                }
-                if name == "JSL" {
-                    self.push(b, self.pb);
-                }
-                if name == "JSR" || name == "JSI" || name == "JSL" {
-                    self.push16(b, self.pc.wrapping_sub(1));
+                if name == "JSR" {
                     b.idle();
-                }
-                self.e = e;
-                if e {
-                    self.s = 0x100 | (self.s & 255);
+                    self.push16(b, self.pc.wrapping_sub(1));
                 }
                 self.pc = a;
                 self.pb = bank;

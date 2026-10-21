@@ -10,6 +10,7 @@ pub struct Ppu {
     vaddr: u16,
     vbuffer: u16,
     caddr: usize,
+    clatch: u8,
     oaddr: usize,
     olatch: u8,
     scroll_latch: u8,
@@ -33,6 +34,7 @@ impl Default for Ppu {
             vaddr: 0,
             vbuffer: 0,
             caddr: 0,
+            clatch: 0,
             oaddr: 0,
             olatch: 0,
             scroll_latch: 0,
@@ -131,7 +133,12 @@ impl Ppu {
             }
             0x21 => self.caddr = v as usize * 2,
             0x22 => {
-                self.cgram[self.caddr] = if self.caddr & 1 != 0 { v & 127 } else { v };
+                if self.caddr & 1 == 0 {
+                    self.clatch = v;
+                } else {
+                    self.cgram[self.caddr - 1] = self.clatch;
+                    self.cgram[self.caddr] = v & 127;
+                }
                 self.caddr = (self.caddr + 1) & 511;
             }
             0x32 => {
