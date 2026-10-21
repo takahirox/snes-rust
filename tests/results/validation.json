@@ -3,8 +3,8 @@
   "date": "2026-10-21",
   "platform": "macOS arm64; Rust core 1.94 and 1.99; wasm 1.99; Chromium via Playwright 1.61.1",
   "checks": {
-    "rustIntegrationTests": 13,
-    "browserTests": 5,
+    "rustIntegrationTests": 16,
+    "browserTests": 7,
     "cpuSemanticSuites": [
       {
         "suite": "cputest-full",
@@ -32,82 +32,903 @@
     },
     "gameInvestigations": [
       {
-        "name": "Gothicvania",
-        "frames": 18100,
-        "emulatedSeconds": 301.17073885002696,
-        "nonzero": 11929270,
-        "audioRms": 0.18616589688439744,
-        "distinctHashes": 246,
-        "observations": [
-          {
-            "frame": 179,
-            "hash": "6907ed94"
-          },
-          {
-            "frame": 299,
-            "hash": "38a68c59"
-          },
-          {
-            "frame": 359,
-            "hash": "f8778ca6"
-          },
-          {
-            "frame": 599,
-            "hash": "2243b3f5"
-          },
-          {
-            "frame": 899,
-            "hash": "2243b3f5"
-          },
-          {
-            "frame": 18099,
-            "hash": "657b9314"
-          }
-        ],
-        "elapsedMs": 39664.2999997139
-      },
-      {
         "name": "Castle Platformer",
         "frames": 18100,
-        "emulatedSeconds": 301.17073885002696,
+        "emulatedSeconds": 301.17236490742397,
         "nonzero": 0,
         "audioRms": 0,
-        "distinctHashes": 373,
-        "observations": [
+        "windows": [
           {
-            "frame": 179,
-            "hash": "ae4abff8"
+            "start": 0,
+            "activeFrames": 672,
+            "movementFrames": 478,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 959490,
+            "end": 899,
+            "distinctHashes": 123,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 56,
+              "y": 213,
+              "hash": "42116df4"
+            }
           },
           {
-            "frame": 299,
-            "hash": "0e7ff935"
+            "start": 900,
+            "activeFrames": 730,
+            "movementFrames": 537,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 1799,
+            "distinctHashes": 134,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 56,
+              "y": 213,
+              "hash": "42116df4"
+            }
           },
           {
-            "frame": 359,
-            "hash": "d889be93"
+            "start": 1800,
+            "activeFrames": 789,
+            "movementFrames": 533,
+            "jumps": 8,
+            "transitions": {
+              "0:2": 1,
+              "2:0": 1
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 2699,
+            "distinctHashes": 141,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
           },
           {
-            "frame": 599,
-            "hash": "5966827c"
+            "start": 2700,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 3599,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
           },
           {
-            "frame": 899,
-            "hash": "5966827c"
+            "start": 3600,
+            "activeFrames": 703,
+            "movementFrames": 533,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 4499,
+            "distinctHashes": 137,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
           },
           {
-            "frame": 18099,
-            "hash": "932b2158"
+            "start": 4500,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 5399,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
+          },
+          {
+            "start": 5400,
+            "activeFrames": 703,
+            "movementFrames": 533,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 6299,
+            "distinctHashes": 137,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
+          },
+          {
+            "start": 6300,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 7199,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
+          },
+          {
+            "start": 7200,
+            "activeFrames": 703,
+            "movementFrames": 533,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 8099,
+            "distinctHashes": 137,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
+          },
+          {
+            "start": 8100,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 8999,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
+          },
+          {
+            "start": 9000,
+            "activeFrames": 703,
+            "movementFrames": 533,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 9899,
+            "distinctHashes": 137,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
+          },
+          {
+            "start": 9900,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 10799,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
+          },
+          {
+            "start": 10800,
+            "activeFrames": 703,
+            "movementFrames": 533,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 11699,
+            "distinctHashes": 137,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
+          },
+          {
+            "start": 11700,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 12599,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
+          },
+          {
+            "start": 12600,
+            "activeFrames": 703,
+            "movementFrames": 533,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 13499,
+            "distinctHashes": 137,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
+          },
+          {
+            "start": 13500,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 14399,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
+          },
+          {
+            "start": 14400,
+            "activeFrames": 703,
+            "movementFrames": 533,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 15299,
+            "distinctHashes": 137,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
+          },
+          {
+            "start": 15300,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 16199,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
+          },
+          {
+            "start": 16200,
+            "activeFrames": 703,
+            "movementFrames": 533,
+            "jumps": 7,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958426,
+            "end": 17099,
+            "distinctHashes": 137,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 219,
+              "y": 213,
+              "hash": "0c1d89f1"
+            }
+          },
+          {
+            "start": 17100,
+            "activeFrames": 674,
+            "movementFrames": 536,
+            "jumps": 6,
+            "transitions": {
+              "0:2": 2,
+              "2:0": 2
+            },
+            "nonzero": 0,
+            "count": 958428,
+            "end": 17999,
+            "distinctHashes": 126,
+            "audioRms": 0,
+            "last": {
+              "state": 0,
+              "x": 218,
+              "y": 213,
+              "hash": "f7cbda53"
+            }
           }
         ],
-        "elapsedMs": 32831.699999809265
+        "transitions": {
+          "0:2": 40,
+          "2:0": 40
+        },
+        "audioCadence": {
+          "startupFrames": 900,
+          "minSamples": 1064,
+          "maxSamples": 1066,
+          "maxDriftSamples": 2.083766318275593,
+          "boundSamples": 128
+        },
+        "elapsedMs": 34247.09999990463,
+        "activeFramesInCheckedWindows": 13881
+      },
+      {
+        "name": "Gothicvania",
+        "frames": 18100,
+        "emulatedSeconds": 301.17236490742397,
+        "nonzero": 15652530,
+        "audioRms": 0.24742299482704247,
+        "windows": [
+          {
+            "start": 0,
+            "activeFrames": 487,
+            "movementFrames": 92,
+            "jumps": 2,
+            "transitions": {
+              "7:0": 1,
+              "0:1": 2,
+              "1:3": 2,
+              "3:0": 1
+            },
+            "nonzero": 632031,
+            "count": 958426,
+            "end": 899,
+            "distinctHashes": 92,
+            "audioRms": 0.21633441054970826,
+            "last": {
+              "state": 3,
+              "x": 62,
+              "y": 192,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 900,
+            "activeFrames": 520,
+            "movementFrames": 80,
+            "jumps": 1,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 732433,
+            "count": 958428,
+            "end": 1799,
+            "distinctHashes": 68,
+            "audioRms": 0.23140419407483495,
+            "last": {
+              "state": 1,
+              "x": 22,
+              "y": 172,
+              "hash": "b8c7a81f"
+            }
+          },
+          {
+            "start": 1800,
+            "activeFrames": 481,
+            "movementFrames": 68,
+            "jumps": 2,
+            "transitions": {
+              "1:3": 2,
+              "3:0": 2,
+              "0:1": 2
+            },
+            "nonzero": 695267,
+            "count": 958426,
+            "end": 2699,
+            "distinctHashes": 75,
+            "audioRms": 0.22484311051835823,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 2700,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901278,
+            "count": 958428,
+            "end": 3599,
+            "distinctHashes": 130,
+            "audioRms": 0.274575223711664,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 3600,
+            "activeFrames": 472,
+            "movementFrames": 66,
+            "jumps": 2,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 681652,
+            "count": 958426,
+            "end": 4499,
+            "distinctHashes": 73,
+            "audioRms": 0.222401223920074,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 4500,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901274,
+            "count": 958426,
+            "end": 5399,
+            "distinctHashes": 130,
+            "audioRms": 0.27550254931942164,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 5400,
+            "activeFrames": 472,
+            "movementFrames": 66,
+            "jumps": 2,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 680601,
+            "count": 958428,
+            "end": 6299,
+            "distinctHashes": 73,
+            "audioRms": 0.222301799686648,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 6300,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901265,
+            "count": 958428,
+            "end": 7199,
+            "distinctHashes": 130,
+            "audioRms": 0.27537849492006583,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 7200,
+            "activeFrames": 472,
+            "movementFrames": 66,
+            "jumps": 2,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 681665,
+            "count": 958426,
+            "end": 8099,
+            "distinctHashes": 73,
+            "audioRms": 0.22310592706114454,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 8100,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901274,
+            "count": 958426,
+            "end": 8999,
+            "distinctHashes": 130,
+            "audioRms": 0.27523958729934395,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 9000,
+            "activeFrames": 472,
+            "movementFrames": 66,
+            "jumps": 2,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 681655,
+            "count": 958428,
+            "end": 9899,
+            "distinctHashes": 73,
+            "audioRms": 0.22235834802542528,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 9900,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901269,
+            "count": 958428,
+            "end": 10799,
+            "distinctHashes": 130,
+            "audioRms": 0.2756562775587853,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 10800,
+            "activeFrames": 472,
+            "movementFrames": 66,
+            "jumps": 2,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 681653,
+            "count": 958426,
+            "end": 11699,
+            "distinctHashes": 73,
+            "audioRms": 0.22283588621953807,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 11700,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901278,
+            "count": 958426,
+            "end": 12599,
+            "distinctHashes": 130,
+            "audioRms": 0.2755327100035485,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 12600,
+            "activeFrames": 472,
+            "movementFrames": 66,
+            "jumps": 2,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 681653,
+            "count": 958428,
+            "end": 13499,
+            "distinctHashes": 73,
+            "audioRms": 0.22327631175565296,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 13500,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901281,
+            "count": 958426,
+            "end": 14399,
+            "distinctHashes": 130,
+            "audioRms": 0.2754840320909117,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 14400,
+            "activeFrames": 472,
+            "movementFrames": 66,
+            "jumps": 2,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 681657,
+            "count": 958428,
+            "end": 15299,
+            "distinctHashes": 73,
+            "audioRms": 0.2224721513327198,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 15300,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901280,
+            "count": 958426,
+            "end": 16199,
+            "distinctHashes": 130,
+            "audioRms": 0.27544929693190423,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          },
+          {
+            "start": 16200,
+            "activeFrames": 472,
+            "movementFrames": 66,
+            "jumps": 2,
+            "transitions": {
+              "3:0": 2,
+              "0:1": 2,
+              "1:3": 1
+            },
+            "nonzero": 681654,
+            "count": 958428,
+            "end": 17099,
+            "distinctHashes": 73,
+            "audioRms": 0.22286931257753115,
+            "last": {
+              "state": 1,
+              "x": 52,
+              "y": 172,
+              "hash": "3111a8bb"
+            }
+          },
+          {
+            "start": 17100,
+            "activeFrames": 841,
+            "movementFrames": 488,
+            "jumps": 6,
+            "transitions": {
+              "1:3": 1
+            },
+            "nonzero": 901281,
+            "count": 958426,
+            "end": 17999,
+            "distinctHashes": 130,
+            "audioRms": 0.27572865346235853,
+            "last": {
+              "state": 3,
+              "x": 1272,
+              "y": 189,
+              "hash": "2243b3f5"
+            }
+          }
+        ],
+        "transitions": {
+          "7:0": 1,
+          "0:1": 22,
+          "1:3": 22,
+          "3:0": 22
+        },
+        "audioCadence": {
+          "startupFrames": 900,
+          "minSamples": 992,
+          "maxSamples": 1138,
+          "maxDriftSamples": 72.43787088093814,
+          "boundSamples": 128
+        },
+        "elapsedMs": 44878.7999997139,
+        "activeFramesInCheckedWindows": 12833
       }
-    ]
+    ],
+    "instructionTiming": "Indexed direct-page, absolute, indirect-Y, stack-relative-Y; zero/nonzero indexes, page/bank crossing, register widths, fixed writes/RMW and unpenalized long modes",
+    "lateFreezeNegativeControls": "Both games: after 900 valid frames, freeze player-position observation while actual core/video/audio continue; require the 900-1799 movement assertion to reject it"
   },
   "mandatoryRemaining": [
-    "Complete both game binary/build and every embedded art/audio/font/runtime license audit",
-    "Verify a sufficient sustained gameplay path and game-state transitions against independent baselines; samples include idle death screens and restarts",
-    "Complete or bound hardware timing/audio/PPU deviations required by the selected games; current checks do not prove absence of desynchronization",
-    "Execute the configured Linux CI jobs on GitHub; local equivalents pass but this node does not push or trigger CI"
+    "Complete both game binary/build audits; specific unresolved runtime provenance and font/build matches are in tests/roms/PROVENANCE.md and game-audit.json",
+    "Verify finish/credits and more representative progression; revised samples assert movement and jumps every 900 frames but include death/title/restart periods",
+    "Complete or bound remaining hardware timing/audio/PPU deviations required by the games; the new 2 ms cumulative sample/raster bound is internal cadence evidence, not reference hardware or audible fidelity",
+    "Rerun GitHub CI after this checkpoint is published; this node does not push or trigger CI"
   ],
   "frameHashAlgorithms": {
     "native": "FNV-1a 64-bit over RGBA framebuffer",

@@ -156,12 +156,93 @@ any game image or declaring Issue #3 complete.
   <https://github.com/undisbeliever/1gam-common>, commit
   `aeefd05495cbe78910c1f402cdb0a132d4c169ac`, MIT, same author. This is a **game
   library**, not an emulator, and is not imported into our emulator.
+- **Release-tag correction:** `v1.04` actually pins `snesdev-common` to
+  `02f661ca902d6663cf43d9aacb4b43acf83a34ff`, also MIT with the same 2015
+  notice. The `aeefd054...` pin above belongs only to the later investigated
+  checkout. It must not be used to reproduce or audit the release.
 - Build: ca65/ld65, pcx2snes, ucon64, Tiled, python3-tmx and ImageMagick are listed
   upstream. Release tool versions, generated graphics, fonts and exact submodule
   pin must be matched to `v1.04`; this release has not been reproduced locally.
 - Decision: user-supplied development image only. Primary code/art rights are
   documented; full binary/build/font clearance is pending. No audio is expected
   from this selected demo; silence here is not the audio acceptance case.
+
+### Review revision: additional audit evidence, still not cleared
+
+The licensing finding remains open. The following checks narrow it; they do
+**not** approve either complete image or satisfy the two-game acceptance gate.
+No game binary, font, library code or game art was added to this repository.
+
+- Gothicvania's entire `gothicvania/` source tree is byte-identical between the
+  release tag and MIT-licensed commit `119496e6...`: `git diff TAG COMMIT --
+  gothicvania` is empty. Only LICENSE and the root README changed. This ties
+  that MIT notice to the tagged game sources, without licensing dependencies.
+- The tagged MIDI files contain the track titles "Gothic Title Theme" and
+  "Gothic Baroque Loop". The README attributes the music as original;
+  `tools/mid2it.py` synthesizes square/triangle/saw samples mathematically,
+  rather than importing instrument recordings. The precise inputs are listed
+  in [game-audit.json](game-audit.json). Reproducing the tracker modules and
+  matching their packed soundbank to the release remains unperformed.
+- `tools/adapt_title.py` names `Kenney Pixel.ttf`, in addition to ansimuz's
+  title art. [Kenney's own font page](https://kenney.nl/assets/kenney-fonts)
+  identifies CC0. The exact font file used upstream is absent; a matching
+  title-overlay rebuild has not been established.
+- PVSnesLib 4.5.0's precise Darwin tool archive and source archive hashes are
+  recorded in `game-audit.json`. Its LoROM SlowROM link inputs are
+  `crt0_snes.obj`, `libc.obj`, `libm.obj`, `libtcc.obj`; the game has no
+  submodules. The library's notices are [MIT](licenses/pvsneslib-MIT.txt) and
+  [zlib-style](licenses/pvsneslib-zlib.txt); these are evidence, not a blanket
+  clearance of everything linked. In particular, `source/libtcc.asm` identifies
+  multiplication/division routines taken from WDC's *Programming the 65816*;
+  `source/libc_c.c` separately credits Linux `vsprintf.c` (Linus Torvalds /
+  Lars Wirzenius) and a Flipcode allocator. Their specific applicable terms,
+  the emitted sections, and a complete release link match remain unresolved.
+- The 5,522-byte `source/sm_spc.asm` driver data matches Gothicvania's release
+  ROM **exactly** at file offset `0x5cde0`, SHA-256
+  `d0221a0965a8562bfc8e36e2f02c2e2c3a3b17d99dce07b563c34fd4bdf4a265`.
+  The assembly driver credits Mukunda Johnson and KungFuFurby; its CPU-side
+  WLA adaptation credits KungFuFurby and Alekmaul and carries zlib-style terms.
+  [Original SNESMOD terms](licenses/snesmod-MIT.txt) are pinned to upstream
+  `3e4990a5405bbeba43710bb5f09dc7c34a7cd9f4/LICENSING.txt`. A complete
+  source/derivative/build inventory is still needed before clearance.
+- Castle's tagged `src/resources.s` enumerates five maps, one combined
+  tileset/palette, five entity sprite sheets and the credits image. The tagged
+  per-asset `.source` records identify Jetrel, qubodup and Jason-Em's CC0
+  inputs and the author modifications. No sound module is linked by this
+  Makefile. The release submodule pin is now verified above.
+- Castle's `resources/images4bpp/credits.xcfgz` retains GIMP text layers using
+  the generic font names **Sans** and **Sans Bold**, with no specific font
+  file/version. The accompanying `.source` explains the art composition and
+  that the text was made in GIMP, but does not identify the resolved fonts.
+  Both credits-source hashes are recorded in `game-audit.json`. Do not infer
+  a particular font license from a generic family name. The credits font and
+  the source-to-release asset/build match remain unresolved.
+
+### Replay marker derivation
+
+Only tests contain game-specific addresses. The core has no game recognition or
+game-specific fixes. The ROM SHA checks must pass before these markers are used.
+
+- Gothicvania: tagged `src/game.c` declares `feetX/feetY` (8.8 fixed point),
+  `vy` and `onGround`. A diagnostic link of the tagged C sources with the
+  specified 4.5.0 compiler locates them at `$7e2040/$7e2044`, `$7e204a` and
+  `$7f0009`. Missing graphical link inputs were replaced with zero data **only
+  to obtain RAM symbols**; that diagnostic image was not used for gameplay and
+  is not a reproduced release. Absolute accesses to the position globals also
+  appear in the real release. Tests read the integer position words one byte
+  into each fixed-point field. `src/main.c`'s permanent `st` local occupies
+  `$1ffb`: reset sets S=`$1fff`, JSL pushes three bytes, and the compiler's
+  first two-byte local occupies `$1ffb-$1ffc`. The enum is title=0, play=1,
+  end=2, game over=3. Tests assert title→play→game over→title transitions;
+  `play.c` requires grounding and a fresh jump press before setting negative vy.
+- Castle: tagged `src/entity.h`, `entity-animation.h`, `entity-physics.h`
+  and `entities/player.h` define the player at `$0200`, x/y integer words
+  at `$0205/$0208`, vy at `$0220`, and standing-tile pointer at `$0222`.
+  ca65 structure constants give offsets `4,7,0x20,0x22` from the player base.
+  The release's game-loop dispatch contains `AD 5F 01 F0 DF` at file offset
+  `0x2002`, loading `GameLoop__state` from `$015f`; `gameloop.h` defines
+  playing=0, dead=2. Tests assert death/restart and grounded jump behavior.
+  Map completion and the credits screen are not verified.
 
 ### Previously downloaded test releases (not used by reproducible checks)
 

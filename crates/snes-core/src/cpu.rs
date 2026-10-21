@@ -468,7 +468,7 @@ impl Cpu {
         self.pc = Self::rd16(b, vector);
         b.idle();
     }
-    fn addr(&mut self, b: &mut impl Bus, m: Mode) -> u32 {
+    fn addr(&mut self, b: &mut impl Bus, m: Mode, write: bool) -> u32 {
         let db = (self.db as u32) << 16;
         match m {
             Dp | Dpx | Dpy | Ind | Idx | Idy | Idl | Ily => {
@@ -481,7 +481,7 @@ impl Cpu {
                     Dpy => self.y,
                     _ => 0,
                 };
-                if ix != 0 {
+                if matches!(m, Dpx | Dpy | Idx) {
                     b.idle();
                 }
                 let a = if self.e && self.d & 255 == 0 && ix != 0 {
@@ -501,7 +501,11 @@ impl Cpu {
                         };
                         db | ptr as u32
                     }
-                    Idy => (db + self.dpword(b, a) as u32 + self.y as u32) & 0xffffff,
+                    Idy => {
+                        let base = self.dpword(b, a);
+                        self.indexed_cycle(b, base, self.y, write);
+                        (db + base as u32 + self.y as u32) & 0xffffff
+                    }
                     Idl | Ily => {
                         let l = Self::rd16(b, a as u32) as u32;
                         let bank = b.read(a.wrapping_add(2) as u32) as u32;
@@ -512,13 +516,15 @@ impl Cpu {
             }
             Abs | Abx | Aby => {
                 let a = self.word(b);
-                (db + a as u32
-                    + match m {
-                        Abx => self.x as u32,
-                        Aby => self.y as u32,
-                        _ => 0,
-                    })
-                    & 0xffffff
+                let index = match m {
+                    Abx => self.x,
+                    Aby => self.y,
+                    _ => 0,
+                };
+                if m != Abs {
+                    self.indexed_cycle(b, a, index, write);
+                }
+                (db + a as u32 + index as u32) & 0xffffff
             }
             Long | Lgx => {
                 let a = self.word(b) as u32;
@@ -530,12 +536,22 @@ impl Cpu {
                 b.idle();
                 let a = self.s.wrapping_add(v as u16);
                 if m == Siy {
-                    (db + Self::rd16(b, a as u32) as u32 + self.y as u32) & 0xffffff
+                    let base = Self::rd16(b, a as u32);
+                    b.idle();
+                    (db + base as u32 + self.y as u32) & 0xffffff
                 } else {
                     a as u32
                 }
             }
             _ => 0,
+        }
+    }
+    fn indexed_cycle(&self, b: &mut impl Bus, base: u16, index: u16, write: bool) {
+        // W65C816S table 5-7, note 4: (d),Y and absolute indexed reads
+        // add one cycle for a page crossing or 16-bit indexes; writes always do.
+        // Absolute indexed read-modify-write instructions also always do.
+        if write || !self.flag(X) || (base & 255) as u32 + index as u32 > 255 {
+            b.idle();
         }
     }
     fn compare(&mut self, a: u16, v: u16, byte: bool) {
@@ -708,7 +724,7 @@ impl Cpu {
                 return;
             }
             "PEI" => {
-                let a = self.addr(b, Dp);
+                let a = self.addr(b, Dp, false);
                 let v = Self::rd16(b, a);
                 self.push16_full(b, v);
                 return;
@@ -936,7 +952,8 @@ impl Cpu {
                 self.word(b)
             }
         } else {
-            a = self.addr(b, mode);
+            let modify = matches!(name, "ASL" | "LSR" | "ROL" | "ROR" | "INC" | "DEC");
+            a = self.addr(b, mode, store || modify);
             if store {
                 0
             } else if byte {

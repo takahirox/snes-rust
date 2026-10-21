@@ -100,12 +100,19 @@ CASTLE_ROM='/absolute/path/Castle Platformer (v1.04).sfc' \
 npm --prefix web test -- --grep '301 seconds'
 ```
 
-These tests verify ROM hashes, reset, repeated Start/right/jump/attack inputs,
-reviewed frame snapshots, changing output and finite audio samples for 18,100
-frames per game (301.17 emulated seconds). They run faster than real time and
-write JSON evidence into `web/test-results`. They include death/end-screen
-pauses and restarts; they do not prove a complete level traversal or perfect
-synchronization. They are skipped unless the corresponding environment variable
+These tests verify ROM hashes and run 18,100 frames per game (301.17 emulated
+seconds) from reset. Every 900-frame window requires controller-driven player
+movement, a grounded B jump, active gameplay, changing video and (for Gothicvania)
+non-silent audio. Source-derived game-state markers verify title/play/game-over
+and death/restart transitions. Two negative controls freeze the observed player
+position after the first valid window and require the next window to fail.
+JSON evidence includes every window and active-frame counts in `web/test-results`.
+
+After 900 startup frames, the tests bound each audio buffer and cumulative sample
+count against the core's NTSC raster to 128 interleaved samples (2 ms). This
+checks internal cadence; it does not establish hardware timing, audible fidelity,
+interactive playback synchronization or a complete level traversal. Samples
+include death/title pauses and restarts. Tests are skipped unless their ROM path
 is set; CI does not acquire these incompletely audited games.
 
 ## Headless debugging

@@ -41,14 +41,19 @@ meet all legal audit, timing fidelity and gameplay acceptance requirements.
 ## Reproducible local validation
 
 See [README commands](../README.md#validate) and the machine-readable
-[validation record](../tests/results/validation.json). No CI run was triggered
-and no PR, push, comment, merge, deployment or Issue closure was performed.
+[validation record](../tests/results/validation.json). This revision does not
+push, merge, deploy or close the Issue. PR #4's closing directive was removed;
+it references #3 as partial work.
 
 - Format and Clippy with warnings denied: pass (Rust 1.99; core also compiled
   and tested with Rust 1.94). Workspace unit/integration/doc checks: pass,
-  including 13 integration tests. Native release build: pass.
-- WebAssembly release/static production build: pass. Chromium checks: 5 pass
-  when both optional game images are supplied. Default CI runs the 3 cleared
+  including 16 integration tests. New counting-bus instruction regressions cover
+  direct-page indexing with zero/nonzero indexes, page-crossing and 16-bit-index
+  read penalties, fixed indexed store/RMW cycles, stack-relative indirect Y, and
+  unpenalized long indexing. Native release build: pass.
+- WebAssembly release/static production build: pass. Chromium checks: 7 pass
+  when both optional game images are supplied (two long replays and two late
+  freeze negative controls). Default CI runs the 3 cleared
   diagnostic smoke tests and does not download external games.
 - Original 32 KiB diagnostic reproduces byte-for-byte, exercises actual DMA,
   planar graphics, frame counter, controller input, uploaded SPC execution and
@@ -76,21 +81,41 @@ separate emulator package. No external emulation implementation is used.
 
 Both images were loaded from reset into the **same unmodified emulator core**.
 Game-specific logic exists only in input/snapshot tests, never in the core.
-ROM hashes, reviewed framebuffer hashes and aggregate audio metrics are in the
-validation record. Images themselves and screenshots remain ignored because
-full binary/build audits are pending; see [provenance](../tests/roms/PROVENANCE.md).
+ROM hashes are checked before execution; per-window state/video/audio evidence
+and aggregate audio metrics are in the validation record. Images themselves and
+screenshots remain ignored because full binary/build audits are pending;
+see [provenance](../tests/roms/PROVENANCE.md).
 
 | Sample | Emulated duration | Observations | Audio |
 | --- | --- | --- | --- |
-| Gothicvania v1.0.0 | 18,100 frames / 301.17 s | Title → Start → right movement → B jump / Y attack → Game Over; repeating input cycle restarts play | >11 million nonzero interleaved samples; RMS about 0.186 |
-| Castle Platformer v1.04 | 18,100 frames / 301.17 s | Starts in gameplay; right movement / B jump; death and button-driven restart cycles | Silent in this demo; not used for audio acceptance |
+| Gothicvania v1.0.0 | 18,100 frames / 301.17 s | 20 windows with movement and grounded jumps; 22 title→play→game-over→title cycles | Non-silent in every window; finite samples |
+| Castle Platformer v1.04 | 18,100 frames / 301.17 s | 20 windows with movement and grounded jumps; 40 death/restart cycles | Silent in this demo; not used for audio acceptance |
 
-Each recorded 900-frame input cycle presses Start at 180–181, right during
-240–599, B during 340–359 and 520–539, and Y during 400–409; it repeats for the
-full sample. The browser asserts reviewed reset/title, gameplay, jump and death
-frame digests for the exact ROM versions, >100 distinct frame hashes, and
-non-silent finite Gothicvania samples. Death/end screens create idle periods;
-301 seconds of total emulation is **not** 301 seconds of continuous active play.
+The revised replay presses Start at residues 60–61 modulo 120 (both Game Over
+and title require fresh presses in Gothicvania), right during residues 120–779
+modulo 900, B during 30–41 modulo 90, and Y during 85–89 modulo 120. Each of the
+20 complete 900-frame windows must contain at least 20 small positive player
+displacements under Right, one grounded-to-airborne B jump with upward velocity,
+90 active gameplay frames, and 20 distinct rendered hashes. Gothicvania must
+produce non-silent finite audio in every window. Source/address derivations are
+recorded in [provenance](../tests/roms/PROVENANCE.md#replay-marker-derivation).
+The old first-900-frame golden assertions were replaced by these source-derived
+checks throughout the sample. Negative controls freeze the observed player X
+after frame 900 while the real core/video/audio continue, and verify rejection
+by the movement assertion at frame 1799 for both games.
+
+Gothicvania's checked windows contain 12,833 active frames (about 213.5 s),
+66–488 movement frames and 1–6 grounded jumps per window; Castle's contain
+13,881 active frames (about 231.0 s), 478–537 movement frames and 6–8 grounded
+jumps per window. Death/title periods remain; this is **not** 301 seconds of
+continuous active play. Neither test may pass using only its early progress.
+
+After the first 900 frames, audio buffers must contain 960–1170 interleaved
+samples and cumulative sample/raster drift must remain within 128 samples
+(2 ms at 32 kHz stereo). Observed maximum drift is 72.44 samples (1.14 ms)
+for Gothicvania and 2.09 samples (0.04 ms) for Castle. Boot DMA is excluded from
+this cumulative bound. This bounds the core's internal audio/video cadence,
+not its fidelity to a reference machine or the frontend's audible latency.
 These are accelerated core/framebuffer runs in real Chromium, not real-time
 interactive listening sessions. The separate browser smoke checks actual Web
 Audio scheduling using our cleared diagnostic.
@@ -104,13 +129,18 @@ a standard gamepad is simulated in the automated UI test.
 
 ## Remaining release requirements
 
-1. Audit the exact two release images' embedded sound/font/runtime content and
-   toolchain/submodule provenance, ideally reproduce them from cleared source.
-   Record every artifact hash and all notices. Replace a candidate if clear
-   redistribution rights cannot be established. No general MIT assumption.
-2. Strengthen gameplay replays to account for active play duration, assert useful
-   interactions/transitions against independent source/hardware evidence, and
-   cover reachable finish/credits behavior where practical.
+1. Finish the exact two release images' embedded sound/font/runtime and build
+   audit. The revision records exact music/runtime and credits-source hashes,
+   retained runtime notices, a byte-matched SPC driver, the correct Castle
+   release submodule, and specific unresolved WDC/Linux/Flipcode-derived runtime
+   provenance and generic-font/build matches. Neither image is cleared; see
+   [audit evidence](../tests/roms/PROVENANCE.md#review-revision-additional-audit-evidence-still-not-cleared).
+   Reproduce from cleared source or replace a candidate if rights cannot be
+   established. No general MIT assumption.
+2. Extend progression beyond the currently asserted recurring movement/jump and
+   death/restart paths, including reachable finish/credits behavior. Per-window
+   progress and active-duration accounting now pass, but no reference hardware
+   comparison or full level traversal has been performed.
 3. Resolve timing/audio/PPU deviations that affect those paths. Continue running
    additional licensed timing fixtures and report failures explicitly. The
    passing CPU suites are semantic evidence, not cycle accuracy.

@@ -205,6 +205,144 @@ fn bus_access_timing_is_region_dependent() {
     m.bus.read(0x808000);
     assert_eq!(m.bus.clocks - start, 6);
 }
+
+// Instruction cycles, independent of the region-dependent master-clock bus waits.
+// WDC W65C816S tables 3-1, 5-4 and 5-7 (especially note 4).
+fn timed_instruction(code: &[u8], index: u16, p: u8, d: u16, base: u16) -> usize {
+    let mut ram = Ram::new(code);
+    ram.data[d as usize + 0x20..d as usize + 0x22].copy_from_slice(&base.to_le_bytes());
+    let mut cpu = Cpu {
+        pc: 0x8000,
+        e: false,
+        p,
+        x: index,
+        y: index,
+        d,
+        ..Cpu::default()
+    };
+    cpu.step(&mut ram);
+    ram.reads.len() + ram.writes.len() + ram.idle
+}
+
+#[test]
+fn direct_indexing_always_takes_a_cycle_even_with_zero_index() {
+    for index in [0, 1] {
+        for (op, cycles) in [(0xb5, 4), (0xb6, 4), (0xa1, 6), (0x95, 4), (0x16, 6)] {
+            for d in [0, 1] {
+                assert_eq!(
+                    timed_instruction(&[op, 0x20], index, M | X, d, 0x9000),
+                    cycles + usize::from(d != 0),
+                    "opcode {op:02x}, index {index}, D {d}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn indexed_reads_add_one_cycle_for_page_crossing_or_wide_indexes() {
+    for (index, base, xb, extra) in [
+        (0, 0x9000, X, 0),
+        (1, 0x9000, X, 0),
+        (1, 0x90ff, X, 1),
+        (1, 0xffff, X, 1),
+        (0, 0x9000, 0, 1),
+        (1, 0x9000, 0, 1),
+        (1, 0x90ff, 0, 1), // the two conditions do not add two cycles
+        (0xffff, 0x9001, 0, 1),
+    ] {
+        for mb in [M, 0] {
+            for op in [
+                0x1d, 0x3d, 0x5d, 0x7d, 0xbd, 0xdd, 0xfd, 0x3c, 0x19, 0x39, 0x59, 0x79, 0xb9, 0xd9,
+                0xf9, 0xbc, 0xbe,
+            ] {
+                let width = if matches!(op, 0xbc | 0xbe) { xb } else { mb };
+                assert_eq!(
+                    timed_instruction(
+                        &[op, base as u8, (base >> 8) as u8],
+                        index,
+                        mb | xb,
+                        0,
+                        base
+                    ),
+                    4 + extra + usize::from(width == 0),
+                    "opcode {op:02x}, index {index}, base {base:04x}, P {:02x}",
+                    mb | xb
+                );
+            }
+            for op in [0x11, 0x31, 0x51, 0x71, 0xb1, 0xd1, 0xf1] {
+                assert_eq!(
+                    timed_instruction(&[op, 0x20], index, mb | xb, 0, base),
+                    5 + extra + usize::from(mb == 0),
+                    "opcode {op:02x}, index {index}, base {base:04x}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn indexed_writes_and_stack_indirect_have_fixed_cycles() {
+    for (index, base) in [(0, 0x9000), (1, 0x9000), (1, 0x90ff)] {
+        for xb in [X, 0] {
+            for mb in [M, 0] {
+                for op in [0x99, 0x9d, 0x9e] {
+                    assert_eq!(
+                        timed_instruction(
+                            &[op, base as u8, (base >> 8) as u8],
+                            index,
+                            mb | xb,
+                            0,
+                            base
+                        ),
+                        5 + usize::from(mb == 0)
+                    );
+                }
+                for op in [0x1e, 0x3e, 0x5e, 0x7e, 0xde, 0xfe] {
+                    assert_eq!(
+                        timed_instruction(
+                            &[op, base as u8, (base >> 8) as u8],
+                            index,
+                            mb | xb,
+                            0,
+                            base
+                        ),
+                        7 + 2 * usize::from(mb == 0)
+                    );
+                }
+                assert_eq!(
+                    timed_instruction(&[0x91, 0x20], index, mb | xb, 0, base),
+                    6 + usize::from(mb == 0)
+                );
+                for op in [0xb3, 0x93] {
+                    assert_eq!(
+                        timed_instruction(&[op, 0x20], index, mb | xb, 0, base),
+                        7 + usize::from(mb == 0)
+                    );
+                }
+                // Long indexed modes never pay a page-crossing/index-width penalty.
+                for op in [0xbf, 0x9f] {
+                    assert_eq!(
+                        timed_instruction(
+                            &[op, base as u8, (base >> 8) as u8, 0],
+                            index,
+                            mb | xb,
+                            0,
+                            base
+                        ),
+                        5 + usize::from(mb == 0)
+                    );
+                }
+                for op in [0xb7, 0x97] {
+                    assert_eq!(
+                        timed_instruction(&[op, 0x20], index, mb | xb, 0, base),
+                        6 + usize::from(mb == 0)
+                    );
+                }
+            }
+        }
+    }
+}
 #[test]
 fn diagnostic_has_deterministic_video_dma_input_and_spc_audio() {
     let mut a = Machine::new(&fixture()).unwrap();
