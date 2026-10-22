@@ -1,5 +1,16 @@
 name: Emulator checks
-on: [push, pull_request]
+on:
+  push:
+    # main runs these same jobs through pages.yml before deployment.
+    branches-ignore: [main]
+    tags: ['**']
+  pull_request:
+  workflow_call:
+    inputs:
+      upload-pages-artifact:
+        description: Upload the validated site for the main-only Pages workflow
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -60,3 +71,7 @@ jobs:
         working-directory: web
       - run: npm test -- --grep-invert '301 seconds'
         working-directory: web
+      - uses: actions/upload-pages-artifact@v3
+        if: inputs.upload-pages-artifact && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          path: web/dist

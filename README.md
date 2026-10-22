@@ -1,7 +1,7 @@
 # snes-rust
 
 An experimental SNES interpreter written from scratch in Rust, with a dependency-free
-WebAssembly adapter and a local browser frontend. No existing emulator core,
+WebAssembly adapter and a browser frontend. No existing emulator core,
 Nintendo firmware, commercial ROM, or third-party game ROM is included.
 
 The first-playable baseline runs audited, source-built modified versions of
@@ -22,6 +22,11 @@ user-supplied investigations with unresolved binary/build licensing.
 
 ## Run the browser app
 
+Expected public site: <https://takahirox.github.io/snes-rust/> (**publication and
+live-site verification pending**; a configured custom domain may change this URL).
+Visitors select their own legally obtained ROM locally. ROMs are never uploaded
+or downloaded by the app, and browser SRAM saves remain in local storage.
+
 Requirements: Rust 1.94+ with Cargo, the `wasm32-unknown-unknown` standard library,
 Node.js 24+, npm, and Python 3.12+. Only browser tests use an npm dependency
 (Playwright); the Rust workspace has no external dependencies.
@@ -36,7 +41,7 @@ npm --prefix web run serve
 Open <http://127.0.0.1:8080>. Select a lawfully obtained ordinary NTSC LoROM or
 HiROM `.sfc`/`.smc` cartridge, then click **Play**. Files stay client-side. No server
 upload or remote ROM download is implemented. The static production output is
-`web/dist`; no deployment is required.
+`web/dist`; the local server serves the same assets as GitHub Pages.
 
 Keyboard: arrows move, Z = B, X = A, A = Y, S = X, Q/W = L/R, Enter = Start,
 Shift = Select. Standard gamepads use the corresponding four face buttons,
@@ -134,6 +139,66 @@ with `RUSTC="$(rustup which rustc)"` to select Rust 1.99. Omit `--spc` and
 `.cache/hardware-tests/results.json` and `.cache/ppu-test/results.json`.
 [Provenance and notices](tests/roms/PROVENANCE.md) describe the precise source
 artifacts, compiler pins and deliberate fixture alterations.
+
+The Pages smoke test runs as part of the browser suite, or by itself after a
+production build and Chromium installation:
+
+```sh
+npm --prefix web test -- tests/pages.spec.js
+```
+
+It inspects the actual `web/dist`, serves it strictly under `/snes-rust/`, checks
+HTML/CSS/JavaScript/Wasm responses and real Wasm initialization, and plays the
+checked-in MIT diagnostic through local file selection. It rejects unexpected
+files, symlinks, root-path or remote requests, HTTP failures and browser/CSP
+errors. The diagnostic and test evidence are outside the public artifact.
+
+## GitHub Pages deployment
+
+One-time maintainer action: open **Settings → Pages → Build and deployment →
+Source** and select **GitHub Actions**. This setting has not been verified or
+changed by this implementation; the repository connector has no Pages settings
+operation. No PAT or additional credentials are needed by the workflow. If the
+`github-pages` environment has deployment restrictions, allow `main`.
+
+Every push to `main` runs [Deploy GitHub Pages](.github/workflows/pages.yml).
+It calls the existing [Emulator checks](.github/workflows/ci.yml) with pinned Rust
+1.99.0, the `wasm32-unknown-unknown` target, Node 24 and Python 3.13. The browser
+job builds with `npm --prefix web run build` and uploads only `web/dist` after
+its browser checks (including the subpath smoke test) pass. Deployment waits for
+both core and browser jobs to pass. Pull requests and other branch pushes run
+checks separately, without production deployment permissions. Production runs
+share a concurrency group to prevent overlapping deployments.
+
+The Pages artifact contains exactly `index.html`, `app.js`, `style.css` and
+`snes_wasm.wasm`. Rebuilding clears stale output, and the smoke test enforces this
+allowlist before upload. Relative URLs, including `fetch('snes_wasm.wasm')`, work
+under the project subpath. Generated `web/dist` stays ignored by Git. No ROMs,
+firmware, `.srm` saves, source/download caches, test evidence or game artifacts
+are published. Users supply lawful ROMs locally; saves on the public origin are
+separate from saves on localhost and remain in that browser's local storage.
+
+Inspect the repository's [Actions tab](https://github.com/takahirox/snes-rust/actions)
+for the deployment run, failed job/step logs and the `github-pages` artifact;
+the `github-pages` environment and deployment job show the deployed URL. Fix
+failed checks before expecting publication; setup errors may require the Pages
+source selection above. Later `main` pushes rebuild and republish automatically,
+without committing generated files.
+
+**Required post-merge verification (pending):** the PR author/merger checks the
+first `main` deployment run and opens its reported HTTPS URL. Record the run URL,
+live URL and actual result: assets load without 404/CSP/MIME errors, Wasm
+initializes, and the local ROM chooser is enabled. Where possible select the
+cleared diagnostic to check input/video without uploading a ROM. Confirm later
+`main` pushes can republish. A passing local build does not establish publication,
+and this check cannot block pre-merge approval or closing Issue #7. If setup or
+the live site fails after merge, create a new Issue with the `task` label linking
+[#7](https://github.com/takahirox/snes-rust/issues/7), the run, failing URL,
+reproduction, actual/expected behavior and logs; fix it through the normal
+Issue → PR flow without reopening #7. An agent can perform that follow-up only
+when invoked/authorized after push; no background monitoring is implied.
+
+## Optional game validation
 
 For optional long game replays, supply the exact local images identified there:
 
