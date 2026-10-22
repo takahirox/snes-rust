@@ -22,8 +22,8 @@ user-supplied investigations with unresolved binary/build licensing.
 
 ## Run the browser app
 
-Expected public site: <https://takahirox.github.io/snes-rust/> (**publication and
-live-site verification pending**; a configured custom domain may change this URL).
+Public site: <https://takahirox.github.io/snes-rust/> (deployment and live-site
+checks passed on 2026-10-22; see the [Pages verification record](docs/issue-9-validation.md)).
 Visitors select their own legally obtained ROM locally. ROMs are never uploaded
 or downloaded by the app, and browser SRAM saves remain in local storage.
 
@@ -155,11 +155,12 @@ errors. The diagnostic and test evidence are outside the public artifact.
 
 ## GitHub Pages deployment
 
-One-time maintainer action: open **Settings → Pages → Build and deployment →
-Source** and select **GitHub Actions**. This setting has not been verified or
-changed by this implementation; the repository connector has no Pages settings
-operation. No PAT or additional credentials are needed by the workflow. If the
-`github-pages` environment has deployment restrictions, allow `main`.
+The repository's Pages source is **GitHub Actions** (`build_type: workflow`),
+enabled and verified on 2026-10-22 for [Issue #9](https://github.com/takahirox/snes-rust/issues/9).
+For a new repository, a maintainer must first open **Settings → Pages → Build
+and deployment → Source** and select **GitHub Actions**. No PAT or additional
+credentials are needed by the workflow. If the `github-pages` environment has
+deployment restrictions, allow `main`.
 
 Every push to `main` runs [Deploy GitHub Pages](.github/workflows/pages.yml).
 It calls the existing [Emulator checks](.github/workflows/ci.yml) with pinned Rust
@@ -185,13 +186,21 @@ failed checks before expecting publication; setup errors may require the Pages
 source selection above. Later `main` pushes rebuild and republish automatically,
 without committing generated files.
 
-**Required post-merge verification (pending):** the PR author/merger checks the
-first `main` deployment run and opens its reported HTTPS URL. Record the run URL,
+**Post-merge verification completed:** the first `main` deployment initially
+failed because Pages was disabled. Issue #9 enabled the Actions source and reran
+the deployment successfully, then verified the public app, asset hashes and MIME
+types, Wasm initialization and local diagnostic playback. See the
+[run](https://github.com/takahirox/snes-rust/actions/runs/39764299327/attempts/2)
+and [verification evidence](docs/issue-9-validation.md). A later `main` push has
+not been exercised separately.
+
+For future deployment changes, the PR author/merger checks the resulting `main`
+deployment run and opens its reported HTTPS URL. Record the run URL,
 live URL and actual result: assets load without 404/CSP/MIME errors, Wasm
 initializes, and the local ROM chooser is enabled. Where possible select the
 cleared diagnostic to check input/video without uploading a ROM. Confirm later
 `main` pushes can republish. A passing local build does not establish publication,
-and this check cannot block pre-merge approval or closing Issue #7. If setup or
+and this check cannot block pre-merge approval. If setup or
 the live site fails after merge, create a new Issue with the `task` label linking
 [#7](https://github.com/takahirox/snes-rust/issues/7), the run, failing URL,
 reproduction, actual/expected behavior and logs; fix it through the normal

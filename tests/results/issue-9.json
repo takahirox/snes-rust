@@ -1,0 +1,214 @@
+{
+  "issue": 9,
+  "issue_url": "https://github.com/takahirox/snes-rust/issues/9",
+  "status": "Pages configuration fixed; deployment and production smoke checks passed; Issue reporting pending because this execution prohibits comments.",
+  "before": {
+    "pages_get_http_status": 404,
+    "has_pages": false,
+    "environment": {
+      "name": "github-pages",
+      "protection_rules": [],
+      "deployment_branch_policy": null
+    }
+  },
+  "remediation": {
+    "operation": "POST /repos/takahirox/snes-rust/pages",
+    "body": {
+      "build_type": "workflow"
+    },
+    "retry": "Rerun failed jobs of run 39764299327",
+    "application_changes": false,
+    "workflow_changes": false,
+    "pushed": false,
+    "issue_commented": false
+  },
+  "pages": {
+    "build_type": "workflow",
+    "cname": null,
+    "html_url": "https://takahirox.github.io/snes-rust/",
+    "https_enforced": true,
+    "public": true,
+    "status": null
+  },
+  "environment": {
+    "deployment_branch_policy": {
+      "custom_branch_policies": true,
+      "protected_branches": false
+    },
+    "name": "github-pages",
+    "protection_rules": [
+      {
+        "type": "branch_policy"
+      }
+    ]
+  },
+  "environment_branch_policies": {
+    "branch_policies": [
+      {
+        "name": "main",
+        "type": "branch"
+      }
+    ],
+    "total_count": 1
+  },
+  "run": {
+    "conclusion": "success",
+    "event": "push",
+    "head_branch": "main",
+    "head_sha": "64a53034c512d72d09003adb68d0437a5d3d1a01",
+    "html_url": "https://github.com/takahirox/snes-rust/actions/runs/39764299327",
+    "id": 39764299327,
+    "run_attempt": 2,
+    "status": "completed",
+    "updated_at": "2026-10-22T12:33:00Z"
+  },
+  "deployment_status": {
+    "created_at": "2026-10-22T12:33:00Z",
+    "environment": "github-pages",
+    "environment_url": "https://takahirox.github.io/snes-rust/",
+    "log_url": "https://github.com/takahirox/snes-rust/actions/runs/39764299327/job/119825596323",
+    "state": "success"
+  },
+  "artifact": {
+    "id": 12419797684,
+    "name": "github-pages",
+    "zip_sha256": "81c0c83a8a49697152b430154b2ae700bf5e0e204e682f25912b1500b8c0de52",
+    "exact_four_regular_files": true,
+    "unexpected_members": [],
+    "live_hashes_match": true
+  },
+  "production_smoke": {
+    "checked_at": "2026-10-22T12:33:24.022Z",
+    "live_url": "https://takahirox.github.io/snes-rust/",
+    "browser": {
+      "name": "Chromium",
+      "version": "149.0.7827.55",
+      "wasm_instantiated": true,
+      "rom_picker_enabled": true,
+      "diagnostic": "tests/roms/smoke.bin (original MIT diagnostic; selected locally)",
+      "controller_observed": true,
+      "nonblank_framebuffer": true,
+      "paused": true,
+      "errors": [],
+      "csp_violations": [],
+      "requests": [
+        {
+          "url": "https://takahirox.github.io/snes-rust/",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/style.css",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/app.js",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/snes_wasm.wasm",
+          "method": "GET"
+        }
+      ],
+      "responses": [
+        {
+          "url": "https://takahirox.github.io/snes-rust/",
+          "status": 200
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/style.css",
+          "status": 200
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/app.js",
+          "status": 200
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/snes_wasm.wasm",
+          "status": 200
+        }
+      ]
+    },
+    "artifact_id": 12419797684,
+    "assets": [
+      {
+        "name": "app.js",
+        "bytes": 8886,
+        "sha256": "87b05d824dcf4445f3acddf57261c3d06f31c4a720f75f1fc91a1a90900490af",
+        "url": "https://takahirox.github.io/snes-rust/app.js",
+        "status": 200,
+        "content_type": "application/javascript; charset=utf-8"
+      },
+      {
+        "name": "index.html",
+        "bytes": 1832,
+        "sha256": "153e6dc7b04215a5d31deb559184a6831f405d9c2dabf55b45723f678f983927",
+        "url": "https://takahirox.github.io/snes-rust/",
+        "status": 200,
+        "content_type": "text/html; charset=utf-8"
+      },
+      {
+        "name": "snes_wasm.wasm",
+        "bytes": 95213,
+        "sha256": "4eca2a5a58250d0a54746b9d45dc2bfff57ea3b709707336666e942978272f15",
+        "url": "https://takahirox.github.io/snes-rust/snes_wasm.wasm",
+        "status": 200,
+        "content_type": "application/wasm"
+      },
+      {
+        "name": "style.css",
+        "bytes": 1278,
+        "sha256": "047762a71debbe9f5b7d45881f1750f1b053c0d51dd57f5976d07a0de829dd58",
+        "url": "https://takahirox.github.io/snes-rust/style.css",
+        "status": 200,
+        "content_type": "text/css; charset=utf-8"
+      }
+    ]
+  },
+  "local_pages_smoke": {
+    "command": "SNES_TEST_PORT=18085 npm --prefix web test -- tests/pages.spec.js",
+    "assets": "Downloaded validated github-pages artifact, not rebuilt locally",
+    "result": "pass",
+    "passed": 1
+  },
+  "optional_not_performed": [
+    "Second browser",
+    "Physical gamepad",
+    "Separate subsequent main push"
+  ],
+  "jobs": [
+    {
+      "id": 119825596323,
+      "name": "deploy",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Run actions/configure-pages@v5",
+          "conclusion": "success"
+        },
+        {
+          "name": "Deploy validated static app",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 119825662322,
+      "name": "checks / core",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 119825667915,
+      "name": "checks / browser",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Run actions/upload-pages-artifact@v3",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ]
+}
