@@ -81,6 +81,7 @@ cargo test --locked -p snes-core --test dma_access
 cargo test --locked -p snes-core --test hdma_init
 cargo test --locked -p snes-core --test hdma_reload
 cargo test --locked -p snes-core --test hdma_phase
+cargo test --locked -p snes-core --test hdma_ntrl
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -117,6 +118,9 @@ scheduler regressions, two original CPU guests and the corrected older vectors.
 Issue #35 separates HBlank/rendering from scanline HDMA service eligibility; its
 [phase validation](docs/issue-35-validation.md) records reference terminology,
 numeric boundaries, baseline failures, natural scheduler vectors and two CPU guests.
+Issue #37 adds live CPU writes to the HDMA line counter, preserving the prepared
+transfer decision; its [validation record](docs/issue-37-validation.md) derives
+live zero/repeat behavior and records boundary vectors and two original CPU guests.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -333,9 +337,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   counting later enabled, unterminated channels; `$420C` stays programmed.
   Prepared metadata survives later table edits while payload bytes stay live.
   The [row-end validation](docs/issue-33-validation.md) documents the ordered
-  algorithm and the last-channel zero-header derivation. `dma` and `hdma`
-  remain partial: startup/alignment and full overhead timing, arbitrary mid-frame
-  enabling, same-channel contention, exact electrical open-bus behavior and the
+  algorithm and the last-channel zero-header derivation. CPU writes to `$43xA`
+  update all eight live counter bits while preserving the prepared transfer/hold
+  decision for the next event. The subsequent decrement uses the written value,
+  then evaluates repeat and exhaustion. A live `$00` wraps to `$FF`; only a
+  fetched zero descriptor terminates. Frame initialization still replaces
+  pre-initialization writes with table metadata. The
+  [live-counter validation](docs/issue-37-validation.md) distinguishes these
+  derived effects from descriptor-fetch behavior. `dma` and `hdma` remain partial:
+  startup/alignment and full overhead timing, arbitrary mid-frame enabling, same-channel contention, exact electrical open-bus behavior and the
   complete mode-interaction matrix remain separate work. HBlank status and
   whole-line rendering stay at 1096 master clocks; independent scanline HDMA
   eligibility is at 1112 (H=278), serviced at the next CPU/DMA bus boundary.

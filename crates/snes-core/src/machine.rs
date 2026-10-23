@@ -398,7 +398,14 @@ impl SystemBus {
                     return;
                 }
                 0x4300..=0x437f => {
-                    self.dma[(lo >> 4) & 7][lo & 15] = v;
+                    let channel = (lo >> 4) & 7;
+                    self.dma[channel][lo & 15] = v;
+                    if lo & 15 == 10 {
+                        // CPU NTRL writes replace the whole counter, preserving
+                        // the prepared transfer flag until after the next event.
+                        // Anomie 43xA / HDMA steps 3-5; Issue #37 validation.
+                        self.hdma_line[channel] = v;
+                    }
                     return;
                 }
                 _ => {}
@@ -934,3 +941,7 @@ mod tests {
         assert!(!timeup(&mut bus), "out-of-range VTIME must not match");
     }
 }
+
+#[cfg(test)]
+#[path = "machine/hdma_ntrl_tests.rs"]
+mod hdma_ntrl_tests;
