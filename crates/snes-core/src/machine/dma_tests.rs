@@ -242,6 +242,9 @@ fn dma_progression_rechecks_each_byte_and_wraps_without_bank_carry() {
 }
 
 fn hdma(b: &mut SystemBus, mode: u8, table: u32) {
+    // These isolate payload access rules with synthetic events. Start beyond
+    // the natural scanline-0 init point; hdma_init_tests covers real scheduling.
+    b.h = HDMA_INIT;
     b.dma[0] = [0; 16];
     b.dma[0][0] = mode;
     b.dma[0][1] = 6;

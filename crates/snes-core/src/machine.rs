@@ -5,6 +5,9 @@ use crate::{
     ppu::Ppu,
 };
 const LINE: u64 = 1364;
+// Anomie: scanline 0, H approximately 6 dots. This 24-master-clock event is
+// a scheduling convention, not verified DMA startup/alignment accuracy.
+const HDMA_INIT: u64 = 24;
 const DMA_PATTERN: [&[u8]; 8] = [
     &[0],
     &[0, 1],
@@ -43,6 +46,7 @@ pub struct SystemBus {
     auto_buttons: u16,
     dma_pending: u8,
     hdma_active: u8,
+    hdma_prepared: u8,
     hdma_line: [u8; 8],
     hdma_transfer: [bool; 8],
     hdma_pending: bool,
@@ -141,6 +145,7 @@ impl SystemBus {
             auto_buttons: 0,
             dma_pending: 0,
             hdma_active: 0,
+            hdma_prepared: 0,
             hdma_line: [0; 8],
             hdma_transfer: [false; 8],
             hdma_pending: false,
@@ -161,6 +166,9 @@ impl SystemBus {
             self.clocks += elapsed;
             self.h += elapsed;
             n -= elapsed;
+            if self.v == 0 && old_h < HDMA_INIT && self.h >= HDMA_INIT {
+                self.hdma_init = true;
+            }
             if old_h < 1096 && self.h >= 1096 && self.v <= 224 {
                 if self.v > 0 {
                     self.ppu.render_line(self.v as usize - 1);
@@ -184,7 +192,6 @@ impl SystemBus {
                 self.v = 0;
                 self.frames += 1;
                 self.nmi_flag = false;
-                self.hdma_init = true;
             }
             // V=0 is a valid comparison only after the frame counter wraps.
             if (mode == 0x20 && self.v == vtime)
@@ -499,11 +506,34 @@ impl SystemBus {
         if self.hdma_init {
             self.hdma_init = false;
             self.hdma_active = self.io[12];
+            self.hdma_prepared = self.hdma_active;
             for i in 0..8 {
+                if self.hdma_active & (1 << i) == 0 {
+                    continue;
+                }
                 self.dma[i][8] = self.dma[i][2];
                 self.dma[i][9] = self.dma[i][3];
-                self.hdma_line[i] = 0;
+                let counter = self.hdma_read(i);
+                self.hdma_line[i] = counter;
+                self.dma[i][10] = counter;
                 self.hdma_transfer[i] = true;
+                if self.dma[i][0] & 64 != 0 {
+                    // Anomie's zero-header oddity: the final active channel
+                    // uses the zero header as low byte, fetching only high.
+                    // Later enabled channels have not been initialized yet.
+                    let later = self.hdma_active & (0xfeu8 << i) != 0;
+                    let low = if counter == 0 && !later {
+                        0
+                    } else {
+                        self.hdma_read(i)
+                    };
+                    let high = self.hdma_read(i);
+                    self.dma[i][5] = low;
+                    self.dma[i][6] = high;
+                }
+                if counter == 0 {
+                    self.hdma_active &= !(1 << i);
+                }
             }
         }
         if self.hdma_pending {
@@ -512,7 +542,11 @@ impl SystemBus {
                 if self.hdma_active & (1 << i) == 0 || self.io[12] & (1 << i) == 0 {
                     continue;
                 }
-                if self.hdma_line[i] & 127 == 0 {
+                // An initial $80 header is a fresh 128-line row, whereas $80
+                // after decrementing a repeated row requests the next header.
+                let prepared = self.hdma_prepared & (1 << i) != 0;
+                self.hdma_prepared &= !(1 << i);
+                if !prepared && self.hdma_line[i] & 127 == 0 {
                     let counter = self.hdma_read(i);
                     self.hdma_line[i] = counter;
                     self.hdma_transfer[i] = true;
@@ -586,6 +620,10 @@ impl Bus for SystemBus {
 mod dma_tests;
 
 #[cfg(test)]
+#[path = "machine/hdma_init_tests.rs"]
+mod hdma_init_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::cpu::{M, X};
@@ -653,8 +691,13 @@ mod tests {
             bus.dma[0] = [0; 16];
             bus.dma[0][4] = 0x7e;
             bus.io[12] = 1;
-            bus.hdma_init = true;
-            bus.events();
+            if start_line == 261 {
+                bus.io[12] = 0;
+                while bus.v < 261 {
+                    bus.idle();
+                }
+                bus.io[12] = 1;
+            }
             bus.dma[1] = [0; 16];
             bus.dma[1][1] = 0x80;
             bus.dma[1][4] = 0x40;
@@ -662,11 +705,8 @@ mod tests {
             bus.dma[1][5..7].copy_from_slice(&bytes.to_le_bytes());
             bus.ppu.write(0, 15);
             bus.waddr = 0x10000; // DMA destination must not overwrite the HDMA table.
-            bus.tick(1000);
-            bus.v = start_line;
-            bus.ppu.v = start_line;
-            if start_line == 261 {
-                bus.hdma_active = 0;
+            while bus.h < 1000 {
+                bus.idle();
             }
             bus.dma_pending = 2;
             bus.events();

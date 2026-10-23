@@ -433,3 +433,25 @@ SureInstinct was not fetched or substituted for the two required games. No
 commercial cartridge was fetched, included, or tested. Hardware documentation
 references (not implementation code): [WDC 65C816 documentation](https://www.westerndesigncenter.com/wdc/documentation/w65c816s.pdf)
 and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
+
+## Original HDMA initialization CPU guests: approved
+
+- Source: [`crates/snes-core/tests/hdma_init.rs`](../../crates/snes-core/tests/hdma_init.rs)
+  and scheduler vectors in
+  [`crates/snes-core/src/machine/hdma_init_tests.rs`](../../crates/snes-core/src/machine/hdma_init_tests.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Both original 65C816 guests are built in memory from explicitly encoded
+  instructions. Their zero-filled 32 KiB LoROM, title/header, reset vector,
+  direct/indirect tables, payloads and result vectors are original MIT data.
+  They configure during VBlank, synchronize through executed `$4212` reads,
+  record prepared registers, edit metadata/payload before HBlank, read back
+  CGRAM and source registers, and report results in WRAM before STP.
+- Host code supplies only the cartridge and observes results; it injects no
+  private state or guest memory. Each run is bounded by 100,000 instructions
+  and fewer than three frame wraps. No external assembler, firmware, font,
+  commercial ROM, game asset, emulator implementation or test binary is used.
+  Generated ROMs are not committed. Source-backed ordering, derived zero-header
+  behavior and retained timing approximations are recorded in the
+  [Issue #31 validation](../../docs/issue-31-validation.md).
+- Decision: original sources and generated code/data may be redistributed under
+  MIT. Existing external fixture pins, notices and licensing decisions remain.

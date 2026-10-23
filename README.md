@@ -78,6 +78,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo test --locked -p snes-core --lib machine::dma_tests
 cargo test --locked -p snes-core --test dma_access
+cargo test --locked -p snes-core --test hdma_init
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -104,7 +105,10 @@ Issue #27 extends suppression to the WRAM address registers; its
 Issue #29 adds direction-specific reverse WMDATA conflict handling; its
 [validation record](docs/issue-29-validation.md) separates supported write/pointer
 effects from unverified electrical byte values, with 48 focused tests and six
-CPU guests.
+CPU guests. Issue #31 adds separate scanline-0 initial descriptor/indirect-pointer
+prefetch, natural scheduler vectors and two CPU guests; its
+[validation record](docs/issue-31-validation.md) distinguishes supported ordering
+and register effects from approximate clock alignment.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -309,9 +313,17 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   [reverse-conflict validation](docs/issue-29-validation.md) records the
   direction-specific evidence and separates approximation tests from hardware
   side-effect assertions.
-  `dma` and `hdma` remain partial:
-  startup/alignment timing, HDMA initialization/overhead and first-frame behavior, same-channel contention, exact electrical
-  open-bus behavior and the complete mode-interaction matrix remain separate work.
+  Enabled HDMA channels prefetch their initial descriptor and indirect address
+  at the modeled scanline-0 initialization event, in both the initial frame and
+  subsequent frames. The first HBlank uses that metadata and reads live payload
+  bytes. Zero initial headers terminate internally while preserving `$420C`,
+  including the indirect-pointer read effects described in the
+  [prefetch validation](docs/issue-31-validation.md). Writing `$420C` does not
+  trigger initialization. `dma` and `hdma` remain partial: subsequent row-reload
+  placement, startup/alignment and full overhead timing, arbitrary mid-frame
+  enabling, same-channel contention, exact electrical open-bus behavior and the
+  complete mode-interaction matrix remain separate work. The initialization
+  phase and retained HBlank timing are approximate scheduler conventions.
 - Planar BG modes, tilemaps, scroll/mosaic, sprites, priorities, windows and
   color math, plus a basic Mode 7 transform. BG1 direct color is supported in
   Modes 3/4 and Mode 7 with EXTBG disabled, including tile palette contributions
