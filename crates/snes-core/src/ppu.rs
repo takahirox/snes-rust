@@ -12,6 +12,8 @@ pub struct Ppu {
     caddr: usize,
     clatch: u8,
     oaddr: usize,
+    // Memory address can be owned by rendering without changing rotation.
+    oport_addr: usize,
     olatch: u8,
     scroll_latch: u8,
     scroll: [[u16; 2]; 4],
@@ -45,6 +47,7 @@ impl Default for Ppu {
             caddr: 0,
             clatch: 0,
             oaddr: 0,
+            oport_addr: 0,
             olatch: 0,
             scroll_latch: 0,
             scroll: [[0; 2]; 4],
@@ -71,6 +74,44 @@ struct Pixel {
     math: bool,
 }
 impl Ppu {
+    fn reload_oam_address(&mut self) {
+        self.oaddr = (((self.regs[3] as usize & 1) << 8) | self.regs[2] as usize) * 2;
+        self.oport_addr = self.oaddr;
+        // No documented data-latch reset: preserve it as model policy.
+    }
+    fn rendering_oam_address(&mut self) {
+        // No object-fetch pipeline: use two high-table bytes, preserving phase.
+        // This address is policy, NOT a hardware-verified corruption address.
+        // See docs/issue-43-validation.md for sources, conflicts and limits.
+        self.oport_addr = 0x200 | (self.oport_addr & 1);
+    }
+    pub(crate) fn oam_scanline_start(&mut self, line: u16) {
+        if self.regs[0] & 128 == 0 {
+            if line == 225 {
+                self.reload_oam_address();
+            } else if line < 225 {
+                self.rendering_oam_address();
+            }
+        }
+    }
+    fn oam_byte_address(&mut self) -> usize {
+        if self.regs[0] & 128 == 0 && self.v < 225 {
+            self.rendering_oam_address();
+        }
+        if self.oport_addr & 512 != 0 {
+            512 | (self.oport_addr & 31)
+        } else {
+            self.oport_addr
+        }
+    }
+    fn advance_oam_address(&mut self) {
+        self.oport_addr = (self.oport_addr + 1) & 1023;
+        self.oaddr = (self.oaddr + 1) & 1023;
+    }
+    #[cfg(test)]
+    pub(crate) fn oam_port_state(&self) -> (usize, usize, u8) {
+        (self.oport_addr, self.oaddr, self.olatch)
+    }
     fn va(&self) -> usize {
         let a = self.vaddr as usize;
         let a = match (self.regs[0x15] >> 2) & 3 {
@@ -123,27 +164,32 @@ impl Ppu {
     }
     pub fn write(&mut self, r: u8, v: u8) {
         let r = (r & 63) as usize;
+        let was_forced = self.regs[0] & 128 != 0;
         self.regs[r] = v;
         match r {
-            2 | 3 => {
-                self.oaddr =
-                    ((((self.regs[3] as usize & 1) << 8) | self.regs[2] as usize) * 2) & 1023
+            0 => {
+                // Anomie INIDISP: any write with old forced blank set on the
+                // first VBlank line reloads OAM. Fullsnes confirms deactivation.
+                if was_forced && self.v == 225 {
+                    self.reload_oam_address();
+                } else if was_forced && v & 128 == 0 && self.v < 225 {
+                    self.rendering_oam_address();
+                }
             }
+            2 | 3 => self.reload_oam_address(),
             4 => {
-                let a = if self.oaddr & 512 != 0 {
-                    512 | (self.oaddr & 31)
-                } else {
-                    self.oaddr & 511
-                };
+                let a = self.oam_byte_address();
+                // Fullsnes EVEN rule also applies to high-table writes.
+                if a & 1 == 0 {
+                    self.olatch = v;
+                }
                 if a >= 512 {
                     self.oam[a] = v;
-                } else if a & 1 == 0 {
-                    self.olatch = v;
-                } else {
+                } else if a & 1 != 0 {
                     self.oam[a - 1] = self.olatch;
                     self.oam[a] = v;
                 }
-                self.oaddr = (self.oaddr + 1) & 1023;
+                self.advance_oam_address();
             }
             0x0d..=0x14 => {
                 let bg = (r - 0x0d) / 2;
@@ -223,13 +269,9 @@ impl Ppu {
                 open
             }
             0x38 => {
-                let a = if self.oaddr & 512 != 0 {
-                    512 | (self.oaddr & 31)
-                } else {
-                    self.oaddr & 511
-                };
+                let a = self.oam_byte_address();
                 let v = self.oam[a];
-                self.oaddr = (self.oaddr + 1) & 1023;
+                self.advance_oam_address();
                 v
             }
             0x39 | 0x3a => {
@@ -829,3 +871,7 @@ mod tests {
 #[cfg(test)]
 #[path = "ppu_vram_tests.rs"]
 mod vram_tests;
+
+#[cfg(test)]
+#[path = "ppu_oam_tests.rs"]
+mod oam_tests;

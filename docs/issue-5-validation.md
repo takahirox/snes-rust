@@ -71,7 +71,11 @@ source-derived requirements, not conclusions inferred from non-silent samples.
   explicitly identifies the invalid-fetch buffer approximation. Tests also cover
   remapping/increments, OAM paired writes/high-table mirroring, CGRAM pairs/open
   bit, and held H/V counter values with independent read flipflops and status
-  acknowledgement. Existing rendering tests cover 16×16 tile wrapping/flips,
+  acknowledgement. Those original OAM vectors covered forced blank only. The
+  [Issue #43 record](issue-43-validation.md) adds rendering-owned addressing and
+  reload transitions, and corrects the omitted high-even shared-latch capture;
+  its restricted destinations/bytes remain explicit approximation policy.
+  Existing rendering tests cover 16×16 tile wrapping/flips,
   subscreen/backdrop math and actual diagnostic framebuffer execution.
 
 Expectations come from the [WDC bus-cycle tables](https://www.westerndesigncenter.com/wdc/documentation/w65c816s.pdf),
