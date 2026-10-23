@@ -409,20 +409,22 @@ impl SystemBus {
         }
     }
     // Only the A-bus endpoint is restricted; CPU and B-bus accesses keep their
-    // ordinary decoding. See docs/issue-21-validation.md for the address map.
-    fn dma_a_blocked(a: u32) -> bool {
+    // ordinary decoding. Status/result reads remain accessible and keep their
+    // register side effects. See docs/issue-23-validation.md for the access rule.
+    fn dma_a_blocked(a: u32, write: bool) -> bool {
         a & 0x400000 == 0
-            && matches!(a & 0xffff, 0x2100..=0x21ff | 0x4000..=0x41ff | 0x4200..=0x421f | 0x4300..=0x437f)
+            && (matches!(a & 0xffff, 0x2100..=0x21ff | 0x4000..=0x41ff | 0x4200..=0x420f | 0x4300..=0x437f)
+                || (write && matches!(a & 0xffff, 0x4210..=0x421f)))
     }
     fn dma_read_a(&mut self, a: u32) -> u8 {
-        if Self::dma_a_blocked(a) {
+        if Self::dma_a_blocked(a, false) {
             0
         } else {
             self.read_raw(a)
         }
     }
     fn dma_write_a(&mut self, a: u32, v: u8) {
-        if !Self::dma_a_blocked(a) {
+        if !Self::dma_a_blocked(a, true) {
             self.write_raw(a, v);
         }
     }
