@@ -5,6 +5,11 @@ starting at checkpoint `6384b4cf112c0c86896958095bd6637b97f37eb5` with productio
 baseline `edb25aaa2aff9bfe7022252bcb25fb15fa218d5d`. All new instructions, data
 and tests are original MIT work. No emulator implementation was consulted.
 
+Issue #35 subsequently separates scanline HDMA service eligibility at 1112
+master clocks from HBlank/rendering at 1096. The old H=274 request described
+here is historical emulator behavior, not established hardware request-edge
+evidence; see the [phase reconciliation](issue-35-validation.md#evidence-and-event-terminology).
+
 ## Specification facts and ordering derivation
 
 Retrieved the cited references on 2026-10-23. Ignored copies are under
