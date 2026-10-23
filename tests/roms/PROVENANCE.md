@@ -477,3 +477,24 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   licensing decisions remain intact. The
   [Issue #33 record](../../docs/issue-33-validation.md) separates specification
   facts, derived expectations and retained scheduler approximations.
+
+## Original HDMA phase CPU guests: approved
+
+- Sources: [`crates/snes-core/tests/hdma_phase.rs`](../../crates/snes-core/tests/hdma_phase.rs)
+  and [`crates/snes-core/src/machine/hdma_phase_tests.rs`](../../crates/snes-core/src/machine/hdma_phase_tests.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Two original encoded 65C816 instruction streams, direct/indirect tables,
+  payloads, result vectors, LoROM header/reset vector and zero-filled 32 KiB
+  cartridge construction use no external code, assembler, runtime, font,
+  firmware, commercial ROM, game assets or emulator implementation. Generated
+  cartridges are not committed.
+- Guests configure during VBlank, execute WAI with a programmed H/V IRQ, read
+  table state between the old and corrected service phases, then publish later
+  reload/pointer and HBlank observations in WRAM before STP. Host code supplies
+  only the cartridge and observes bounded WRAM/terminal/deadline results. No
+  guest CPU, memory, DMA or raster state is injected. Limits are 100,000 steps
+  and fewer than three frame wraps. The
+  [phase validation](../../docs/issue-35-validation.md) derives the numeric
+  synchronization and distinguishes model latency from hardware facts.
+- Decision: original sources and generated instructions/data may be redistributed
+  under MIT. Existing fixture pins, notices and licensing decisions remain intact.

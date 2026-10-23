@@ -5,6 +5,12 @@ use crate::{
     ppu::Ppu,
 };
 const LINE: u64 = 1364;
+const HBLANK: u64 = 1096;
+// Fullsnes H/V Events and Anomie HDMA: activity at H=278 (4 clocks/dot).
+// Model this as service eligibility, consumed at the next CPU/DMA boundary.
+// No distinct earlier hardware request edge is established by those references;
+// startup/alignment/full overhead remain approximate. See Issue #35 validation.
+const HDMA_SCANLINE: u64 = 1112;
 // Anomie: scanline 0, H approximately 6 dots. This 24-master-clock event is
 // a scheduling convention, not verified DMA startup/alignment accuracy.
 const HDMA_INIT: u64 = 24;
@@ -167,10 +173,10 @@ impl SystemBus {
             if self.v == 0 && old_h < HDMA_INIT && self.h >= HDMA_INIT {
                 self.hdma_init = true;
             }
-            if old_h < 1096 && self.h >= 1096 && self.v <= 224 {
-                if self.v > 0 {
-                    self.ppu.render_line(self.v as usize - 1);
-                }
+            if old_h < HBLANK && self.h >= HBLANK && (1..=224).contains(&self.v) {
+                self.ppu.render_line(self.v as usize - 1);
+            }
+            if old_h < HDMA_SCANLINE && self.h >= HDMA_SCANLINE && self.v <= 224 {
                 self.hdma_pending = true;
             }
             if mode & 0x10 != 0
@@ -299,7 +305,7 @@ impl SystemBus {
                 }
                 0x4212 => {
                     return if self.v >= 225 { 128 } else { 0 }
-                        | if self.h >= 1096 { 64 } else { 0 }
+                        | if self.h >= HBLANK { 64 } else { 0 }
                         | u8::from(self.clocks < self.auto_until)
                         | (self.open & 0x3e)
                 }
@@ -619,6 +625,10 @@ mod hdma_init_tests;
 #[cfg(test)]
 #[path = "machine/hdma_reload_tests.rs"]
 mod hdma_reload_tests;
+
+#[cfg(test)]
+#[path = "machine/hdma_phase_tests.rs"]
+mod hdma_phase_tests;
 
 #[cfg(test)]
 mod tests {

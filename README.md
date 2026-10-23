@@ -80,6 +80,7 @@ cargo test --locked -p snes-core --lib machine::dma_tests
 cargo test --locked -p snes-core --test dma_access
 cargo test --locked -p snes-core --test hdma_init
 cargo test --locked -p snes-core --test hdma_reload
+cargo test --locked -p snes-core --test hdma_phase
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -113,6 +114,9 @@ and register effects from approximate clock alignment. Issue #33 adds subsequent
 row-end metadata reload, ordered payload/reload phases and terminating indirect
 reads; its [validation record](docs/issue-33-validation.md) records natural
 scheduler regressions, two original CPU guests and the corrected older vectors.
+Issue #35 separates HBlank/rendering from scanline HDMA service eligibility; its
+[phase validation](docs/issue-35-validation.md) records reference terminology,
+numeric boundaries, baseline failures, natural scheduler vectors and two CPU guests.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -319,9 +323,9 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   side-effect assertions.
   Enabled HDMA channels prefetch their initial descriptor and indirect address
   at the modeled scanline-0 initialization event, in both the initial frame and
-  subsequent frames. The first HBlank uses that metadata and reads live payload
-  bytes. Zero initial headers terminate internally while preserving `$420C`,
-  including the indirect-pointer read effects described in the
+  subsequent frames. The first scanline HDMA event uses that metadata and reads
+  live payload bytes. Zero initial headers terminate internally while preserving
+  `$420C`, including the indirect-pointer read effects described in the
   [prefetch validation](docs/issue-31-validation.md). Writing `$420C` does not
   trigger initialization. Subsequent rows reload descriptors and indirect
   pointers in the HBlank ending the preceding row, after all eligible channel
@@ -332,8 +336,13 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   algorithm and the last-channel zero-header derivation. `dma` and `hdma`
   remain partial: startup/alignment and full overhead timing, arbitrary mid-frame
   enabling, same-channel contention, exact electrical open-bus behavior and the
-  complete mode-interaction matrix remain separate work. The initialization
-  phase and retained HBlank timing are approximate scheduler conventions.
+  complete mode-interaction matrix remain separate work. HBlank status and
+  whole-line rendering stay at 1096 master clocks; independent scanline HDMA
+  eligibility is at 1112 (H=278), serviced at the next CPU/DMA bus boundary.
+  This maps the documented activity phase to service eligibility without
+  asserting an earlier hardware request edge or exact first-byte alignment.
+  Initialization and byte timing retain their approximate scheduler conventions;
+  the [phase record](docs/issue-35-validation.md) separates these from source facts.
 - Planar BG modes, tilemaps, scroll/mosaic, sprites, priorities, windows and
   color math, plus a basic Mode 7 transform. BG1 direct color is supported in
   Modes 3/4 and Mode 7 with EXTBG disabled, including tile palette contributions

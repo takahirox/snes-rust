@@ -11,6 +11,11 @@ initial-row-only prepared mask described here. Its
 termination effects and old-test derivations. This document retains the original
 Issue #31 results and timing limits as historical evidence.
 
+Issue #35 subsequently separates scanline HDMA service eligibility at 1112
+master clocks from HBlank/rendering at 1096. The old H=274 request described
+here is historical emulator behavior, not established hardware request-edge
+evidence; see the [phase reconciliation](issue-35-validation.md#evidence-and-event-terminology).
+
 ## Specification evidence and supported state transitions
 
 Retrieved both named references before implementation. Local reference copies
