@@ -116,7 +116,9 @@ impl Dsp {
         ((partial as i16 as i32) + ((GAUSSIAN[index] * samples[3]) >> 10)).clamp(-32768, 32767) & !1
     }
     pub fn sample(&mut self, ram: &mut [u8]) -> (i16, i16) {
-        self.counter = self.counter.wrapping_add(1);
+        // One shared phase, including silence, key-on delay and FLG reset/mute.
+        // Initialization is C=0; decrement before the first envelope poll.
+        self.counter = (self.counter + 30719) % 30720;
         let mut mix = [0i32; 2];
         let mut echo_in = [0i32; 2];
         for i in 0..8 {
@@ -163,7 +165,7 @@ impl Dsp {
                 match v.stage {
                     0 => {
                         let rate = (adsr & 15) * 2 + 1;
-                        if rate == 31 || self.counter.is_multiple_of(RATES[rate as usize]) {
+                        if rate_event(self.counter, rate) {
                             v.env += if rate == 31 { 1024 } else { 32 };
                             if v.env >= 2047 {
                                 v.env = 2047;
@@ -177,7 +179,7 @@ impl Dsp {
                         } else {
                             adsr2 & 31
                         };
-                        if rate != 0 && self.counter.is_multiple_of(RATES[rate as usize]) {
+                        if rate_event(self.counter, rate) {
                             v.env -= ((v.env - 1) >> 8) + 1;
                         }
                         if v.stage == 1 && v.env <= (((adsr2 >> 5) as i32 + 1) * 256) {
@@ -190,7 +192,7 @@ impl Dsp {
                 v.env = (gain as i32) * 16;
             } else {
                 let rate = gain & 31;
-                if rate != 0 && self.counter.is_multiple_of(RATES[rate as usize]) {
+                if rate_event(self.counter, rate) {
                     match (gain >> 5) & 3 {
                         0 => v.env -= 32,
                         1 => v.env -= ((v.env - 1) >> 8) + 1,
@@ -261,6 +263,17 @@ impl Dsp {
         (out[0], out[1])
     }
 }
+// Fullsnes: ADSR/Gain (and Noise) Rates; Anomie/jwdonal: COUNTERS.
+// See docs/issue-13-validation.md for phase attribution and independent vectors.
+fn rate_event(counter: u32, rate: u8) -> bool {
+    let offset = match rate {
+        2 | 5 | 8 | 11 | 14 | 17 | 20 | 23 | 26 | 29 => 1040,
+        3 | 6 | 9 | 12 | 15 | 18 | 21 | 24 | 27 => 536,
+        _ => 0,
+    };
+    rate != 0 && (counter + offset).is_multiple_of(RATES[rate as usize])
+}
+
 const RATES: [u32; 32] = [
     u32::MAX,
     2048,
@@ -299,6 +312,286 @@ const RATES: [u32; 32] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn advance(dsp: &mut Dsp, ram: &mut [u8], samples: usize) {
+        for _ in 0..samples {
+            dsp.sample(ram);
+        }
+    }
+
+    #[test]
+    fn every_rate_has_exact_positions_and_spacing_across_two_counter_wraps() {
+        // Independent (first tick, spacing) vectors, derived on paper from
+        // Issue #13 / Anomie's COUNTERS and Fullsnes' period table.
+        // No production periods, offsets, or polling helper generate expectations.
+        let vectors = [
+            (0, 0),
+            (2048, 2048),
+            (1040, 1536),
+            (536, 1280),
+            (1024, 1024),
+            (272, 768),
+            (536, 640),
+            (512, 512),
+            (272, 384),
+            (216, 320),
+            (256, 256),
+            (80, 192),
+            (56, 160),
+            (128, 128),
+            (80, 96),
+            (56, 80),
+            (64, 64),
+            (32, 48),
+            (16, 40),
+            (32, 32),
+            (8, 24),
+            (16, 20),
+            (16, 16),
+            (8, 12),
+            (6, 10),
+            (8, 8),
+            (2, 6),
+            (1, 5),
+            (4, 4),
+            (2, 3),
+            (2, 2),
+            (1, 1),
+        ];
+        let mut dsp = Dsp::default();
+        let mut ram = vec![0; 65536];
+        let mut events: [Vec<usize>; 32] = std::array::from_fn(|_| Vec::new());
+        assert_eq!(dsp.counter, 0);
+        for tick in 1..=61441 {
+            dsp.sample(&mut ram); // default FLG and all voices inactive
+            match tick {
+                1 | 30721 | 61441 => assert_eq!(dsp.counter, 30719),
+                30719 | 61439 => assert_eq!(dsp.counter, 1),
+                30720 | 61440 => assert_eq!(dsp.counter, 0),
+                _ => {}
+            }
+            for (rate, positions) in events.iter_mut().enumerate() {
+                if rate_event(dsp.counter, rate as u8) {
+                    positions.push(tick);
+                }
+            }
+        }
+        assert!(events[0].is_empty());
+        for rate in 1..32 {
+            let (first, spacing) = vectors[rate];
+            let expected: Vec<_> = (first..=61441).step_by(spacing).collect();
+            assert_eq!(events[rate], expected, "rate {rate}");
+            assert!(events[rate].windows(2).all(|w| w[1] - w[0] == spacing));
+        }
+        assert_eq!(&events[2][..3], &[1040, 2576, 4112]);
+        assert_eq!(&events[3][..3], &[536, 1816, 3096]);
+        assert_eq!(&events[29][..4], &[2, 5, 8, 11]);
+        assert!(!events[29].contains(&3));
+        assert!(!events[29].contains(&30720));
+    }
+
+    #[test]
+    fn adsr_attack_decay_and_sustain_hold_until_their_shared_events() {
+        // Exercise every attack/decay register-to-rate mapping, using independent
+        // first-event vectors. Seed decay/sustain to isolate clock eligibility.
+        let attack_ticks = [
+            2048, 536, 272, 512, 216, 80, 128, 56, 32, 32, 16, 8, 8, 1, 2, 1,
+        ];
+        for (attack, first) in attack_ticks.into_iter().enumerate() {
+            let mut dsp = Dsp::default();
+            let mut ram = vec![0; 65536];
+            dsp.write(0x6c, 0x20);
+            dsp.write(5, 0x80 | attack as u8);
+            dsp.voices[0].active = true;
+            advance(&mut dsp, &mut ram, first - 1);
+            assert_eq!(dsp.voices[0].env, 0, "attack {attack}");
+            dsp.sample(&mut ram);
+            assert_eq!(dsp.voices[0].env, if attack == 15 { 1024 } else { 32 });
+            if first > 1 {
+                dsp.sample(&mut ram);
+                assert_eq!(dsp.voices[0].env, 32);
+            }
+        }
+        for (decay, first) in [64, 16, 8, 16, 6, 2, 4, 2].into_iter().enumerate() {
+            let mut dsp = Dsp::default();
+            let mut ram = vec![0; 65536];
+            dsp.write(0x6c, 0x20);
+            dsp.write(5, 0x80 | ((decay as u8) << 4));
+            dsp.voices[0] = Voice {
+                active: true,
+                env: 1024,
+                stage: 1,
+                ..Voice::default()
+            };
+            advance(&mut dsp, &mut ram, first - 1);
+            assert_eq!(dsp.voices[0].env, 1024, "decay {decay}");
+            dsp.sample(&mut ram);
+            assert_eq!(dsp.voices[0].env, 1020);
+            dsp.sample(&mut ram);
+            assert_eq!(dsp.voices[0].env, 1020);
+        }
+        let mut dsp = Dsp::default();
+        let mut ram = vec![0; 65536];
+        dsp.write(0x6c, 0x20);
+        dsp.write(5, 0x80);
+        dsp.write(6, 2); // sustain rate 2
+        dsp.voices[0] = Voice {
+            active: true,
+            env: 1024,
+            stage: 2,
+            ..Voice::default()
+        };
+        advance(&mut dsp, &mut ram, 1039);
+        assert_eq!(dsp.voices[0].env, 1024);
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[0].env, 1020);
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[0].env, 1020);
+        dsp.write(6, 0); // disabled sustain
+        advance(&mut dsp, &mut ram, 30720);
+        assert_eq!(dsp.voices[0].env, 1020);
+    }
+
+    #[test]
+    fn keyed_adsr_transitions_keep_phase_through_decay_and_sustain() {
+        let mut dsp = Dsp::default();
+        let mut ram = vec![0; 65536];
+        for (r, v) in [(0x6c, 0x20), (5, 0xff), (6, 0xc3), (0x4c, 1)] {
+            dsp.write(r, v);
+        }
+        let mut previous = 0;
+        for (tick, envelope, stage) in [
+            (5, 0, 0),
+            (6, 1024, 0),
+            (7, 2047, 1),
+            (8, 2039, 1),
+            (9, 2039, 1),
+            (69, 1799, 1),
+            (70, 1791, 2),
+            (71, 1791, 2),
+            (535, 1791, 2),
+            (536, 1784, 2),
+            (537, 1784, 2),
+        ] {
+            advance(&mut dsp, &mut ram, tick - previous);
+            assert_eq!(dsp.voices[0].env, envelope, "tick {tick}");
+            assert_eq!(dsp.voices[0].stage, stage, "tick {tick}");
+            assert_eq!(dsp.regs[8], (envelope >> 4) as u8);
+            previous = tick;
+        }
+    }
+
+    #[test]
+    fn all_dynamic_gain_modes_hold_and_update_with_offsets() {
+        for (gain, initial, updated) in [
+            (0x83, 1024, 992),
+            (0xa3, 1024, 1020),
+            (0xc3, 1024, 1056),
+            (0xe3, 1024, 1056),
+            (0xe3, 1536, 1544),
+        ] {
+            let mut dsp = Dsp::default();
+            let mut ram = vec![0; 65536];
+            dsp.write(0x6c, 0x20);
+            dsp.write(7, gain);
+            dsp.voices[0] = Voice {
+                active: true,
+                env: initial,
+                ..Voice::default()
+            };
+            advance(&mut dsp, &mut ram, 535);
+            assert_eq!(dsp.voices[0].env, initial);
+            dsp.sample(&mut ram);
+            assert_eq!(dsp.voices[0].env, updated);
+            dsp.sample(&mut ram);
+            assert_eq!(dsp.voices[0].env, updated);
+            assert_eq!(dsp.regs[8], (updated >> 4) as u8);
+            dsp.write(7, gain & 0xe0); // rate 0 freezes every dynamic mode
+            advance(&mut dsp, &mut ram, 30720);
+            assert_eq!(dsp.voices[0].env, updated);
+        }
+    }
+
+    #[test]
+    fn silence_staggered_keys_delay_rate_writes_and_flags_preserve_global_phase() {
+        let mut dsp = Dsp::default();
+        let mut ram = vec![0; 65536];
+        advance(&mut dsp, &mut ram, 200); // soft reset + mute, no voices
+        assert_eq!(dsp.counter, 30520);
+        dsp.write(0x6c, 0x20);
+        advance(&mut dsp, &mut ram, 300); // silence without reset
+        for base in [0, 16, 32] {
+            dsp.write(base + 7, 0xc3);
+        }
+        dsp.write(0x4c, 1); // voice 0 keys at tick 501
+        advance(&mut dsp, &mut ram, 24);
+        dsp.write(0x4c, 2); // voice 1 keys at tick 525
+        advance(&mut dsp, &mut ram, 8);
+        dsp.write(0x4c, 4); // voice 2 keys at tick 533, misses event in delay
+        dsp.write(0x6c, 0x60); // mute keeps processing
+        advance(&mut dsp, &mut ram, 3);
+        assert_eq!([dsp.regs[8], dsp.regs[24], dsp.regs[40]], [0, 0, 0]);
+        assert_eq!(dsp.sample(&mut ram), (0, 0)); // tick 536
+        assert_eq!([dsp.regs[8], dsp.regs[24], dsp.regs[40]], [2, 2, 0]);
+        dsp.write(0x5c, 2); // release bypasses rate clock
+        dsp.sample(&mut ram); // tick 537, fifth delay sample for voice 2
+        assert_eq!(dsp.voices[1].env, 24);
+        assert_eq!(dsp.voices[2].key_delay, 0);
+        dsp.write(39, 0xdf); // rate 31, updates immediately after delay
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[2].env, 32);
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[2].env, 64);
+        dsp.write(7, 0xc2); // rate change uses existing phase, next event 1040
+        advance(&mut dsp, &mut ram, 500);
+        assert_eq!(dsp.voices[0].env, 32); // tick 1039
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[0].env, 64);
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[0].env, 64);
+        dsp.write(0x6c, 0xe0); // reset active voices without resetting counter
+        advance(&mut dsp, &mut ram, 100);
+        assert_eq!(dsp.counter, 29579); // tick 1141
+        assert_eq!(dsp.regs[8], 0);
+        dsp.write(0x6c, 0x20);
+        dsp.write(0x5c, 0);
+        dsp.write(0x4c, 1);
+        advance(&mut dsp, &mut ram, 1434); // tick 2575, rate 2 still at zero
+        assert_eq!(dsp.voices[0].env, 0);
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[0].env, 32); // next global rate-2 event, tick 2576
+    }
+
+    #[test]
+    fn gain_rate_three_first_event_is_tick_536() {
+        let mut dsp = Dsp::default();
+        let mut ram = vec![0; 65536];
+        for (r, v) in [(0x6c, 0x20), (5, 0), (7, 0xc3), (0x4c, 1)] {
+            dsp.write(r, v);
+        }
+        advance(&mut dsp, &mut ram, 535);
+        assert_eq!(dsp.voices[0].env, 0);
+        assert_eq!(dsp.regs[8], 0);
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[0].env, 32);
+        assert_eq!(dsp.regs[8], 2);
+        dsp.sample(&mut ram);
+        assert_eq!(dsp.voices[0].env, 32);
+    }
+
+    #[test]
+    fn rate_29_updates_on_two_modulo_three_not_zero() {
+        let mut dsp = Dsp::default();
+        let mut ram = vec![0; 65536];
+        dsp.write(0x6c, 0x20);
+        dsp.write(7, 0xdd);
+        dsp.write(0x4c, 1);
+        advance(&mut dsp, &mut ram, 5); // five empty key-on samples
+        for expected in [0, 0, 32, 32, 32, 64, 64, 64, 96] {
+            dsp.sample(&mut ram);
+            assert_eq!(dsp.voices[0].env, expected);
+        }
+    }
 
     #[test]
     fn gaussian_impulses_and_partial_overflow_match_hardware_coefficients() {
