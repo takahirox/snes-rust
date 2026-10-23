@@ -90,6 +90,9 @@ cargo test --locked -p snes-core --test ppu_cgram_access
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
+cargo test --locked -p snes-core --test ppu_hires
+# Original CPU-built browser/runner fixtures (also built by browser tests).
+cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -371,10 +374,22 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   fine-scroll preservation, BG3 screen layouts and 8×8/16×16 tile addressing.
   The [offset validation](docs/issue-19-validation.md) records coordinate vectors,
   original CPU-executed guests and baseline failures. `ppu-offset` and `ppu-bg`
-  remain partial; `ppu-hires` and `ppu-raster` are not completed by this change.
-  Rendering snapshots registers per scanline. Mode 6 offset/hires addressing,
+  remain partial. Non-mosaic Mode 5 BG1/BG2 and Mode 6 BG1 now use rectangular
+  16×8/16×16 hires cells, full-dot horizontal scroll and independent even-sub /
+  odd-main output samples. Ordinary non-interlaced hires frames expose native
+  512×224 packed RGBA; ordinary low-resolution frames retain 256×224. Core/Wasm
+  geometry and byte length drive browser drawing and runner PPM output. Display
+  shape and scale controls continue to count 256 full dots horizontally.
+  A frame containing hires rows is promoted to 512 samples, duplicating earlier
+  low-resolution dots and subsequent low-resolution rows; it shrinks only at
+  the next low-resolution row zero. This safe storage policy does not verify
+  physical switching/fetch timing. The [hires validation](docs/issue-49-validation.md)
+  records specifications, equations, original CPU guests and transition checks.
+  `ppu-hires` is partial; `ppu-raster` remains unimplemented.
+  Rendering snapshots registers per scanline. Mode 6 offset-per-tile,
+  pseudo-hires through SETINI, hires mosaic/color-math/window/OBJ accuracy,
   mosaic/offset interactions, timed mosaic state, mid-scanline raster effects,
-  hires/interlace/overscan, exact object overflow/rotation and Mode 7 EXTBG/transform
+  interlace/overscan/PAL, exact object overflow/rotation and Mode 7 EXTBG/transform
   edge behavior are outside the tested targets. `ppu-color` remains partial:
   comprehensive window logic, clipping/prevention interactions, subtraction/
   saturation, halving and brightness coverage still need work. VRAM writes obey

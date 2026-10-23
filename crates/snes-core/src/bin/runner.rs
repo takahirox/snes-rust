@@ -193,7 +193,12 @@ fn run() -> Result<(), String> {
         }
     }
     if let Some(path) = ppm {
-        let mut data = b"P6\n256 224\n255\n".to_vec();
+        let mut data = format!(
+            "P6\n{} {}\n255\n",
+            m.framebuffer_width(),
+            m.framebuffer_height()
+        )
+        .into_bytes();
         for p in m.framebuffer().as_chunks::<4>().0 {
             data.extend_from_slice(&p[..3]);
         }

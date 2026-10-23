@@ -113,6 +113,12 @@ impl Machine {
     pub fn set_buttons(&mut self, buttons: u16) {
         self.bus.buttons = buttons & 0xfff0;
     }
+    pub fn framebuffer_width(&self) -> usize {
+        self.bus.ppu.framebuffer_width()
+    }
+    pub fn framebuffer_height(&self) -> usize {
+        self.bus.ppu.framebuffer_height()
+    }
     pub fn framebuffer(&self) -> &[u8] {
         &self.bus.ppu.frame
     }

@@ -196,7 +196,13 @@ fn direct_color_preserves_other_color_sources_and_priority() {
         let mut p = scene(mode, 1, 0);
         for direct in [0, 1] {
             p.write(0x30, direct);
-            assert_pixel(&mut p, 0, [0, 0, 255, 255]);
+            // Mode 5/6 output even=TS, odd=TM (Anomie Modes 5/6, $2133).
+            // Keep the CGRAM negative control on the visible main phase.
+            let hires = matches!(mode, 5 | 6);
+            assert_pixel(&mut p, usize::from(hires), [0, 0, 255, 255]);
+            if hires {
+                assert_pixel(&mut p, 0, [0, 0, 0, 255]); // TS disabled, COLDATA=0.
+            }
         }
     }
     let mut p = scene(7, 255, 0);
