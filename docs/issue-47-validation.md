@@ -209,8 +209,45 @@ Queue/drift/stall/repeat playback checks recorded zero invalid samples/schedules
 and at most eight active sources. UI, save recovery and subpath Pages smoke
 checks also passed. The grep excludes only optional external games; cleared-game
 five-minute replays, the full route and all other mandatory checks remained.
-No mandatory gate failed on the final implementation. The two intentional new
-baseline counterexample failures above are the only failures in this run.
+No mandatory gate failed during that initial local validation. The two intentional
+new baseline counterexample failures above were the only failures in that run.
+The subsequent hosted CI failure and its correction are recorded below.
+
+### Review follow-up: pinned assembler clean-build race
+
+The [browser CI job](https://github.com/takahirox/snes-rust/actions/runs/39994957705/job/120555962886)
+failed before browser validation: parallel `make -j4` copied architecture files
+before `out/architectures` existed. The pinned bass-untech makefile lists directory
+creation and copies as sibling prerequisites without ordering them. The build
+script now invokes `make -j1` for bass-untech, including when inherited `MAKEFLAGS`
+requests parallelism. Source commit
+`9db6088a378061afc7b82f50997a5b9a1d951175` and archive SHA-256
+`b5341bf018d565f1a7797636cce6e74032ed3846c3af80a0b69a0f6784dadc1f`
+are unchanged; cc65's separate dependency graph still builds in parallel.
+
+Local follow-up on 2026-10-24 uses the browser job's build/test steps on macOS,
+with README's rustup compiler selection and alternate test port. Ignored logs
+are `.cache/issue-47-assembler-race-*.log`.
+
+| Actual command / check | Result |
+| --- | --- |
+| `python3 tools/build-test-tools.py` | Passed from an empty worktree tool cache; both pinned assemblers built |
+| `MAKEFLAGS=-j4 python3 tools/build-test-tools.py` | Passed after removing only bass-untech's generated `out` and `obj` directories; clean serialized build overrides inherited parallelism |
+| Compare `data/architectures/*.arch` with `out/architectures/*.arch` byte for byte | Passed, all three architecture files |
+| `python3 tools/build-cleared-games.py` (twice sequentially) | Passed, both fresh builds retain the Castle and Memory hashes recorded above |
+| `npm --prefix web ci` | Passed |
+| `RUSTC="$(rustup which rustc)" npm --prefix web run build` | Passed |
+| `npm --prefix web exec -- playwright install chromium` | Passed |
+| `RUSTC="$(rustup which rustc)" python3 tools/ppu-test.py --bass "$PWD/.cache/tools/bass-untech/bass/out/bass-untech"` | Passed, all eleven grayscale bands; fixture hash unchanged |
+| `cargo fmt --all -- --check` | Passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Passed |
+| `cargo test --workspace --locked` | Passed, all 243 tests including the CGRAM guest |
+| `SNES_TEST_PORT=18085 npm --prefix web test -- --grep-invert '301 seconds'` | Passed, all 18 browser tests in 2.6 minutes, including both five-minute replays, Castle's full route, Memory audio/effects, save recovery and Pages smoke checks |
+| `git diff --check` and `git diff --cached --check` | Passed |
+
+The hosted job cannot validate this local correction until it is published. This
+follow-up does not rerun the failed job at its old revision or claim a hosted CI
+pass. No push or merge was performed.
 
 ## Remaining uncertainty and inventory
 

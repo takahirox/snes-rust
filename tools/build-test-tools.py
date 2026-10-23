@@ -48,7 +48,9 @@ for name in ['cc65', 'bass-untech'] + (['spcasm'] if args.spc else []):
         command = ['make', '-C', 'src', '-j4', 'ca65', 'ld65']
         cwd = dest
     elif name == 'bass-untech':
-        command = ['make', '-j4']
+        # The pinned makefile lacks directory prerequisites for architecture copies.
+        # Serialize even when MAKEFLAGS enables parallel builds in the environment.
+        command = ['make', '-j1']
         cwd = dest / 'bass'
     else:
         command = ['cargo', 'build', '--locked', '--release', '-p', 'spcasm', '--bin', 'spcasm']
