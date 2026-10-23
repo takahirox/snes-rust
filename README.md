@@ -76,6 +76,7 @@ RUSTC="$(rustup which rustc)" npm --prefix web run build
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo test -p snes-core --test dsp_noise --locked
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -295,9 +296,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   periods, selected envelope boundaries, an uploaded original SPC700 guest and
   APU partition invariance. `dsp-envelope` remains partial: exhaustive envelope
   transitions, hidden-envelope/bent-GAIN behavior, live register interactions
-  and DSP subcycle sampling remain unverified beyond those tests. Noise, pitch
-  modulation and reference echo saturation remain unverified/unsupported and
-  unused by these targets.
+  and DSP subcycle sampling remain unverified beyond those tests. One shared
+  15-bit noise generator uses that same counter and FLG rate, with per-voice
+  NON source selection before envelope scaling; BRR/pitch/ENDX continue while
+  noise is selected. The [noise validation](docs/issue-15-validation.md) covers
+  all rates, shared routing, signed PCM/OUTX, continuity, an original uploaded
+  SPC700 guest and APU partition invariance. Noise remains partial: subcycle
+  NON/FLG sampling, register-write races and interactions with unimplemented
+  pitch modulation remain unverified. Pitch modulation and reference echo
+  saturation remain unsupported/unverified and unused by these targets.
   Browser tests bound device-clock drift, queue duration and live sources,
   including main-thread stalls and repeated pause/reset/play.
 - Enhancement chips, ExLoROM/ExHiROM, PAL, save states and broad commercial
