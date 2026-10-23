@@ -1,4 +1,4 @@
-//! Original MIT 65C816 guests for Issues #21/#23/#25; no external code/data/firmware.
+//! Original MIT 65C816 guests for Issues #21/#23/#25/#27; no external code/data/firmware.
 //! Copyright (c) 2026 snes-rust contributors.
 use snes_core::Machine;
 
@@ -288,4 +288,148 @@ fn guest_wram_conflict_and_legal_rom_control() {
         }
     }
     panic!("WRAM conflict guest instruction deadline");
+}
+
+#[test]
+fn guest_wram_address_conflicts_and_legal_cpu_rom_controls() {
+    let mut code = vec![0x78];
+    write(&mut code, 0x2100, 0x80);
+    write(&mut code, 0x4200, 0);
+    // Every source and sentinel is initialized by guest instructions. Distinct
+    // data at the wrongly redirected pointer makes each regression observable.
+    for (case, (port, high, value, wrong)) in [
+        (0x81, 1, 0x5a, 0x7f235a_u32),
+        (0x82, 1, 0x5a, 0x7f5a45),
+        (0x83, 1, 0xfe, 0x7e2345),
+        (0x83, 0, 0xff, 0x7f2345),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let target = if high == 1 { 0x7f2345 } else { 0x7e2345 };
+        for (address, byte) in [
+            (target, 0xa6),
+            (target + 1, 0x37),
+            (wrong, 0xc9),
+            (wrong + 1, 0xd8),
+        ] {
+            // LDA #byte; STA long (no host WRAM initialization).
+            code.extend([
+                0xa9,
+                byte,
+                0x8f,
+                address as u8,
+                (address >> 8) as u8,
+                (address >> 16) as u8,
+            ]);
+        }
+        for (address, byte) in [
+            (0x0100, value),
+            (0x2181, 0x45),
+            (0x2182, 0x23),
+            (0x2183, high),
+            (0x4300, 0),
+            (0x4301, port),
+            (0x4302, 0),
+            (0x4303, 1),
+            (0x4304, 0x7e),
+            (0x4305, 1),
+            (0x4306, 0),
+            (0x420b, 1),
+        ] {
+            write(&mut code, address, byte);
+        }
+        let result = 0x1800 + case as u16 * 8;
+        for (address, dest) in (0x4302..=0x4306).zip(result..result + 5) {
+            save(&mut code, address, dest);
+        }
+        save(&mut code, 0x2180, result + 5);
+        save(&mut code, 0x2180, result + 6);
+        save(&mut code, 0x0100, result + 7);
+        // Read both candidate bytes with long LDA/absolute STA. The conflicting
+        // transfer must not alter either sentinel at its redirected address.
+        for offset in 0..2 {
+            let address = wrong + offset;
+            code.extend([
+                0xaf,
+                address as u8,
+                (address >> 8) as u8,
+                (address >> 16) as u8,
+            ]);
+            let dest = 0x1860 + case as u16 * 2 + offset as u16;
+            code.extend([0x8d, dest as u8, (dest >> 8) as u8]);
+        }
+    }
+    for (case, (port, high, value, destination)) in [
+        (0x81, 1, 0x5a, 0x7f235a_u32),
+        (0x82, 1, 0x5a, 0x7f5a45),
+        (0x83, 1, 0xfe, 0x7e2345),
+        (0x83, 0, 0xff, 0x7f2345),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        // Legal CPU and ROM writes must select the addressed bits while
+        // retaining every other pointer bit. Each points to a unique sentinel.
+        code.extend([
+            0xa9,
+            0x90 + case as u8,
+            0x8f,
+            destination as u8,
+            (destination >> 8) as u8,
+            (destination >> 16) as u8,
+        ]);
+        for rom_source in [false, true] {
+            for (address, byte) in [(0x2181, 0x45), (0x2182, 0x23), (0x2183, high)] {
+                write(&mut code, address, byte);
+            }
+            if rom_source {
+                transfer(&mut code, 0, port, 0xf000 + case as u16, 1);
+            } else {
+                write(&mut code, 0x2100 | u16::from(port), value);
+            }
+            save(
+                &mut code,
+                0x2180,
+                0x1840 + case as u16 * 2 + u16::from(rom_source),
+            );
+        }
+    }
+    write(&mut code, 0x18f0, 0xa5);
+    code.push(0xdb);
+    let mut rom = cartridge(&code);
+    rom[0x7000..0x7004].copy_from_slice(&[0x5a, 0x5a, 0xfe, 0xff]);
+    let mut m = Machine::new(&rom).unwrap();
+    for _ in 0..10_000 {
+        m.step();
+        assert!(m.bus.frames < 2, "WRAM address guest frame deadline");
+        if m.cpu.stopped {
+            assert_eq!(m.bus.peek(0x18f0), 0xa5);
+            for (case, value) in [0x5a, 0x5a, 0xfe, 0xff].into_iter().enumerate() {
+                let start = 0x1800 + case as u32 * 8;
+                let results: Vec<_> = (start..start + 8).map(|a| m.bus.peek(a)).collect();
+                assert_eq!(
+                    results,
+                    [1, 1, 0x7e, 0, 0, 0xa6, 0x37, value],
+                    "case {case}"
+                );
+                assert_eq!(
+                    (
+                        m.bus.peek(0x1860 + case as u32 * 2),
+                        m.bus.peek(0x1861 + case as u32 * 2)
+                    ),
+                    (0xc9, 0xd8)
+                );
+                assert_eq!(
+                    (
+                        m.bus.peek(0x1840 + case as u32 * 2),
+                        m.bus.peek(0x1841 + case as u32 * 2)
+                    ),
+                    (0x90 + case as u8, 0x90 + case as u8)
+                );
+            }
+            return;
+        }
+    }
+    panic!("WRAM address guest instruction deadline");
 }

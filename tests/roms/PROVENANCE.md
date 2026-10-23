@@ -33,10 +33,10 @@ are not release acceptance evidence.
 ## Original DMA A-bus 65C816 guests: approved
 
 - Source: [`crates/snes-core/tests/dma_access.rs`](../../crates/snes-core/tests/dma_access.rs),
-  including its `guest`, `status_guest` and WRAM-conflict guest builders;
+  including its `guest`, `status_guest`, WRAM-conflict and WRAM-address guest builders;
   no upstream code or data input.
 - Copyright: 2026 snes-rust contributors; [MIT](../../LICENSE).
-- Four 32,768-byte LoROMs are generated in memory from original SEI, LDA/STA,
+- Five 32,768-byte LoROMs are generated in memory from original SEI, LDA/STA,
   AND, conditional-branch and STP instruction streams, literal transfer data
   and an original header.
   All register initialization and transfer triggers execute through `Machine`;
@@ -56,7 +56,15 @@ are not release acceptance evidence.
   and records numeric A-address/bank/count and port-readback results in WRAM.
   A legal ROM-to-WMDATA control uses the original literal `$6B` at `$00:F000`.
   The host supplies only the generated cartridge and independently asserts results.
-- The original two guests and WRAM-conflict guest are bounded to 10,000
+- Issue #27's WRAM-address guest uses original absolute/long LDA/STA instructions
+  to initialize payloads, distinct correct/redirected-address sentinels and all
+  17 pointer bits. It triggers WRAM-sourced DMA to each of `$2181–$2183`, including
+  both bit-16 directions, and observes the pointer through two `$2180` reads.
+  CPU instructions record numeric source/address/bank/count, sentinel and legal
+  CPU/ROM-control results in WRAM, then write a success marker and stop. Original
+  literal ROM payloads at `$00:F000–F003` are `$5A,$5A,$FE,$FF`. No host state or
+  expected results are injected. Source, data and in-memory build remain MIT.
+- The original two guests, WRAM-conflict and WRAM-address guests are bounded to 10,000
   instructions; the status guest to 100,000 instructions. All must finish in
   fewer than two frames.
   No font, firmware, commercial ROM, external binary, assembler or runtime is used.
@@ -64,8 +72,9 @@ are not release acceptance evidence.
 - Decision: original source and generated ROMs may be redistributed under MIT.
   No additional binary is committed. These are diagnostics, not game or complete
   hardware acceptance. See [original validation](../../docs/issue-21-validation.md),
-  [corrected-read validation](../../docs/issue-23-validation.md) and
-  [WRAM-conflict validation](../../docs/issue-25-validation.md).
+  [corrected-read validation](../../docs/issue-23-validation.md),
+  [WRAM-conflict validation](../../docs/issue-25-validation.md) and
+  [WRAM-address validation](../../docs/issue-27-validation.md).
 
 ## Original direct-color guest tests: approved
 

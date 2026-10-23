@@ -1,4 +1,4 @@
-//! Original MIT DMA/HDMA address and side-effect vectors for Issues #21/#23/#25.
+//! Original MIT DMA/HDMA address and side-effect vectors for Issues #21/#23/#25/#27.
 use super::*;
 
 fn bus() -> SystemBus {
@@ -1030,4 +1030,315 @@ fn cpu_wmdata_reads_writes_and_pointer_wrap_remain_legal() {
     assert_eq!(b.read(0x2180), 0x5a);
     assert_eq!(b.read(0x2180), 0x37);
     assert_eq!(b.waddr, 1);
+}
+
+// Issue #27: literal pointer expectations never call the production predicate.
+fn wram_address_register_reproduction(port: u8, pointer: usize, value: u8) {
+    let mut b = bus();
+    b.wram[0x100] = value;
+    b.wram[0x12345..0x12348].copy_from_slice(&[0xa6, 0x37, 0xc9]);
+    b.waddr = pointer;
+    let before = b.wram.clone();
+    general(&mut b, 0, port, 0x7e0100, 1);
+    assert_eq!(b.waddr, pointer, "BBAD {port:02x}");
+    assert_eq!(b.wram, before);
+    assert_eq!(b.open, value); // The discarded write still reads its source.
+    assert_eq!(b.dma[0][2..7], [1, 1, 0x7e, 0, 0]);
+    assert_eq!((b.dma_pending, b.clocks), (0, 24));
+}
+
+#[test]
+fn dma_wram_address_low_reproduction() {
+    wram_address_register_reproduction(0x81, 0x12345, 0x5a);
+}
+
+#[test]
+fn dma_wram_address_middle_reproduction() {
+    wram_address_register_reproduction(0x82, 0x12345, 0x5a);
+}
+
+#[test]
+fn dma_wram_address_high_clear_reproduction() {
+    wram_address_register_reproduction(0x83, 0x12345, 0x5a);
+}
+
+#[test]
+fn dma_wram_address_high_set_reproduction() {
+    wram_address_register_reproduction(0x83, 0x02345, 0xff);
+}
+
+#[test]
+fn dma_wram_address_full_banks_mirrors_and_fixed_sources() {
+    for a in [
+        0x7e0000, 0x7e1fff, 0x7e2000, 0x7effff, 0x7f0000, 0x7f1fff, 0x7f2000, 0x7fffff, 0x000000,
+        0x001fff, 0x3f0000, 0x3f1fff, 0x800000, 0x801fff, 0xbf0000, 0xbf1fff,
+    ] {
+        for (port, pointer, value) in [
+            (0x81, 0x12345, 0x5a),
+            (0x82, 0x12345, 0x5a),
+            (0x83, 0x12345, 0xfe),
+            (0x83, 0x02345, 0xff),
+        ] {
+            let mut b = bus();
+            b.wram.fill(value);
+            b.wram[0x12345..0x12348].copy_from_slice(&[0xa6, 0x37, 0xc9]);
+            b.waddr = pointer;
+            let before = b.wram.clone();
+            general(&mut b, 8, port, a, 3);
+            assert_eq!(b.waddr, pointer, "{a:06x} -> 21{port:02x}");
+            assert_eq!(b.wram, before);
+            assert_eq!(b.open, value);
+            assert_eq!(u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]), a as u16);
+            assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+            assert_eq!((b.dma_pending, b.clocks), (0, 40));
+        }
+    }
+}
+
+#[test]
+fn dma_wram_address_legal_cpu_rom_sram_and_unmapped_controls() {
+    for (port, value, expected) in [
+        (0x81, 0x5a, 0x1235a),
+        (0x82, 0x5a, 0x15a45),
+        (0x83, 0xfe, 0x02345),
+        (0x83, 0xff, 0x12345),
+    ] {
+        let initial = if value == 0xff { 0x02345 } else { 0x12345 };
+        let mut b = bus();
+        b.waddr = initial;
+        b.write(0x2100 | u32::from(port), value);
+        assert_eq!(b.waddr, expected);
+        for a in [
+            0x400000, 0x401fff, 0x402000, 0xc00000, 0xc01fff, 0xc02000, 0x008000, 0x808000,
+            0x700100,
+        ] {
+            let mut b = bus();
+            b.cart.rom.fill(value);
+            b.cart.sram = vec![value; 0x8000];
+            b.waddr = initial;
+            let before = b.wram.clone();
+            general(&mut b, 0, port, a, 1);
+            assert_eq!(b.waddr, expected, "{a:06x} -> 21{port:02x}");
+            assert_eq!(b.wram, before);
+            assert_eq!(b.open, value);
+            assert_eq!(
+                u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]),
+                (a as u16) + 1
+            );
+            assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+            assert_eq!((b.dma_pending, b.clocks), (0, 24));
+        }
+        for a in [0x002000, 0x3f2000, 0x802000, 0xbf2000] {
+            // Compare the routing side effect to an ordinary write of the
+            // value actually read. No literal electrical/open-bus expectation.
+            let mut b = bus();
+            b.waddr = initial;
+            b.open = value;
+            let observed = b.read_raw(a);
+            let mut cpu = bus();
+            cpu.waddr = initial;
+            cpu.write_raw(0x2100 | u32::from(port), observed);
+            let before = b.wram.clone();
+            general(&mut b, 8, port, a, 1);
+            assert_eq!(b.waddr, cpu.waddr);
+            assert_ne!(b.waddr, initial);
+            assert_eq!(b.wram, before);
+            assert_eq!(b.dma[0][2..7], [0, 0x20, (a >> 16) as u8, 0, 0]);
+            assert_eq!((b.dma_pending, b.clocks), (0, 24));
+        }
+    }
+}
+
+#[test]
+fn dma_wram_address_progression_reclassifies_each_byte_and_wraps() {
+    for (mode, a, end, legal) in [
+        (0, 0x001ffe, 0x2002, true),
+        (16, 0x3f2001, 0x1ffd, true),
+        (0, 0x80fffe, 2, true),
+        (16, 0xbf0001, 0xfffd, true),
+        (0, 0x7efffe, 2, false),
+        (16, 0x7f0001, 0xfffd, false),
+    ] {
+        for (port, expected) in [(0x81, 0x0236b), (0x82, 0x06b45), (0x83, 0x12345)] {
+            let mut b = bus();
+            b.cart.rom.fill(0x6b);
+            b.wram.fill(0x5a);
+            b.open = 0x6b;
+            b.waddr = 0x02345;
+            let before = b.wram.clone();
+            general(&mut b, mode, port, a, 4);
+            // Unmapped controls assert routing using a separately observed
+            // fixture read; their electrical value is outside this contract.
+            let expected = if !legal {
+                0x02345
+            } else if a == 0x001ffe || a == 0x3f2001 {
+                let mut control = bus();
+                control.open = if a == 0x001ffe { 0x5a } else { 0x6b };
+                let observed = control.read_raw(0x3f2001);
+                control.waddr = 0x02345;
+                control.write_raw(0x2100 | u32::from(port), observed);
+                control.waddr
+            } else {
+                expected
+            };
+            assert_eq!(b.waddr, expected, "{a:06x} -> 21{port:02x}");
+            assert_eq!(b.wram, before);
+            assert_eq!(u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]), end);
+            assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+            assert_eq!((b.dma_pending, b.clocks), (0, 48));
+        }
+    }
+}
+
+#[test]
+fn dma_wram_address_all_modes_effective_ports_and_bbad_wrap() {
+    // Eight payloads exercise repeated patterns. Expected legal ROM pointer
+    // results are literal, independently worked from the documented modes.
+    for (mode, expected80, expected81) in [
+        (0, 0x1234d, 0x123fe),
+        (1, 0x123fe, 0x1fe6b),
+        (2, 0x1234d, 0x123fe),
+        (3, 0x124fe, 0x1fe5a),
+        (4, 0x06b5a, 0x15a11),
+        (5, 0x123fe, 0x1fe6b),
+        (6, 0x1234d, 0x123fe),
+        (7, 0x124fe, 0x1fe5a),
+    ] {
+        for (a, conflicting) in [(0x7e0100, true), (0x008100, false)] {
+            for (port, expected) in [(0x80, expected80), (0x81, expected81), (0x82, 0), (0x83, 0)] {
+                if !conflicting && port >= 0x82 {
+                    continue;
+                }
+                let mut b = bus();
+                let payload = [0x11, 0x5a, 0x6b, 0xfe, 0x11, 0x5a, 0x6b, 0xfe];
+                b.wram[0x100..0x108].copy_from_slice(&payload);
+                b.cart.rom[0x100..0x108].copy_from_slice(&payload);
+                b.waddr = 0x12345;
+                let before = b.wram.clone();
+                general(&mut b, mode, port, a, 8);
+                assert_eq!(
+                    b.waddr,
+                    if conflicting { 0x12345 } else { expected },
+                    "mode {mode} port {port:02x}"
+                );
+                if conflicting {
+                    assert_eq!(b.wram, before);
+                }
+                assert_eq!(b.open, 0xfe);
+                assert_eq!(
+                    b.dma[0][2..7],
+                    [8, if conflicting { 1 } else { 0x81 }, (a >> 16) as u8, 0, 0]
+                );
+                assert_eq!((b.dma_pending, b.clocks), (0, 80));
+            }
+        }
+    }
+    let mut b = bus();
+    b.wram[0x100..0x108].copy_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
+    b.waddr = 0x12345;
+    let before = b.wram.clone();
+    // Mode 4 at $217f: each ordinary APU write is followed by three conflicts.
+    general(&mut b, 4, 0x7f, 0x7e0100, 8);
+    assert_eq!(b.apu.input[3], 0x55);
+    assert_eq!(b.waddr, 0x12345);
+    assert_eq!(b.wram, before);
+    assert_eq!(b.dma[0][2..7], [8, 1, 0x7e, 0, 0]);
+    assert_eq!((b.dma_pending, b.clocks), (0, 80));
+    // Mode 4 at $21ff wraps into $2100/$2101/$2102, never $2200.
+    b.wram[0x100..0x104].copy_from_slice(&[0x11, 0x8f, 0x03, 0x25]);
+    general(&mut b, 4, 0xff, 0x7e0100, 4);
+    assert_eq!(&b.ppu.regs[..3], &[0x8f, 0x03, 0x25]);
+    assert_eq!(b.waddr, 0x12345);
+    assert_eq!(b.dma[0][2..7], [4, 1, 0x7e, 0, 0]);
+    assert_eq!((b.dma_pending, b.clocks), (0, 128));
+}
+
+#[test]
+fn hdma_wram_address_complete_tables_and_payload_bank_controls() {
+    for (port, pointer, legal_pointers) in [
+        (0x81, 0x12345, [0x1235a, 0x12337, 0x123fe]),
+        (0x82, 0x12345, [0x15a45, 0x13745, 0x1fe45]),
+        (0x83, 0x12345, [0x02345, 0x12345, 0x02345]),
+        (0x83, 0x02345, [0x02345, 0x12345, 0x02345]),
+    ] {
+        for (indirect, table, bank, conflict) in [
+            (false, 0x7e0100, 0, true),
+            (false, 0x008100, 0, false),
+            (true, 0x7e0100, 0x7e, true),
+            (true, 0x7e0100, 0x00, false),
+            (true, 0x008100, 0x7f, true),
+        ] {
+            let mut b = bus();
+            let bytes: &[u8] = if indirect {
+                &[0x82, 0, 0x82, 2, 2, 0x82, 0]
+            } else {
+                &[0x82, 0x5a, 0x37, 2, 0xfe, 0]
+            };
+            b.wram[0x100..0x100 + bytes.len()].copy_from_slice(bytes);
+            b.cart.rom[0x100..0x100 + bytes.len()].copy_from_slice(bytes);
+            b.wram[0x8200..0x8203].copy_from_slice(&[0x5a, 0x37, 0xfe]);
+            b.wram[0x18200..0x18203].copy_from_slice(&[0x5a, 0x37, 0xfe]);
+            b.cart.rom[0x200..0x203].copy_from_slice(&[0x5a, 0x37, 0xfe]);
+            b.wram[0x12345..0x12348].copy_from_slice(&[0xa6, 0x37, 0xc9]);
+            b.waddr = pointer;
+            let before = b.wram.clone();
+            hdma(&mut b, if indirect { 0x40 } else { 0 }, table);
+            b.dma[0][1] = port;
+            b.dma[0][7] = bank;
+            let states = if indirect {
+                [
+                    (0x103, 0x8201, 32),
+                    (0x103, 0x8202, 40),
+                    (0x106, 0x8203, 72),
+                    (0x106, 0x8203, 72),
+                    (0x107, 0x8203, 80),
+                ]
+            } else {
+                [
+                    (0x102, 0, 16),
+                    (0x103, 0, 24),
+                    (0x105, 0, 40),
+                    (0x105, 0, 40),
+                    (0x106, 0, 48),
+                ]
+            };
+            for (row, (end, payload, clocks)) in states.into_iter().enumerate() {
+                b.hdma_pending = true;
+                b.events();
+                assert_eq!(
+                    b.waddr,
+                    if conflict {
+                        pointer
+                    } else {
+                        legal_pointers[row.min(2)]
+                    },
+                    "port {port:02x} table {table:06x} bank {bank:02x} row {row}"
+                );
+                assert_eq!(b.wram, before);
+                assert_eq!(
+                    u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]),
+                    end + if table == 0x008100 { 0x8000 } else { 0 }
+                );
+                assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), payload);
+                assert_eq!(b.hdma_line[0], [0x81, 0x80, 1, 0, 0][row]);
+                assert_eq!(b.dma[0][10], [0x81, 0x80, 1, 0, 0][row]);
+                assert_eq!(b.hdma_transfer[0], [true, true, false, false, true][row]);
+                assert_eq!(b.hdma_active, [1, 1, 1, 1, 0][row]);
+                assert_eq!(b.io[12], 1);
+                assert_eq!(
+                    b.dma[0][2..5],
+                    [
+                        0,
+                        if table == 0x008100 { 0x81 } else { 1 },
+                        (table >> 16) as u8
+                    ]
+                );
+                assert_eq!(b.dma[0][7], bank);
+                if row < 3 {
+                    assert_eq!(b.open, [0x5a, 0x37, 0xfe][row]);
+                }
+                assert_eq!(b.clocks, clocks);
+            }
+        }
+    }
 }

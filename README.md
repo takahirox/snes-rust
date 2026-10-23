@@ -98,6 +98,9 @@ For Issue #25, all 29 focused DMA/HDMA unit tests, four CPU guests, 143 workspac
 tests and 18 browser checks passed, together with the source-built hardware gates.
 See the [validation evidence](docs/issue-25-validation.md) for exact commands,
 baseline failures, compiler selection, game replay results and remaining limits.
+Issue #27 extends suppression to the WRAM address registers; its
+[validation record](docs/issue-27-validation.md) records the new baseline failures,
+38 focused unit tests, five CPU guests and the final mandatory gate results.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -287,12 +290,14 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   blanket CPU-register read exclusion and records reference sections, register
   vectors, baseline failures and an original CPU-executed guest. Restrictions
   elsewhere in `$4200–$420F` remain unresolved where unsupported by references.
-  Forward DMA/direct HDMA/indirect HDMA payloads from WRAM to B-bus `$2180`
-  suppress the write and WRAM-port increment while retaining byte/row progression.
+  Forward DMA/direct HDMA/indirect HDMA payloads from WRAM to B-bus `$2180–$2183`
+  suppress the write, preserving all 17 pointer bits (including no `$2180`
+  increment), while retaining source reads, timing and byte/row progression.
   Full WRAM banks and system-bank mirrors are checked per payload byte using the
   effective B register; ROM/SRAM transfers, CPU port accesses and table fetches
-  remain legal. The [conflict validation](docs/issue-25-validation.md) records
-  specification excerpts, baseline failures, original vectors and a CPU guest.
+  remain legal. The [WMDATA validation](docs/issue-25-validation.md) and
+  [address-register validation](docs/issue-27-validation.md) record specification
+  sections, the HDMA derivation, baseline failures, original vectors and CPU guests.
   `dma` and `hdma` remain partial:
   reverse `$2180`/WRAM conflicts, startup/alignment timing, HDMA initialization/
   overhead and first-frame behavior, same-channel contention, exact electrical
