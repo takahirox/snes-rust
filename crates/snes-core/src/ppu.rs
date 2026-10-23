@@ -86,12 +86,13 @@ impl Ppu {
         self.oport_addr = 0x200 | (self.oport_addr & 1);
     }
     pub(crate) fn oam_scanline_start(&mut self, line: u16) {
+        if self.regs[0] & 128 == 0 && line < 225 {
+            self.rendering_oam_address();
+        }
+    }
+    pub(crate) fn oam_vblank_reload(&mut self) {
         if self.regs[0] & 128 == 0 {
-            if line == 225 {
-                self.reload_oam_address();
-            } else if line < 225 {
-                self.rendering_oam_address();
-            }
+            self.reload_oam_address();
         }
     }
     fn oam_byte_address(&mut self) -> usize {

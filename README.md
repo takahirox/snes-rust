@@ -85,6 +85,7 @@ cargo test --locked -p snes-core --test hdma_ntrl
 cargo test --locked -p snes-core --test ppu_counter_latch
 cargo test --locked -p snes-core --test ppu_vram_access
 cargo test --locked -p snes-core --test ppu_oam_access
+cargo test --locked -p snes-core --test ppu_oam_reload
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -393,9 +394,14 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   state; physical warm-reset retention remains unverified.
   OAM ports distinguish software access in forced/VBlank from rendering-owned
   addressing during active display, HBlank and scanline 0. Either address write
-  reloads the whole programmed word and even phase; normal VBlank entry and
-  qualified first-VBlank INIDISP writes restore that address. Even high-table
-  writes also capture the shared low-byte latch. Without an object-fetch
+  reloads the whole programmed word and even phase. VBlank access begins at
+  V=225/H=0; the distinct automatic reload occurs at H=10 dots (40 master
+  clocks) when forced blank is clear. Qualified first-VBlank INIDISP writes
+  separately restore that address. The [reload validation](docs/issue-45-validation.md)
+  supersedes the earlier H=0 reload convention, with numerical CPU/DMA vectors
+  and an original executed guest. Latch retention and coincident-access ordering
+  remain model policy/assumptions; `scheduler` and `ppu-ports` remain partial.
+  Even high-table writes also capture the shared low-byte latch. Without an object-fetch
   pipeline, rendering uses a deterministic two-byte high-table substitute;
   its destinations, returned bytes and preserved latch/phase are approximation
   policy, not hardware-verified corruption. The [OAM validation](docs/issue-43-validation.md)

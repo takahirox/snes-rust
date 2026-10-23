@@ -4,6 +4,12 @@ For [Issue #43](https://github.com/takahirox/snes-rust/issues/43), evaluation
 baseline `f1e3a668339cf52eead622d00ec915ea7952b721`. Original changes and tests
 are MIT licensed. No commercial ROM or firmware is acquired.
 
+The automatic reload timing in this historical record is superseded by
+[Issue #45](issue-45-validation.md): VBlank availability begins at H=0, but
+OAM reload occurs at H=10 dots (40 master clocks). Other addressing, latch,
+rendering-policy and INIDISP qualifications remain applicable. Validation counts
+and results below describe the original Issue #43 revision.
+
 ## Specification record (written before production changes)
 
 Retrieved 2026-10-24, with complete ignored raw copies in `.cache/references/`.
@@ -54,7 +60,7 @@ are emulator policy, not measured hardware values.
 | $2104 high table | Mirror into $200–$21F; direct commit; even also captures shared latch; +1 | Same | Rendering-owned effective address, same byte/latch operation | Same as A | Same as A | Fullsnes OAMDATA EVEN and ANY rules, mirror description. |
 | $2138 read | Current internal byte, then +1; latch unchanged | Same | Rendering-owned address/read, +1; no specified electrical byte | Same as A | Same as A | Fullsnes RDOAM; Anomie RDOAM says invalidation probably applies. Numeric active returns are policy. |
 | Enter forced blank | Stop rendering ownership; preserve current internal address, phase and latch; reprogram either address register to recover | Same | Same | Same | Same | Anomie OAMDATA warns that mid-frame force blank needs address reset; latch retention is policy. |
-| Begin VBlank | If F stays set, no reload | If F clear, reload programmed word ×2, even phase | Exit rendering via VBlank rule | Same | N/A | Both OAMADDL/H sections, Anomie SPRITES/OAM. No data-latch reset specified. |
+| Automatic first-VBlank-line reload at H=10 dots | If F stays set, no reload | If F clear, reload programmed word ×2, even phase | Rendering ownership ends at H=0; reload follows at H=40 master clocks | Same | N/A | Both OAMADDL/H sections, Anomie SPRITES/OAM; detailed coordinate from Fullsnes H/V Events, corrected in Issue #45. Latch retention is policy. |
 | INIDISP write with old F set on first VBlank line | Reload, even phase, preserve latch, including F→F | N/A | N/A | N/A | N/A | Selected Anomie INIDISP rule; Fullsnes only explicitly specifies F→normal here. See conflict below. |
 | Exit F elsewhere / exit VBlank | No automatic programmed-address restore; rendering owns address when outside VBlank; latch retained | Later VBlank F exit preserves address | Rendering owns address | Same as A | Same as A | Fullsnes OAMADDL/H; Anomie OAMDATA warning; invalidation details approximated. |
 
@@ -90,8 +96,9 @@ destination +8. Fullsnes INIDISP expressly leaves latency uncertain. Boundary
 assertions below test these scheduler conventions, not physical strobe accuracy.
 In particular, Fullsnes's detailed H/V Events lists OAMADD reload at H=10 dots
 on V=225 whereas its register entry and Anomie describe VBlank beginning.
-The model reloads at the existing line-225 event (H=0); the 40-clock physical
-placement and forced-blank latency are explicitly not established by these tests.
+Issue #43 originally chose the existing line-225 event (H=0); Issue #45
+supersedes that approximation with the detailed H=10 event. The original tests
+below did not establish the 40-clock placement or physical forced-blank latency.
 
 ## Implementation and independent vectors
 
@@ -99,9 +106,10 @@ placement and forced-blank latency are explicitly not established by these tests
 rendering-owned memory cursor from the advancing priority-rotation cursor.
 Address writes and automatic reloads reset both to the programmed even byte;
 port accesses advance both, while rendering invalidation changes only the memory
-cursor. The existing scheduler calls the OAM line event at every natural line
-transition, including VBlank entry and frame wrap. CPU, DMA and HDMA continue
-through the same PPU read/write paths; there is no special transfer bypass.
+cursor. The scheduler calls the OAM line event at every natural line transition,
+including VBlank entry and frame wrap. Issue #45 separates automatic reload into
+a distinct H=40 event; the line event now only updates rendering ownership.
+CPU, DMA and HDMA continue through the same PPU read/write paths; there is no special transfer bypass.
 
 - `src/ppu_oam_tests.rs`: six independent PPU tests cover forced/VBlank low-even
   capture, low-odd pair commit, interleaved reads and writes, high-even shared
@@ -230,8 +238,8 @@ The remaining browser UI, SRAM recovery and Pages checks all passed unchanged.
 The rendering address substitute, electrical bytes, phase evolution during
 rendering, and data-latch retention across reloads are bounded model policy.
 The two references disagree about INIDISP reset qualification; the selected rule
-and H=0 reload convention are explicit above. Exact OAM corruption, physical
-memory strobes, forced-blank latency and object-fetch timing remain unresolved.
+is explicit above; the former H=0 reload convention is superseded by Issue #45.
+Exact OAM corruption, physical memory strobes, forced-blank latency and object-fetch timing remain unresolved.
 CGRAM access/corruption, VRAM invalid-fetch bits, physical blanking/access
 boundaries, external latch inputs, long-dot/field conversion and warm-reset
 retention remain unresolved. This does not establish full OAM accuracy, full

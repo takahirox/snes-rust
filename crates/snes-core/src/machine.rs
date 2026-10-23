@@ -6,6 +6,9 @@ use crate::{
 };
 const LINE: u64 = 1364;
 const HBLANK: u64 = 1096;
+// Fullsnes detailed H/V Events: V=225, H=10 dots (4 clocks/dot).
+// Distinct from VBlank availability at H=0 and first-line INIDISP writes.
+const OAM_RELOAD: u64 = 40;
 // Fullsnes H/V Events and Anomie HDMA: activity at H=278 (4 clocks/dot).
 // Model this as service eligibility, consumed at the next CPU/DMA boundary.
 // No distinct earlier hardware request edge is established by those references;
@@ -174,6 +177,9 @@ impl SystemBus {
             self.clocks += elapsed;
             self.h += elapsed;
             n -= elapsed;
+            if self.v == 225 && old_h < OAM_RELOAD && self.h >= OAM_RELOAD {
+                self.ppu.oam_vblank_reload();
+            }
             if self.v == 0 && old_h < HDMA_INIT && self.h >= HDMA_INIT {
                 self.hdma_init = true;
             }
