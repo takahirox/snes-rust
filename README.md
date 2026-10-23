@@ -78,6 +78,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
+cargo test -p snes-core --test ppu_offset --locked
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -274,9 +275,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   Modes 3/4 and Mode 7 with EXTBG disabled, including tile palette contributions
   in Modes 3/4, transparency and the existing composition pipeline. See the
   [direct-color validation](docs/issue-11-validation.md) for numerical, rendering
-  and original CPU-executed guest coverage. Rendering snapshots registers per
-  scanline. Mid-scanline raster effects, offset-per-tile modes 2/4/6, hires/
-  interlace/overscan, exact object overflow/rotation and Mode 7 EXTBG/transform
+  and original CPU-executed guest coverage. Non-mosaic Modes 2/4 support BG3
+  offset-per-tile addressing for BG1/BG2, including independent enable bits,
+  fine-scroll preservation, BG3 screen layouts and 8×8/16×16 tile addressing.
+  The [offset validation](docs/issue-19-validation.md) records coordinate vectors,
+  original CPU-executed guests and baseline failures. `ppu-offset` and `ppu-bg`
+  remain partial; `ppu-hires` and `ppu-raster` are not completed by this change.
+  Rendering snapshots registers per scanline. Mode 6 offset/hires addressing,
+  mosaic/offset interactions, timed mosaic state, mid-scanline raster effects,
+  hires/interlace/overscan, exact object overflow/rotation and Mode 7 EXTBG/transform
   edge behavior are outside the tested targets. `ppu-color` remains partial:
   comprehensive window logic, clipping/prevention interactions, subtraction/
   saturation, halving and brightness coverage still need work. VRAM writes obey

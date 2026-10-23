@@ -48,6 +48,28 @@ are not release acceptance evidence.
   See [validation](../../docs/issue-11-validation.md) for baseline failure evidence
   and the unchanged external fixture provenance/hashes.
 
+## Original offset-per-tile 65C816 guests and graphics: approved
+
+- Source: [`crates/snes-core/tests/ppu_offset.rs`](../../crates/snes-core/tests/ppu_offset.rs),
+  including `guest_rom`, the coordinate-labelled planar texture and literal vectors.
+  No upstream program, graphics or implementation input.
+- Copyright: 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Eight 32,768-byte LoROM variants are generated in memory: Modes 2/4,
+  horizontal/vertical replacement, enabled/disabled. Original SEI, LDA/STA and
+  BRA instruction streams initialize registers, VRAM and CGRAM through `Machine`
+  CPU execution during forced blank. Tests never patch the guest's PPU state.
+- Graphics are original solid red/blue/white characters, original maps and offset
+  words, a green backdrop and an original cartridge header. The other rendering
+  tests use mathematically generated nonuniform pixels/palettes. No font, firmware,
+  commercial ROM, external binary, assembler or compiler runtime is used.
+- Each guest is bounded to three frames and 150,000 instructions and checked
+  against literal RGBA values at the first eligible boundary. Hardware facts and
+  independent source-coordinate derivations are attributed in the
+  [validation record](../../docs/issue-19-validation.md).
+- Decision: original source/data and generated ROMs may be redistributed under
+  MIT. No generated ROM is committed or downloaded. These are bounded diagnostics,
+  not games, full hardware validation or commercial compatibility evidence.
+
 ## Original envelope-rate SPC700 guest: approved
 
 - Source: [`crates/snes-core/tests/dsp_envelope.rs`](../../crates/snes-core/tests/dsp_envelope.rs),
