@@ -268,12 +268,19 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   during transfers. Tests check DMA writes across the VBlank access boundary,
   deferred NMI, IRQ comparisons and guest-generated HDMA raster bands.
 - Planar BG modes, tilemaps, scroll/mosaic, sprites, priorities, windows and
-  color math, plus a basic Mode 7 transform. Rendering snapshots registers per
+  color math, plus a basic Mode 7 transform. BG1 direct color is supported in
+  Modes 3/4 and Mode 7 with EXTBG disabled, including tile palette contributions
+  in Modes 3/4, transparency and the existing composition pipeline. See the
+  [direct-color validation](docs/issue-11-validation.md) for numerical, rendering
+  and original CPU-executed guest coverage. Rendering snapshots registers per
   scanline. Mid-scanline raster effects, offset-per-tile modes 2/4/6, hires/
-  interlace/overscan, direct color, exact object overflow/rotation and Mode 7
-  edge behavior are outside the tested targets. VRAM writes obey forced/VBlank
-  access and still increment when blocked. VRAM prefetch, OAM/CGRAM write pairs,
-  latched counters and separate PPU read buses have numerical regressions.
+  interlace/overscan, exact object overflow/rotation and Mode 7 EXTBG/transform
+  edge behavior are outside the tested targets. `ppu-color` remains partial:
+  comprehensive window logic, clipping/prevention interactions, subtraction/
+  saturation, halving and brightness coverage still need work. VRAM writes obey
+  forced/VBlank access and still increment when blocked. VRAM prefetch,
+  OAM/CGRAM write pairs, latched counters and separate PPU read buses have
+  numerical regressions.
   Active-display OAM/CGRAM corruption and dot-level pixel fetches are not modeled;
   the selected games update video memory during forced/VBlank.
 - SPC700 execution/timers and CPU communication using a firmware-free,

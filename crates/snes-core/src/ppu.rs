@@ -94,6 +94,18 @@ impl Ppu {
     fn palette(&self, i: usize) -> u16 {
         u16::from_le_bytes([self.cgram[(i * 2) & 511], self.cgram[(i * 2 + 1) & 511]]) & 0x7fff
     }
+    // Fullsnes Direct Color Mode: pixel BBGGGRRR and tile palette bgr
+    // supply RRRr0, GGGg0, BBb00. Transparency is checked by the caller.
+    fn direct_color(pixel: u8, palette: u8) -> u16 {
+        let p = pixel as u16;
+        let t = palette as u16;
+        ((p & 7) << 2)
+            | ((t & 1) << 1)
+            | ((p & 0x38) << 4)
+            | ((t & 2) << 5)
+            | ((p & 0xc0) << 7)
+            | ((t & 4) << 10)
+    }
     pub fn write(&mut self, r: u8, v: u8) {
         let r = (r & 63) as usize;
         self.regs[r] = v;
@@ -316,10 +328,15 @@ impl Ppu {
             return None;
         }
         let pal = ((entry >> 10) & 7) as usize;
-        let color = if bpp == 8 {
-            color as usize
+        let color = if bpp == 8 && self.regs[0x30] & 1 != 0 {
+            Self::direct_color(color, pal as u8)
         } else {
-            color as usize + pal * (1 << bpp) + if mode == 0 { bg * 32 } else { 0 }
+            let index = if bpp == 8 {
+                color as usize
+            } else {
+                color as usize + pal * (1 << bpp) + if mode == 0 { bg * 32 } else { 0 }
+            };
+            self.palette(index)
         };
         let high = entry & 0x2000 != 0;
         let rank = match mode {
@@ -334,7 +351,7 @@ impl Ppu {
             _ => [[3, 7], [1, 5], [0, 0], [0, 0]][bg][usize::from(high)],
         };
         Some(Pixel {
-            color: self.palette(color),
+            color,
             rank,
             layer: bg as u8,
             math: true,
@@ -368,7 +385,11 @@ impl Ppu {
             None
         } else {
             Some(Pixel {
-                color: self.palette(color as usize),
+                color: if self.regs[0x30] & 1 != 0 && self.regs[0x33] & 0x40 == 0 {
+                    Self::direct_color(color, 0)
+                } else {
+                    self.palette(color as usize)
+                },
                 rank: 3,
                 layer: 0,
                 math: true,
@@ -572,6 +593,51 @@ impl Ppu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_color_routes_every_pixel_and_palette_bit() {
+        // Independent wiring oracle, from the documented channel bit layout.
+        // This tests conversion even for zero; opacity belongs to the renderer.
+        let pixel_weights = [4, 8, 16, 128, 256, 512, 8192, 16384];
+        let palette_weights = [2, 64, 4096];
+        for pixel in 0..=255u8 {
+            for palette in 0..8u8 {
+                let expected: u16 = pixel_weights
+                    .iter()
+                    .enumerate()
+                    .filter(|(bit, _)| pixel & (1 << bit) != 0)
+                    .map(|(_, weight)| weight)
+                    .chain(
+                        palette_weights
+                            .iter()
+                            .enumerate()
+                            .filter(|(bit, _)| palette & (1 << bit) != 0)
+                            .map(|(_, weight)| weight),
+                    )
+                    .sum();
+                assert_eq!(Ppu::direct_color(pixel, palette), expected);
+            }
+        }
+        for (pixel, palette, expected) in [
+            (0, 0, 0),
+            (1, 0, 0x0004),
+            (2, 0, 0x0008),
+            (4, 0, 0x0010),
+            (8, 0, 0x0080),
+            (16, 0, 0x0100),
+            (32, 0, 0x0200),
+            (64, 0, 0x2000),
+            (128, 0, 0x4000),
+            (0, 1, 0x0002),
+            (0, 2, 0x0040),
+            (0, 4, 0x1000),
+            (1, 1, 0x0006),
+            (255, 0, 0x639c),
+            (255, 7, 0x73de),
+        ] {
+            assert_eq!(Ppu::direct_color(pixel, palette), expected);
+        }
+    }
 
     #[test]
     fn counters_hold_the_latched_position_and_keep_independent_read_flipflops() {

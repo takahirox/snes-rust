@@ -30,6 +30,24 @@ are not release acceptance evidence.
 - Decision: source and generated ROM may be redistributed under MIT. It is a
   diagnostic, not an independent homebrew game and not gameplay acceptance.
 
+## Original direct-color guest tests: approved
+
+- Source: [`crates/snes-core/tests/direct_color.rs`](../../crates/snes-core/tests/direct_color.rs),
+  including the `guest_rom` Rust builder; no upstream program or data input.
+- Copyright: 2026 snes-rust contributors; [MIT](../../LICENSE).
+- The 65C816 instruction stream, constant-color planar and Mode 7 graphics,
+  tilemaps, palettes and LoROM header are original code/data authored for Issue #11.
+  Hardware bit-layout expectations come from the Fullsnes documentation linked
+  below; no emulator implementation, font, firmware or commercial ROM was used.
+- `cargo test --workspace --locked` constructs twelve 32,768-byte guest variants
+  in memory (Modes 3/4/7, direct color off/on, two CGRAM colors). Each executes
+  through `Machine` for two frames with a 100,000-instruction limit and numeric
+  framebuffer assertions. Nothing is downloaded and no generated ROM is committed.
+- Decision: the original source and generated ROMs may be redistributed under MIT.
+  These are bounded diagnostics, not game or comprehensive hardware acceptance.
+  See [validation](../../docs/issue-11-validation.md) for baseline failure evidence
+  and the unchanged external fixture provenance/hashes.
+
 ## Source-built hardware suites: approved with documented alterations
 
 ### gilyon/snes-tests
