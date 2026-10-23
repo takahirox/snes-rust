@@ -84,6 +84,7 @@ cargo test --locked -p snes-core --test hdma_phase
 cargo test --locked -p snes-core --test hdma_ntrl
 cargo test --locked -p snes-core --test ppu_counter_latch
 cargo test --locked -p snes-core --test ppu_vram_access
+cargo test --locked -p snes-core --test ppu_oam_access
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -390,8 +391,18 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   edges capture counters. STAT78 resets both read selectors and acknowledges
   the latch flag only with the gate high. `Machine::reset` uses the same initial
   state; physical warm-reset retention remains unverified.
-  Active-display OAM/CGRAM corruption and dot-level pixel fetches are not modeled;
-  the selected games update video memory during forced/VBlank.
+  OAM ports distinguish software access in forced/VBlank from rendering-owned
+  addressing during active display, HBlank and scanline 0. Either address write
+  reloads the whole programmed word and even phase; normal VBlank entry and
+  qualified first-VBlank INIDISP writes restore that address. Even high-table
+  writes also capture the shared low-byte latch. Without an object-fetch
+  pipeline, rendering uses a deterministic two-byte high-table substitute;
+  its destinations, returned bytes and preserved latch/phase are approximation
+  policy, not hardware-verified corruption. The [OAM validation](docs/issue-43-validation.md)
+  records the source disagreement about forced-blank exit and the selected rule.
+  Exact OAM/CGRAM access/corruption, physical blanking/access boundaries and
+  dot-level pixel fetches remain unresolved; the selected games update video
+  memory during forced/VBlank.
 - SPC700 execution/timers and CPU communication using a firmware-free,
   high-level IPL upload protocol. All licensed SPC semantic tests pass; IPL
   instruction timing and general firmware execution are not emulated.

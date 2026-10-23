@@ -566,3 +566,26 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   from hardware-supported access/order rules in the
   [Issue #41 validation](../../docs/issue-41-validation.md). All existing fixture
   and game pins, ROM hashes, license decisions, notices and replay inputs remain.
+
+## Original OAM access CPU guest: approved
+
+- Source: [`crates/snes-core/tests/ppu_oam_access.rs`](../../crates/snes-core/tests/ppu_oam_access.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Original encoded 65C816 instructions construct a zero-filled 32 KiB LoROM in
+  memory, including all OAM sentinels, header/reset vector and numeric results.
+  No external assembler, runtime, font, firmware, commercial ROM, game asset,
+  emulator implementation or external test binary is used. No generated ROM
+  is committed or downloaded.
+- The guest initializes OAM through executed writes, polls HVBJOY and uses
+  masked H/V IRQ with WAI to synchronize to active display and HBlank. It
+  reads/writes OAM, recovers via forced blank and address writes, observes normal
+  VBlank reload and frame-wrap scanline zero, and publishes 20 numeric result
+  bytes plus `$18F0=$A5` before STP. The host supplies only the ROM and observes
+  results with bounds of 150,000 instructions and fewer than four frame wraps;
+  it patches no CPU, PPU, raster, bus or result state.
+- Decision: original code/data can be redistributed under MIT. Assertions of
+  rendering-owned numeric addresses/bytes and downstream latch effects are
+  explicit emulator policy, separated from source-supported blanked controls in
+  the [Issue #43 validation](../../docs/issue-43-validation.md). Existing fixture
+  and game source pins, hashes, notices, licensing decisions and replay inputs
+  remain unchanged.

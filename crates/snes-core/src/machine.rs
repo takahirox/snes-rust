@@ -201,6 +201,7 @@ impl SystemBus {
                 self.frames += 1;
                 self.nmi_flag = false;
             }
+            self.ppu.oam_scanline_start(self.v);
             // V=0 is a valid comparison only after the frame counter wraps.
             if (mode == 0x20 && self.v == vtime)
                 || (mode & 0x10 != 0 && htime == 0 && (mode & 0x20 == 0 || self.v == vtime))
@@ -958,3 +959,7 @@ mod ppu_counter_tests;
 #[cfg(test)]
 #[path = "machine/ppu_vram_tests.rs"]
 mod ppu_vram_tests;
+
+#[cfg(test)]
+#[path = "machine/ppu_oam_tests.rs"]
+mod ppu_oam_tests;
