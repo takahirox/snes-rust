@@ -91,6 +91,25 @@ are not release acceptance evidence.
   MIT. This diagnostic establishes bounded sample-level behavior, not complete
   DSP accuracy or game acceptance. All external fixture decisions below remain.
 
+## Original pitch-modulation SPC700 guest and BRR data: approved
+
+- Source: [`crates/snes-core/tests/dsp_pitch.rs`](../../crates/snes-core/tests/dsp_pitch.rs)
+  and [`crates/snes-core/src/dsp_pitch_tests.rs`](../../crates/snes-core/src/dsp_pitch_tests.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- The original 163-byte SPC700 guest, directory entries, range-9 filter-0 signed
+  ramp, range-12 constant block, zero loop and terminating variants, commands,
+  numerical vectors and initial RAM are authored for Issue #17. Hardware facts
+  and independent arithmetic are attributed in the
+  [pitch validation record](../../docs/issue-17-validation.md).
+- The guest is constructed in memory, uploaded through the existing firmware-free
+  protocol, writes PMON through `$F2/$F3`, records target OUTX/ENDX at
+  `$1000..$1005`, disables modulation without KON, acknowledges three bounded
+  checkpoints and stops. Both PMON-enabled and disabled controls execute.
+- No external implementation, binary, firmware, font, sample, game asset,
+  assembler or compiler runtime is acquired for these diagnostics. No generated
+  guest binary is committed. Source and generated code/data may be redistributed
+  under MIT. All external fixture decisions and pins below remain unchanged.
+
 ## Source-built hardware suites: approved with documented alterations
 
 ### gilyon/snes-tests

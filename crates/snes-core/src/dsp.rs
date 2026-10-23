@@ -9,6 +9,8 @@ struct Voice {
     history: [i32; 2],
     decoded: [i32; 4],
     key_delay: u8,
+    // Bounded interpolation position, including the four-sample group bits.
+    // Decoded history already includes the integer steps represented here.
     phase: u32,
     env: i32,
     stage: u8,
@@ -130,7 +132,11 @@ impl Dsp {
         }
         let mut mix = [0i32; 2];
         let mut echo_in = [0i32; 2];
+        let mut previous_output = 0;
         for i in 0..8 {
+            let modulation_input = previous_output;
+            // Inactive/key-delayed voices must break the adjacent chain.
+            previous_output = 0;
             let base = i * 16;
             if self.kon & (1 << i) != 0 {
                 let dir = (self.regs[0x5d] as u16) << 8;
@@ -214,11 +220,19 @@ impl Dsp {
             if v.stage == 3 && v.env == 0 {
                 v.active = false;
             }
-            let pitch =
-                (self.regs[base + 2] as u32 | ((self.regs[base + 3] as u32 & 63) << 8)).min(0x3fff);
-            v.phase += pitch;
-            while v.phase >= 4096 {
-                v.phase -= 4096;
+            let pitch = self.regs[base + 2] as u32 | ((self.regs[base + 3] as u32 & 63) << 8);
+            let increment = if i != 0 && self.regs[0x2d] & (1 << i) != 0 {
+                modulated_pitch(pitch, modulation_input)
+            } else {
+                pitch
+            };
+            // Anomie/jwdonal SOUND GENERATION / PITCH ADJUSTMENTS: retain the
+            // low 14 bits, add the full increment, saturate at $7FFF. Our scalar
+            // decoder eagerly consumes the difference in integer positions;
+            // masking the group bits next sample must not consume them twice.
+            let position = v.phase & 0x3fff;
+            v.phase = (position + increment).min(0x7fff);
+            for _ in (position >> 12)..(v.phase >> 12) {
                 if Self::decode(v, ram) {
                     self.regs[0x7c] |= 1 << i;
                 }
@@ -226,9 +240,10 @@ impl Dsp {
             let source = if self.regs[0x3d] & (1 << i) != 0 {
                 (self.noise << 1) as i16 as i32
             } else {
-                Self::interpolate(v.decoded, v.phase)
+                Self::interpolate(v.decoded, v.phase & 0xfff)
             };
             let sample = ((source * v.env) >> 11) & !1;
+            previous_output = sample;
             self.regs[base + 8] = (v.env >> 4) as u8;
             self.regs[base + 9] = (sample >> 8) as u8;
             for side in 0..2 {
@@ -277,6 +292,13 @@ impl Dsp {
         (out[0], out[1])
     }
 }
+// Signed full-resolution post-envelope input; preserve both arithmetic shifts.
+// The product fits i32 (at most 1024 * $3FFF); the result can exceed $3FFF.
+fn modulated_pitch(pitch: u32, previous_output: i32) -> u32 {
+    let p = pitch as i32;
+    (p + (((previous_output >> 5) * p) >> 10)) as u32
+}
+
 // Fullsnes: ADSR/Gain (and Noise) Rates; Anomie/jwdonal: COUNTERS.
 // See docs/issue-13-validation.md for phase attribution and independent vectors.
 fn rate_event(counter: u32, rate: u8) -> bool {
@@ -705,3 +727,7 @@ mod tests {
 #[cfg(test)]
 #[path = "dsp_noise_tests.rs"]
 mod noise_tests;
+
+#[cfg(test)]
+#[path = "dsp_pitch_tests.rs"]
+mod pitch_tests;
