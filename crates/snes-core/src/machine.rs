@@ -210,6 +210,7 @@ impl SystemBus {
             self.v += 1;
             if self.v == 262 {
                 self.v = 0;
+                self.ppu.obj_frame_start();
                 self.frames += 1;
                 self.nmi_flag = false;
             }
