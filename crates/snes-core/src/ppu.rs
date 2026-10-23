@@ -369,11 +369,14 @@ impl Ppu {
         }
         color
     }
-    fn hires(&self) -> bool {
+    fn bg_hires(&self) -> bool {
         matches!(self.regs[5] & 7, 5 | 6)
     }
+    fn wide_output(&self) -> bool {
+        self.bg_hires() || self.regs[0x33] & 8 != 0
+    }
     fn bg_tile_width(&self, bg: usize) -> usize {
-        if self.hires() {
+        if self.bg_hires() {
             16
         } else {
             self.bg_tile_size(bg)
@@ -406,7 +409,7 @@ impl Ppu {
         let hofs = self.scroll[bg][0] as usize;
         // HOFS counts full dots even in hires; x counts half-dot samples.
         // Map widths divide 1024, so mask after doubling (see Issue #49).
-        let mut sx = (x + hofs * if self.hires() { 2 } else { 1 }) & 1023;
+        let mut sx = (x + hofs * if self.bg_hires() { 2 } else { 1 }) & 1023;
         let mut sy = (y + 1 + self.scroll[bg][1] as usize) & 1023;
         let mode = self.regs[5] & 7;
         // Offset columns count full dots, including in Mode 6. Its BG3
@@ -658,13 +661,13 @@ impl Ppu {
     pub fn framebuffer_height(&self) -> usize {
         HEIGHT
     }
-    fn prepare_frame_width(&mut self, y: usize, hires: bool) {
-        let width = if hires { WIDTH * 2 } else { WIDTH };
+    fn prepare_frame_width(&mut self, y: usize, wide_output: bool) {
+        let width = if wide_output { WIDTH * 2 } else { WIDTH };
         if y == 0 && self.frame_width != width {
             self.frame.resize(width * HEIGHT * 4, 0);
             self.frame.fill(0);
             self.frame_width = width;
-        } else if hires && self.frame_width == WIDTH {
+        } else if wide_output && self.frame_width == WIDTH {
             // Promote packed rows backwards, preserving all earlier dots.
             // See issue-49-validation.md: this is a representation policy.
             self.frame.resize(WIDTH * 2 * HEIGHT * 4, 0);
@@ -680,8 +683,8 @@ impl Ppu {
         if y >= HEIGHT {
             return;
         }
-        let hires = self.hires();
-        self.prepare_frame_width(y, hires);
+        let wide_output = self.wide_output();
+        self.prepare_frame_width(y, wide_output);
         if self.regs[0] & 128 != 0 {
             for x in 0..self.frame_width {
                 let i = (y * self.frame_width + x) * 4;
@@ -692,9 +695,9 @@ impl Ppu {
         let fixed_color =
             self.fixed[0] as u16 | ((self.fixed[1] as u16) << 5) | ((self.fixed[2] as u16) << 10);
         let objects = self.objects(y);
-        let samples = if hires { WIDTH * 2 } else { WIDTH };
+        let samples = if wide_output { WIDTH * 2 } else { WIDTH };
         for output_x in 0..samples {
-            let x = if hires { output_x / 2 } else { output_x };
+            let x = if wide_output { output_x / 2 } else { output_x };
             let obj = &objects[x];
             let back = Pixel {
                 color: self.palette(0),
@@ -702,8 +705,8 @@ impl Ppu {
                 layer: 5,
                 math: true,
             };
-            // Transparent subscreen pixels use COLDATA, retaining the backdrop
-            // layer marker so the color-math result is not halved there.
+            // Keep COLDATA as the subscreen math backdrop, retaining the layer
+            // marker so the color-math result is not halved there.
             let mut screens = [
                 back,
                 Pixel {
@@ -718,8 +721,9 @@ impl Ppu {
                     if enable & (1 << bg) == 0 || (mask & (1 << bg) != 0 && self.window(bg, x)) {
                         continue;
                     }
-                    // Anomie Modes 5/6: even character samples feed TS, odd TM.
-                    let sample_x = if hires {
+                    // Mode 5/6 BGs use distinct character phases. SETINI
+                    // pseudo-hires keeps both screens at the same full dot.
+                    let sample_x = if self.bg_hires() {
                         x * 2 + usize::from(screen == 0)
                     } else {
                         x
@@ -738,8 +742,13 @@ impl Ppu {
                     }
                 }
             }
-            let visible_sub = hires && output_x & 1 == 0;
-            let main = screens[usize::from(visible_sub)];
+            let visible_sub = wide_output && output_x & 1 == 0;
+            let mut main = screens[usize::from(visible_sub)];
+            // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
+            // in true/pseudo hires. Leave the math operand in screens intact.
+            if visible_sub && main.layer == 5 {
+                main.color = back.color;
+            }
             let in_window = self.window(5, x);
             let clip = match self.regs[0x30] >> 6 {
                 0 => false,
@@ -763,7 +772,7 @@ impl Ppu {
                 fixed_color
             };
             let bright = (self.regs[0] & 15) as u16;
-            let repeats = if !hires && self.frame_width == WIDTH * 2 {
+            let repeats = if !wide_output && self.frame_width == WIDTH * 2 {
                 2
             } else {
                 1

@@ -8,7 +8,8 @@ Retrieved 2026-10-24:
   SHA-256 `3853b65a7331bf12eea431ff494a2948a1c78ef22f7e819db4b139fd5a79f6c6`.
   Sections: BGMODE, BGnSC, BGnHOFS, BG Map, 16x16 Tiles, CGRAM, TM/TS, SETINI.
   The mode table supplies depths; BGnSC supplies page layout. SETINI describes
-  “SHIFT SUBSCREEN HALF DOT TO THE LEFT”. CGRAM identifies COLDATA as sub backdrop.
+  “SHIFT SUBSCREEN HALF DOT TO THE LEFT”. CGRAM identifies COLDATA as sub backdrop,
+  but Hires Notes overrides this for displayed hires pixels (see correction below).
   BGMODE tentatively says Mode 6 is fixed 16x8; its question mark is significant.
 - [Anomie's Register Doc](https://raw.githubusercontent.com/gilligan/snesdev/master/docs/snes_registers.txt),
   revision 1157, 2007-07-12, SHA-256
@@ -54,8 +55,12 @@ though `2*H+j` can exceed 1023. No Issue #19 offset-column equation is used.
 Horizontal active origin is sample zero, without an extra dot displacement.
 Vertical active origin retains hardware scanline 1 (the renderer's row zero).
 TM/TS independently select layers for their phases. Color index zero is
-transparent; main backdrop is CGRAM[0], sub backdrop is COLDATA. Brightness
-applies to both output phases.
+transparent; both displayed backdrops use CGRAM[0]. Brightness applies to both
+output phases. **Issue #53 review correction:** the original version incorrectly
+used COLDATA for the displayed sub backdrop. The hash-matched Fullsnes Hires
+Notes explicitly overrides the general CGRAM rule for both true and pseudo
+horizontal hires. COLDATA remains a math operand; this correction does not settle
+the hires-math dispute. See the [correction evidence](issue-53-validation.md#review-fixes).
 
 Worked examples for a 64-entry map: H=0 gives source 0,1 at output 0,1 and
 510,511 at the right edge. H=1 gives 2,3 and 512,513; the last pair enters
@@ -120,6 +125,9 @@ The standalone original Mode 1 CPU control passed. Representative failures:
 | main-only phase, x=0 | red `[255,0,0,255]` | fixed magenta `[255,0,255,255]` |
 | runner hires output | fixed `256 224` P6 header | `512 224` header |
 
+The main-only phase row records the historical expectation, superseded by the
+Issue #53 correction above: its displayed backdrop must be CGRAM[0] white.
+
 Reproduce the isolated comparison (an expected nonzero test exit):
 
 ```sh
@@ -141,7 +149,8 @@ cargo test --manifest-path .cache/hires-baseline/Cargo.toml --locked -p snes-cor
 The first workspace run exposed the old direct-color control's unsupported
 assumption that hires output zero uses TM. The corrected control still requires
 the same blue CGRAM main color for both direct-color settings, at output one;
-it additionally verifies output zero uses disabled-TS COLDATA black. No game
+it additionally verified output zero using disabled-TS COLDATA black; Issue #53
+corrects that assertion to the displayed CGRAM[0] green backdrop. No game
 expectation, fixture pin, replay input or negative control was weakened.
 An initial new browser reset assertion expected alpha=255 in canvas readback;
 actual reset RGBA and canvas readback are zero, matching the existing reset

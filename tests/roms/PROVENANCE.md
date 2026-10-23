@@ -679,3 +679,32 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   rules and remaining uncertainty are in
   [Issue #51 validation](../../docs/issue-51-validation.md); these checks do
   not establish physical fetch/raster behavior or full hardware accuracy.
+
+## Original SETINI pseudo-hires guests and graphics: approved
+
+- Sources: `crates/snes-core/tests/common/pseudo_hires.rs`,
+  `crates/snes-core/tests/ppu_pseudo_hires.rs`,
+  `crates/snes-core/examples/pseudo-hires-fixture.rs` and
+  `web/tests/pseudo-hires.spec.js`. Copyright 2026 snes-rust contributors;
+  repository [MIT](../../LICENSE).
+- All encoded 65C816 instructions, planar characters, coordinate images,
+  palettes/map words, literal pixel expectations and LoROM headers/vectors
+  are original MIT code/data. No external ROM, firmware, font, game assets,
+  assembler or emulator implementation is incorporated. Generated cartridges
+  contain only this original code/data and are not committed.
+- The builder emits three 32 KiB cartridges: static SETINI off/on and a
+  controller-driven variant. BGMODE stays 1. Executed LDA/STA instructions
+  initialize registers, VRAM and CGRAM under forced blank, publish `$30=$53`
+  and enable display. The interactive guest polls the next VBlank and
+  auto-joypad completion, writes SETINI=$08 while A is held (otherwise $00),
+  and publishes that value in `$31`. Hosts supply cartridges/controller input
+  and observe state only; they do not patch guest CPU, PPU, memory or raster.
+- Core checks allow five startup frames and three frames per switch, bounded
+  by 300,000 instructions per batch. The runner checks PPM headers, exact
+  payload and literal pixels at both edges and the final row. Actual browser
+  Wasm/canvas checks cover both static fixtures, transitions, reset, cartridge
+  replacement, memory-view reacquisition and display shape/scale.
+- Reproduce using the README's `pseudo-hires-fixture` example command. Source
+  and generated code/graphics/data may be redistributed under MIT. The exact
+  supported register domain, fixture hashes and unresolved interactions are
+  recorded in [Issue #53 validation](../../docs/issue-53-validation.md).

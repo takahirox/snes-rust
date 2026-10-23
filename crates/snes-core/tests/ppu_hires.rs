@@ -43,7 +43,7 @@ fn scene(mode: u8, bg: usize, height: usize, layout: u8) -> Ppu {
     for (i, c) in [0x7c00, 0x001f, 0x03e0, 0x7fff].into_iter().enumerate() {
         palette(&mut p, i, c);
     }
-    p.write(0x32, 0x9f); // Sub backdrop blue.
+    p.write(0x32, 0x9f); // Fixed color blue, matching CGRAM[0].
     p.write(0, 15);
     p
 }
@@ -210,10 +210,9 @@ fn phases_transparency_palettes_priority_and_mode6_hidden_layers() {
     });
     word(&mut p, 0xc000, 0x0400);
     word(&mut p, 0xd000, 0x0400);
-    p.write(0x32, 0x3f); // Sub backdrop magenta, distinct from all visible phase colors.
-    let magenta = [255, 0, 255, 255];
+    p.write(0x32, 0x3f); // Fixed magenta, distinct from displayed CGRAM[0] white.
     for (tm, ts, expected) in [
-        (1, 0, [magenta, GREEN]),
+        (1, 0, [WHITE, GREEN]),
         (0, 2, [BLUE, WHITE]),
         (1, 2, [BLUE, GREEN]),
         (2, 1, [RED, [255, 255, 0, 255]]),
@@ -222,7 +221,7 @@ fn phases_transparency_palettes_priority_and_mode6_hidden_layers() {
         p.write(0x2d, ts);
         pixel(&mut p, 0, 0, expected[0]);
         pixel(&mut p, 1, 0, expected[1]);
-        pixel(&mut p, 4, 0, magenta); // transparent sub => fixed color
+        pixel(&mut p, 4, 0, WHITE); // Transparent sub => CGRAM[0].
     }
     p.write(0x2c, 3);
     p.write(0x2d, 3);
@@ -235,7 +234,7 @@ fn phases_transparency_palettes_priority_and_mode6_hidden_layers() {
     p.write(5, 6);
     p.write(0x2c, 14);
     p.write(0x2d, 14);
-    pixel(&mut p, 0, 0, magenta);
+    pixel(&mut p, 0, 0, WHITE);
     pixel(&mut p, 1, 0, WHITE);
     // Transparent main pixel with a deliberately empty character.
     p.write(0x2c, 1);
@@ -460,10 +459,9 @@ fn both_modes_independent_main_sub_enables_and_backdrops() {
             }
         });
         p.write(0x32, 0x3f); // Fixed magenta versus CGRAM blue.
-        let magenta = [255, 0, 255, 255];
         for (tm, ts, pair) in [
-            (0, 0, [magenta, BLUE]),
-            (1, 0, [magenta, GREEN]),
+            (0, 0, [BLUE, BLUE]),
+            (1, 0, [BLUE, GREEN]),
             (0, 1, [RED, BLUE]),
             (1, 1, [RED, GREEN]),
         ] {
@@ -471,7 +469,7 @@ fn both_modes_independent_main_sub_enables_and_backdrops() {
             p.write(0x2d, ts);
             pixel(&mut p, 0, 0, pair[0]);
             pixel(&mut p, 1, 0, pair[1]);
-            pixel(&mut p, 4, 0, magenta);
+            pixel(&mut p, 4, 0, BLUE);
             pixel(&mut p, 5, 0, BLUE);
         }
     }
