@@ -498,3 +498,26 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   synchronization and distinguishes model latency from hardware facts.
 - Decision: original sources and generated instructions/data may be redistributed
   under MIT. Existing fixture pins, notices and licensing decisions remain intact.
+
+## Original HDMA live-NTRL CPU guests: approved
+
+- Sources: [`crates/snes-core/tests/hdma_ntrl.rs`](../../crates/snes-core/tests/hdma_ntrl.rs)
+  and [`crates/snes-core/src/machine/hdma_ntrl_tests.rs`](../../crates/snes-core/src/machine/hdma_ntrl_tests.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Two original 65C816 instruction streams construct zero-filled 32 KiB LoROMs
+  in memory. All header/vector bytes, direct/indirect tables, payload colors,
+  instructions and numeric expected results are original MIT code/data. No
+  external assembler, runtime, font, firmware, commercial ROM, game asset,
+  emulator implementation or test binary is used. Generated ROMs are not committed.
+- Guests configure during VBlank, poll executed `$4212` reads, write live NTRL
+  through CPU instructions, and record immediate readback, subsequent counters,
+  table/indirect pointers, CGRAM colors and source registers in WRAM. They cover
+  preserved transfer and hold decisions, changed repeat bits, live `$80`/`$00`,
+  row reload, fetched-zero termination and a subsequent counter-only write to
+  the terminated channel. Host code only supplies the cartridge and observes
+  results. It injects no CPU, bus, scheduler or guest memory state. Each run
+  stops within 100,000 instructions and fewer than three frame wraps.
+- Decision: original sources and generated code/data may be redistributed under
+  MIT. Existing fixture pins, notices, hashes, gameplay inputs and licensing
+  decisions remain intact. The [Issue #37 validation](../../docs/issue-37-validation.md)
+  separates explicit source rules, derived expectations and timing conventions.

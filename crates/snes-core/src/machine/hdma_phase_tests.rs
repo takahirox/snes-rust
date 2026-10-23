@@ -119,7 +119,7 @@ fn visible_line_is_rendered_before_later_hdma_and_stays_completed() {
         assert_eq!(b.ppu.regs[0], 15);
         b.events();
         assert_eq!((b.ppu.regs[0], b.dma[0][10]), (8, 0x81));
-        assert!(b.ppu.frame[..1024].chunks_exact(4).all(|p| p == [255; 4]));
+        assert_eq!(&b.ppu.frame[..1024], &[255; 1024]);
         at(&mut b, 0, 1, 1360);
         b.read(0x4016); // straddle scanline boundary, no repeated request
         assert_eq!((b.v, b.h, b.dma[0][10]), (2, 8, 0x81));

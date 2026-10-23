@@ -59,6 +59,12 @@ unterminated state rather than pre-reading later descriptors or inspecting their
 future outcome. The initialization-zero derivation retained from Issue #31
 still counts later enabled channels before their initial headers are examined.
 
+The fresh-row transfer and zero-termination rules above describe **table
+fetches**. They do not imply that a CPU NTRL write prepares a transfer or
+terminates a channel. Issue #37 verifies the separate live-write rule and
+corrects that potential extrapolation; see its
+[live-write derivation](issue-37-validation.md#reference-evidence-and-live-write-derivation).
+
 ## Implementation and retained approximations
 
 `hdma_events` transfers all eligible payloads, then decrements every serviced
