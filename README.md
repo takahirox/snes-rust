@@ -82,6 +82,7 @@ cargo test --locked -p snes-core --test hdma_init
 cargo test --locked -p snes-core --test hdma_reload
 cargo test --locked -p snes-core --test hdma_phase
 cargo test --locked -p snes-core --test hdma_ntrl
+cargo test --locked -p snes-core --test ppu_counter_latch
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -121,6 +122,9 @@ numeric boundaries, baseline failures, natural scheduler vectors and two CPU gue
 Issue #37 adds live CPU writes to the HDMA line counter, preserving the prepared
 transfer decision; its [validation record](docs/issue-37-validation.md) derives
 live zero/repeat behavior and records boundary vectors and two original CPU guests.
+Issue #39 connects WRIO bit 7 to PPU counter capture and STAT78 acknowledgement;
+its [counter-latch validation](docs/issue-39-validation.md) records source qualifications,
+64 edge/mirror vectors, scanline-crossing accesses, B-bus controls and an original CPU guest.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -372,7 +376,10 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   saturation, halving and brightness coverage still need work. VRAM writes obey
   forced/VBlank access and still increment when blocked. VRAM prefetch,
   OAM/CGRAM write pairs, latched counters and separate PPU read buses have
-  numerical regressions.
+  numerical regressions. WRIO starts at `$FF`; bit 7 gates SLHV and falling
+  edges capture counters. STAT78 resets both read selectors and acknowledges
+  the latch flag only with the gate high. `Machine::reset` uses the same initial
+  state; physical warm-reset retention remains unverified.
   Active-display OAM/CGRAM corruption and dot-level pixel fetches are not modeled;
   the selected games update video memory during forced/VBlank.
 - SPC700 execution/timers and CPU communication using a firmware-free,

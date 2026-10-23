@@ -24,6 +24,7 @@ pub struct Ppu {
     vflip: bool,
     counters: [u16; 2],
     counter_latched: bool,
+    latch_enabled: bool,
     open1: u8,
     open2: u8,
 }
@@ -56,6 +57,7 @@ impl Default for Ppu {
             vflip: false,
             counters: [0; 2],
             counter_latched: false,
+            latch_enabled: true,
             open1: 0,
             open2: 0,
         }
@@ -179,7 +181,16 @@ impl Ppu {
             _ => {}
         }
     }
+    // WRIO bit 7 drives the latch input; initialization starts high without
+    // synthesizing an edge. Captures leave both read selectors untouched.
+    pub(crate) fn set_latch_enabled(&mut self, enabled: bool) {
+        if self.latch_enabled && !enabled {
+            self.latch_counters();
+        }
+        self.latch_enabled = enabled;
+    }
     pub fn latch_counters(&mut self) {
+        // Retained scheduler model: four master clocks per dot (not long-dot accurate).
         self.counters = [self.h / 4, self.v];
         self.counter_latched = true;
     }
@@ -191,7 +202,9 @@ impl Ppu {
                 (product >> ((r - 0x34) * 8)) as u8
             }
             0x37 => {
-                self.latch_counters();
+                if self.latch_enabled {
+                    self.latch_counters();
+                }
                 open
             }
             0x38 => {
@@ -245,8 +258,16 @@ impl Ppu {
             0x3f => {
                 self.hflip = false;
                 self.vflip = false;
-                let status = (self.open2 & 0x20) | if self.counter_latched { 0x40 } else { 0 } | 3;
-                self.counter_latched = false;
+                let status = (self.open2 & 0x20)
+                    | if self.counter_latched || !self.latch_enabled {
+                        0x40
+                    } else {
+                        0
+                    }
+                    | 3;
+                if self.latch_enabled {
+                    self.counter_latched = false;
+                }
                 status
             }
             0x04..=0x06 | 0x08..=0x0a | 0x14..=0x16 | 0x18..=0x1a | 0x24..=0x26 | 0x28..=0x2a => {
@@ -695,6 +716,40 @@ mod tests {
         assert_eq!(p.read(0x3f, 0) & 0x40, 0x40);
         assert_eq!(p.read(0x3f, 0) & 0x40, 0);
         assert_eq!(p.read(0x3c, 0), 44);
+    }
+
+    #[test]
+    fn captures_preserve_independent_selectors_and_stat78_always_resets_them() {
+        let mut p = Ppu {
+            h: 1200,
+            v: 260,
+            ..Ppu::default()
+        };
+        p.read(0x37, 0); // (300,260)
+        assert_eq!(p.read(0x3c, 0), 44); // H high next; V still low.
+        p.h = 40;
+        p.v = 17;
+        p.read(0x37, 0); // capture between H low/high
+        assert_eq!(p.read(0x3c, 0) & 1, 0);
+        assert_eq!(p.read(0x3d, 0), 17);
+        p.h = 1280;
+        p.v = 258;
+        p.set_latch_enabled(false); // edge between V low/high
+        assert_eq!(p.read(0x3d, 0) & 1, 1);
+        assert_eq!(p.read(0x3c, 0), 64);
+        assert_eq!(p.read(0x3d, 0), 2);
+        for _ in 0..2 {
+            assert_eq!(p.read(0x3f, 0) & 0x40, 0x40);
+            assert_eq!(p.read(0x3c, 0), 64);
+            assert_eq!(p.read(0x3d, 0), 2);
+        }
+        p.set_latch_enabled(true);
+        assert_eq!(p.read(0x3f, 0) & 0x40, 0x40);
+        assert_eq!(p.read(0x3c, 0), 64);
+        assert_eq!(p.read(0x3d, 0), 2);
+        assert_eq!(p.read(0x3f, 0) & 0x40, 0);
+        assert_eq!(p.read(0x3c, 0), 64);
+        assert_eq!(p.read(0x3d, 0), 2);
     }
 
     #[test]

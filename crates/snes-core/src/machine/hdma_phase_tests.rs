@@ -312,12 +312,17 @@ fn dma_byte_crossing_phase_defers_hdma_to_next_byte_and_keeps_order() {
 
 #[test]
 fn payload_samples_at_service_plus_four_and_commits_at_plus_eight() {
-    for indirect in [false, true] {
+    for (indirect, enabled) in [(false, true), (true, true), (false, false), (true, false)] {
         let mut b = bus(indirect, 0x37); // SLHV read latches the source-sample raster
         b.write_raw(0x4300, if indirect { 0xc0 } else { 0x80 });
         b.wram[0x100] = 0x82; // no row-end read on this event
         let destination = if indirect { 0x10200 } else { 0x101 };
         b.wram[destination] = 0x55;
+        b.write(0x4201, 0xff);
+        at(&mut b, 0, 0, 100);
+        if !enabled {
+            b.write(0x4201, 0x7f); // Capture at 106/4=26, retained across HDMA SLHV.
+        }
         at(&mut b, 0, 0, 1112);
         assert_eq!(b.wram[destination], 0x55);
         assert_eq!(b.dma[0][10], 0x82);
@@ -325,8 +330,8 @@ fn payload_samples_at_service_plus_four_and_commits_at_plus_eight() {
         assert_eq!(b.h, 1120);
         // SLHV returns the prior CPU open byte; its latch independently
         // records the modeled read at 1116/4=279, before commitment at 1120.
-        assert_eq!(b.read_raw(0x213c), 279u16 as u8);
-        assert_eq!(b.read_raw(0x213c) & 1, 1);
+        assert_eq!(b.read_raw(0x213c), if enabled { 279u16 as u8 } else { 26 });
+        assert_eq!(b.read_raw(0x213c) & 1, u8::from(enabled));
         assert_eq!(b.wram[destination], 0);
         assert_eq!(b.dma[0][10], 0x81);
     }

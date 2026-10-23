@@ -680,6 +680,9 @@ fn hdma_accessible_descriptors_use_fetched_value_and_acknowledge() {
             (0x4213, false, 0, 0x55, 0x4214, 0),   // zero RDIO descriptor
         ] {
             let mut b = bus();
+            if a == 0x4213 {
+                b.write_raw(0x4201, 0); // Explicit zero RDIO descriptor, independent of reset.
+            }
             b.nmi_flag = pending;
             b.nmi_pending = true;
             b.irq = a != 0x4211 || pending;
