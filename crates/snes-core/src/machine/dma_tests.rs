@@ -1,4 +1,9 @@
 //! Original MIT DMA/HDMA address and side-effect vectors for Issues #21/#23/#25/#27/#29.
+//!
+//! Issue #33 corrects row-end expectations below: all payloads precede reloads;
+//! completed repeated rows immediately expose the next header, held final lines
+//! terminate now, and indirect zero headers overwrite DAS with zero+high.
+//! See docs/issue-33-validation.md for the per-vector derivations and sources.
 use super::*;
 
 fn bus() -> SystemBus {
@@ -334,9 +339,9 @@ fn hdma_indirect_pointer_fetches_recheck_boundaries_and_wrap() {
     // A legal open-bus descriptor immediately before $2100/$4300, followed
     // by blocked pointer bytes; and a descriptor/pointer crossing bank end.
     for (table, pointer, end, clocks, output) in [
-        (0x0020ff, 1, 0x2102, 32, 1), // pointer $0000, one payload -> $0001
-        (0x0042ff, 1, 0x4302, 32, 1),
-        (0x80fffe, 0x0182, 0x0001, 32, 0x66), // low=$81, high=$01
+        (0x0020ff, 0, 0x2104, 48, 1), // payload uses $0000; termination publishes $0000
+        (0x0042ff, 0, 0x4304, 48, 1),
+        (0x80fffe, 0, 0x0003, 48, 0x66), // initial pointer $0181; row-end zero then high from $0002
     ] {
         let mut b = bus();
         b.open = 0x81;
@@ -387,8 +392,8 @@ fn hdma_tables_feed_blocked_payloads_and_then_terminate() {
             b.nmi_flag = true;
             b.irq = true;
             b.events();
-            assert_eq!(b.dma[0][8..10], [3, 1]);
-            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), a + 1);
+            assert_eq!(b.dma[0][8..10], [5, 1]);
+            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), 0);
             assert_eq!(b.waddr, 0x1000);
             assert_eq!(b.serial, 0x9180);
             assert!(b.nmi_flag && b.irq);
@@ -396,12 +401,12 @@ fn hdma_tables_feed_blocked_payloads_and_then_terminate() {
             if reverse {
                 assert_eq!(b.ppu.read(0x3b, 0) & 0x7f, 0x12);
             }
-            assert_eq!(b.clocks, 32);
+            assert_eq!(b.clocks, 48);
             b.hdma_pending = true;
             b.events();
             assert_eq!(b.hdma_active, 0);
-            assert_eq!(b.dma[0][8..10], [4, 1]);
-            assert_eq!(b.clocks, 40);
+            assert_eq!(b.dma[0][8..10], [5, 1]);
+            assert_eq!(b.clocks, 48);
         }
         let mut b = bus();
         b.open = 0x81; // Legal descriptor at $20ff, direct payload at $2100.
@@ -410,13 +415,13 @@ fn hdma_tables_feed_blocked_payloads_and_then_terminate() {
         b.ppu.regs[0] = 0x80;
         b.ppu.cgram[..2].copy_from_slice(&[0x35, 0x12]);
         b.events();
-        assert_eq!(b.dma[0][8..10], [1, 0x21]);
+        assert_eq!(b.dma[0][8..10], [2, 0x21]);
         assert_eq!(b.ppu.regs[0], 0x80);
         assert_eq!(b.ppu.regs[6], 0);
         if reverse {
             assert_eq!(b.ppu.read(0x3b, 0) & 0x7f, 0x12);
         }
-        assert_eq!(b.clocks, 16);
+        assert_eq!(b.clocks, 24);
         b.hdma_pending = true;
         b.events();
         assert_eq!(b.hdma_active, 0);
@@ -718,13 +723,22 @@ fn hdma_accessible_indirect_pointer_bytes_keep_values_and_side_effects() {
             let before = b.clocks;
             b.events();
             assert_eq!(b.ppu.regs[6], payload);
-            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), pointer + 1);
-            assert_eq!(u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]), end);
+            assert_eq!(
+                u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]),
+                // RDIO $01 finishes now: reload $0F from $4216,
+                // then $00,$90 from $4217/18; fresh row stays unconsumed.
+                if table == 0x4213 { 0x9000 } else { pointer + 1 }
+            );
+            assert_eq!(
+                u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]),
+                if table == 0x4213 { 0x4219 } else { end }
+            );
             assert_eq!(b.hdma_active, 1);
+            assert_eq!(b.dma[0][10], if table == 0x4213 { 0x0f } else { 0x81 });
             if table == 0x4210 {
                 assert!(!b.nmi_flag && !b.irq);
             }
-            assert_eq!(b.clocks - before, 32);
+            assert_eq!(b.clocks - before, if table == 0x4213 { 56 } else { 32 });
         }
         // Exercise RDNMI and TIMEUP as low and high pointer fetches, without
         // inventing an accessible descriptor at excluded $420f.
@@ -762,15 +776,15 @@ fn hdma_loaded_status_payload_acknowledges_then_table_terminates() {
             assert_eq!(b.nmi_flag, a != 0x4210);
             assert_eq!(b.irq, a != 0x4211);
             assert!(b.nmi_pending);
-            assert_eq!(b.hdma_active, 1);
-            assert_eq!(b.dma[0][8..10], [3, 1]);
-            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), a + 1);
+            assert_eq!(b.hdma_active, 0);
+            assert_eq!(b.dma[0][8..10], [5, 1]);
+            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), 0);
             b.hdma_pending = true;
             b.events();
             assert_eq!(b.hdma_active, 0);
-            assert_eq!(b.dma[0][8..10], [4, 1]);
+            assert_eq!(b.dma[0][8..10], [5, 1]);
             assert_eq!(b.waddr, 0x10001);
-            assert_eq!(b.clocks, 40);
+            assert_eq!(b.clocks, 48);
         }
     }
 }
@@ -936,20 +950,22 @@ fn hdma_wram_conflict_complete_direct_and_indirect_tables() {
         b.dma[0][7] = 0x7e;
         b.waddr = 0x11000;
         b.wram[0x11000..0x11004].fill(0xa6);
+        // Final held line includes the zero header and, for indirect,
+        // the following high byte; the next synthetic event is inert.
         let states = if indirect {
             [
                 (0x103, 0x202, 40),
-                (0x103, 0x204, 56),
+                (0x106, 0x204, 80),
                 (0x106, 0x206, 96),
-                (0x106, 0x206, 96),
-                (0x107, 0x206, 104),
+                (0x108, 0, 112),
+                (0x108, 0, 112),
             ]
         } else {
             [
                 (0x103, 0, 24),
-                (0x105, 0, 40),
+                (0x106, 0, 48),
                 (0x108, 0, 64),
-                (0x108, 0, 64),
+                (0x109, 0, 72),
                 (0x109, 0, 72),
             ]
         };
@@ -958,8 +974,8 @@ fn hdma_wram_conflict_complete_direct_and_indirect_tables() {
             b.events();
             assert_eq!(u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]), table);
             assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), payload);
-            assert_eq!(b.hdma_line[0], [0x81, 0x80, 1, 0, 0][row]);
-            assert_eq!(b.hdma_active, [1, 1, 1, 1, 0][row]);
+            assert_eq!(b.hdma_line[0], [0x81, 2, 1, 0, 0][row]);
+            assert_eq!(b.hdma_active, [1, 1, 1, 0, 0][row]);
             assert_eq!(b.apu.input[3], [0x11, 0x33, 0x55, 0x55, 0x55][row]);
             assert_eq!(b.waddr, 0x11000);
             assert_eq!(&b.wram[0x11000..0x11004], &[0xa6; 4]);
@@ -990,8 +1006,8 @@ fn hdma_wram_conflict_uses_payload_bank_not_table_bank() {
         b.dma[0][7] = payload_bank;
         for (row, (end, payload, line, active, clocks)) in [
             (0x103, 0x8201, 0x81, 1, 32),
-            (0x103, 0x8202, 0x80, 1, 40),
-            (0x104, 0x8202, 0, 0, 48),
+            (0x105, if table == 0x008100 { 0xa900 } else { 0 }, 0, 0, 56),
+            (0x105, if table == 0x008100 { 0xa900 } else { 0 }, 0, 0, 56),
         ]
         .into_iter()
         .enumerate()
@@ -1291,17 +1307,17 @@ fn hdma_wram_address_complete_tables_and_payload_bank_controls() {
             let states = if indirect {
                 [
                     (0x103, 0x8201, 32),
-                    (0x103, 0x8202, 40),
+                    (0x106, 0x8202, 64),
                     (0x106, 0x8203, 72),
-                    (0x106, 0x8203, 72),
-                    (0x107, 0x8203, 80),
+                    (0x108, if table == 0x008100 { 0x2200 } else { 0 }, 88),
+                    (0x108, if table == 0x008100 { 0x2200 } else { 0 }, 88),
                 ]
             } else {
                 [
                     (0x102, 0, 16),
-                    (0x103, 0, 24),
+                    (0x104, 0, 32),
                     (0x105, 0, 40),
-                    (0x105, 0, 40),
+                    (0x106, 0, 48),
                     (0x106, 0, 48),
                 ]
             };
@@ -1323,10 +1339,10 @@ fn hdma_wram_address_complete_tables_and_payload_bank_controls() {
                     end + if table == 0x008100 { 0x8000 } else { 0 }
                 );
                 assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), payload);
-                assert_eq!(b.hdma_line[0], [0x81, 0x80, 1, 0, 0][row]);
-                assert_eq!(b.dma[0][10], [0x81, 0x80, 1, 0, 0][row]);
-                assert_eq!(b.hdma_transfer[0], [true, true, false, false, true][row]);
-                assert_eq!(b.hdma_active, [1, 1, 1, 1, 0][row]);
+                assert_eq!(b.hdma_line[0], [0x81, 2, 1, 0, 0][row]);
+                assert_eq!(b.dma[0][10], [0x81, 2, 1, 0, 0][row]);
+                assert_eq!(b.hdma_transfer[0], [true, true, false, true, true][row]);
+                assert_eq!(b.hdma_active, [1, 1, 1, 0, 0][row]);
                 assert_eq!(b.io[12], 1);
                 assert_eq!(
                     b.dma[0][2..5],
@@ -1516,13 +1532,13 @@ fn hdma_reverse_wmdata_complete_direct_and_indirect_tables() {
             let states = if indirect {
                 [
                     (3, 0x202, 40),
-                    (3, 0x204, 56),
+                    (6, 0x204, 80),
                     (6, 0x206, 96),
-                    (6, 0x206, 96),
-                    (7, 0x206, 104),
+                    (8, if table_bank == 0 { 0x2200 } else { 0 }, 112),
+                    (8, if table_bank == 0 { 0x2200 } else { 0 }, 112),
                 ]
             } else {
-                [(3, 0, 24), (5, 0, 40), (8, 0, 64), (8, 0, 64), (9, 0, 72)]
+                [(3, 0, 24), (6, 0, 48), (8, 0, 64), (9, 0, 72), (9, 0, 72)]
             };
             for (row, (advance, payload, clocks)) in states.into_iter().enumerate() {
                 b.hdma_pending = true;
@@ -1532,10 +1548,10 @@ fn hdma_reverse_wmdata_complete_direct_and_indirect_tables() {
                     table as u16 + advance
                 );
                 assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), payload);
-                assert_eq!(b.hdma_line[0], [0x81, 0x80, 1, 0, 0][row]);
-                assert_eq!(b.dma[0][10], [0x81, 0x80, 1, 0, 0][row]);
-                assert_eq!(b.hdma_transfer[0], [true, true, false, false, true][row]);
-                assert_eq!(b.hdma_active, [1, 1, 1, 1, 0][row]);
+                assert_eq!(b.hdma_line[0], [0x81, 2, 1, 0, 0][row]);
+                assert_eq!(b.dma[0][10], [0x81, 2, 1, 0, 0][row]);
+                assert_eq!(b.hdma_transfer[0], [true, true, false, true, true][row]);
+                assert_eq!(b.hdma_active, [1, 1, 1, 0, 0][row]);
                 assert_eq!(
                     (b.waddr, b.wram[0x11000]),
                     (
@@ -1591,10 +1607,10 @@ fn hdma_reverse_wmdata_indirect_payload_bank_controls() {
         b.dma[0][7] = bank;
         for (advance, payload, line, active, clocks) in [
             (3, 0x8201, 0x81, 1, 32),
-            (3, 0x8202, 0x80, 1, 40),
+            (6, 0x8202, 2, 1, 64),
             (6, 0x8203, 1, 1, 72),
-            (6, 0x8203, 0, 1, 72),
-            (7, 0x8203, 0, 0, 80),
+            (8, if table == 0x008100 { 0x2200 } else { 0 }, 0, 0, 88),
+            (8, if table == 0x008100 { 0x2200 } else { 0 }, 0, 0, 88),
         ] {
             b.hdma_pending = true;
             b.events();
@@ -1604,7 +1620,7 @@ fn hdma_reverse_wmdata_indirect_payload_bank_controls() {
             );
             assert_eq!(
                 u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]),
-                if bank == 0x70 {
+                if bank == 0x70 && active != 0 {
                     payload - 0x8000
                 } else {
                     payload
@@ -1713,15 +1729,21 @@ fn hdma_reverse_wmdata_reclassifies_each_indirect_destination_and_wraps() {
         for row in 0..2 {
             b.hdma_pending = true;
             b.events();
-            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), ends[row]);
+            assert_eq!(
+                u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]),
+                if row == 0 { ends[row] } else { 0 }
+            );
             assert_eq!(b.waddr, 0x11000 + reads[row]);
-            assert_eq!(b.dma[0][8..10], [3, 1]);
-            assert_eq!(b.hdma_line[0], [0x81, 0x80][row]);
-            assert_eq!((b.hdma_active, b.dma[0][7]), (1, bank));
+            assert_eq!(b.dma[0][8..10], [if row == 0 { 3 } else { 5 }, 1]);
+            assert_eq!(b.hdma_line[0], [0x81, 0][row]);
+            assert_eq!(
+                (b.hdma_active, b.dma[0][7]),
+                (if row == 0 { 1 } else { 0 }, bank)
+            );
         }
         b.hdma_pending = true;
         b.events();
-        assert_eq!(b.dma[0][8..10], [4, 1]);
+        assert_eq!(b.dma[0][8..10], [5, 1]);
         assert_eq!((b.hdma_active, b.hdma_line[0], b.io[12]), (0, 0, 1));
         assert_eq!(b.dma[0][2..5], [0, 1, 0x7f]);
     }

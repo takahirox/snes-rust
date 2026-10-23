@@ -5,6 +5,12 @@ on 2026-10-23 in the assigned worktree, starting at checkpoint
 `37df444d8e56b07d7d047465396635ff0d194bed`. Its production baseline matches
 `d6d878b15963e5174084473f8be5592228a1d23d`.
 
+Issue #33 subsequently replaces the deferred row-reload behavior and the
+initial-row-only prepared mask described here. Its
+[row-end validation](issue-33-validation.md) records the corrected channel phases,
+termination effects and old-test derivations. This document retains the original
+Issue #31 results and timing limits as historical evidence.
+
 ## Specification evidence and supported state transitions
 
 Retrieved both named references before implementation. Local reference copies
