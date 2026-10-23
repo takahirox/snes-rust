@@ -69,6 +69,28 @@ are not release acceptance evidence.
 - Decision: original source and generated guest/data may be redistributed under
   MIT. This is a bounded envelope diagnostic, not full DSP or game acceptance.
 
+## Original noise SPC700 guest and BRR data: approved
+
+- Source: [`crates/snes-core/tests/dsp_noise.rs`](../../crates/snes-core/tests/dsp_noise.rs)
+  and [`crates/snes-core/src/dsp_noise_tests.rs`](../../crates/snes-core/src/dsp_noise_tests.rs);
+  no upstream program, sample or implementation input.
+- Copyright: 2026 snes-rust contributors; [MIT](../../LICENSE).
+- The original 155-byte SPC700 guest is constructed in memory and uploaded using
+  the firmware-free IPL protocol. It configures NON/FLG and a direct-GAIN voice
+  through `$F2/$F3`, changes the noise rate without KON, records five numerical
+  OUTX checkpoints at `$1000..$1004`, acknowledges host commands and stops.
+- The zero filter-0 BRR blocks (looping and non-looping), constant range-9
+  filter-0 loop, directory entries, initial RAM, command data, bit-stream oracle
+  and literal numerical vectors are
+  original MIT code/data. No external binary, firmware, font, game asset or
+  emulator implementation is fetched, copied, linked or required for these tests.
+  No guest binary is committed; no assembler is needed. Execution and
+  acknowledgements are bounded. See the [noise validation record](../../docs/issue-15-validation.md)
+  for specification attribution, independent derivations and baseline failures.
+- Decision: original source and generated guest/data may be redistributed under
+  MIT. This diagnostic establishes bounded sample-level behavior, not complete
+  DSP accuracy or game acceptance. All external fixture decisions below remain.
+
 ## Source-built hardware suites: approved with documented alterations
 
 ### gilyon/snes-tests

@@ -19,6 +19,7 @@ pub struct Dsp {
     voices: [Voice; 8],
     kon: u8,
     counter: u32,
+    noise: u16,
     echo_pos: usize,
     echo_hist: [[i32; 2]; 8],
     echo_index: usize,
@@ -34,6 +35,7 @@ impl Default for Dsp {
             voices: [Voice::default(); 8],
             kon: 0,
             counter: 0,
+            noise: 0x4000,
             echo_pos: 0,
             echo_hist: [[0; 2]; 8],
             echo_index: 0,
@@ -117,8 +119,15 @@ impl Dsp {
     }
     pub fn sample(&mut self, ram: &mut [u8]) -> (i16, i16) {
         // One shared phase, including silence, key-on delay and FLG reset/mute.
-        // Initialization is C=0; decrement before the first envelope poll.
+        // Initialization is C=0; decrement before envelope and noise polls.
         self.counter = (self.counter + 30719) % 30720;
+        // Fullsnes NON/FLG; Anomie/jwdonal COUNTERS and SOUND GENERATION.
+        // One held 15-bit value for every voice, even during reset/mute/silence.
+        // Only reconstructing Dsp reseeds it. See docs/issue-15-validation.md.
+        if rate_event(self.counter, self.regs[0x6c] & 31) {
+            let feedback = (self.noise ^ (self.noise >> 1)) & 1;
+            self.noise = (self.noise >> 1) | (feedback << 14);
+        }
         let mut mix = [0i32; 2];
         let mut echo_in = [0i32; 2];
         for i in 0..8 {
@@ -214,7 +223,12 @@ impl Dsp {
                     self.regs[0x7c] |= 1 << i;
                 }
             }
-            let sample = ((Self::interpolate(v.decoded, v.phase) * v.env) >> 11) & !1;
+            let source = if self.regs[0x3d] & (1 << i) != 0 {
+                (self.noise << 1) as i16 as i32
+            } else {
+                Self::interpolate(v.decoded, v.phase)
+            };
+            let sample = ((source * v.env) >> 11) & !1;
             self.regs[base + 8] = (v.env >> 4) as u8;
             self.regs[base + 9] = (sample >> 8) as u8;
             for side in 0..2 {
@@ -687,3 +701,7 @@ mod tests {
         assert_eq!(dsp.sample(&mut ram), (0, 0));
     }
 }
+
+#[cfg(test)]
+#[path = "dsp_noise_tests.rs"]
+mod noise_tests;
