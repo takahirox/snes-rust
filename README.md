@@ -270,6 +270,14 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   direct/indirect HDMA. HDMA preempts DMA between bytes; all devices advance
   during transfers. Tests check DMA writes across the VBlank access boundary,
   deferred NMI, IRQ comparisons and guest-generated HDMA raster bands.
+  DMA/HDMA A-bus I/O exclusions return zero on reads and discard writes,
+  including HDMA table/pointer fetches, while legal B-bus and CPU accesses
+  retain their behavior. The [A-bus validation](docs/issue-21-validation.md)
+  records the Issue #21 contract, reference-document discrepancies, boundary
+  tests and original CPU-executed guests. `dma` and `hdma` remain partial:
+  WRAM-to-`$2180` conflicts, startup/alignment timing, HDMA initialization/
+  overhead and first-frame behavior, same-channel contention, exact electrical
+  open-bus behavior and the complete mode-interaction matrix remain separate work.
 - Planar BG modes, tilemaps, scroll/mosaic, sprites, priorities, windows and
   color math, plus a basic Mode 7 transform. BG1 direct color is supported in
   Modes 3/4 and Mode 7 with EXTBG disabled, including tile palette contributions

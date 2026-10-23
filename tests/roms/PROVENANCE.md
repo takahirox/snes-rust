@@ -30,6 +30,26 @@ are not release acceptance evidence.
 - Decision: source and generated ROM may be redistributed under MIT. It is a
   diagnostic, not an independent homebrew game and not gameplay acceptance.
 
+## Original DMA A-bus 65C816 guests: approved
+
+- Source: [`crates/snes-core/tests/dma_access.rs`](../../crates/snes-core/tests/dma_access.rs),
+  including its `guest` builder; no upstream code or data input.
+- Copyright: 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Two 32,768-byte LoROMs are generated in memory from original SEI, LDA/STA,
+  AND and STP instruction streams, literal transfer data and an original header.
+  All register initialization and transfer triggers execute through `Machine`;
+  host code supplies only the cartridge and controller button input.
+- Forward coverage reproduces Issue #21's illegal A-bus WRAM-port reads into
+  CGRAM and checks serial joypad suppression. Reverse coverage checks CPU/DMA
+  register protection, legal B-bus CGRAM read progression and WRAM-port protection.
+  Numeric CPU-written WRAM results and memory/register state are asserted.
+- Each guest is bounded to 10,000 instructions and fewer than two frames.
+  No font, firmware, commercial ROM, external binary, assembler or runtime is used.
+  The associated original unit vectors in `src/machine/dma_tests.rs` are also MIT.
+- Decision: original source and generated ROMs may be redistributed under MIT.
+  No additional binary is committed. These are diagnostics, not game or complete
+  hardware acceptance. See [validation](../../docs/issue-21-validation.md).
+
 ## Original direct-color guest tests: approved
 
 - Source: [`crates/snes-core/tests/direct_color.rs`](../../crates/snes-core/tests/direct_color.rs),
