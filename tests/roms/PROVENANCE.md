@@ -542,3 +542,27 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   MIT. Existing fixture pins, notices, hashes, licensing decisions and replay
   inputs remain unchanged. The [validation record](../../docs/issue-39-validation.md)
   separates register evidence from retained timing and reset conventions.
+
+## Original VRAM read-access CPU guests: approved
+
+- Source: [`crates/snes-core/tests/ppu_vram_access.rs`](../../crates/snes-core/tests/ppu_vram_access.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Two original encoded 65C816 instruction streams build zero-filled 32 KiB
+  LoROMs in memory, one per VMAIN increment-port selection. All instructions,
+  sentinel VRAM words, header/vector bytes and expected numeric results are
+  original MIT code/data. No external assembler, runtime, font, firmware,
+  commercial ROM, game asset or emulator implementation is used. No generated
+  ROM is committed or downloaded.
+- Guests initialize VRAM exclusively through executed register writes, seed the
+  buffer under forced blank, synchronize by polling HVBJOY and masked H/V IRQ
+  with WAI, and publish 20 result bytes plus `$18F0=$A5` in WRAM before STP.
+  They cover active/HBlank and scanline-zero restrictions, both address writes,
+  both data ports, restricted increments and forced/VBlank recovery. Host code
+  supplies only the ROM and observes results, STP and explicit bounds of 150,000
+  steps and fewer than four frame wraps; it patches no CPU, bus, raster, PPU,
+  buffer or guest memory state.
+- Decision: original sources and generated code/data may be redistributed under
+  MIT. Retained invalid-fetch bits are an emulator approximation, distinguished
+  from hardware-supported access/order rules in the
+  [Issue #41 validation](../../docs/issue-41-validation.md). All existing fixture
+  and game pins, ROM hashes, license decisions, notices and replay inputs remain.

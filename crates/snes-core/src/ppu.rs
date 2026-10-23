@@ -93,6 +93,19 @@ impl Ppu {
     fn vw(&self, a: usize) -> u16 {
         u16::from_le_bytes([self.vram[a & 65535], self.vram[(a + 1) & 65535]])
     }
+    #[cfg(test)]
+    pub(crate) fn vram_read_state(&self) -> (u16, u16) {
+        (self.vaddr, self.vbuffer)
+    }
+    fn prefetch_vram(&mut self) {
+        // Fullsnes VRAM access / INIDISP: no software-addressed fetch outside
+        // forced blank or VBlank (including HBlank and scanline 0). Invalid
+        // fetch bits are unspecified; retaining the buffer is model policy.
+        // See docs/issue-41-validation.md for evidence and qualifications.
+        if self.regs[0] & 128 != 0 || self.v >= 225 {
+            self.vbuffer = self.vw(self.va());
+        }
+    }
     fn palette(&self, i: usize) -> u16 {
         u16::from_le_bytes([self.cgram[(i * 2) & 511], self.cgram[(i * 2 + 1) & 511]]) & 0x7fff
     }
@@ -144,8 +157,10 @@ impl Ppu {
                 self.scroll_latch = v;
             }
             0x16 | 0x17 => {
-                self.vaddr = u16::from_le_bytes([self.regs[0x16], self.regs[0x17]]);
-                self.vbuffer = self.vw(self.va());
+                let mut address = self.vaddr.to_le_bytes();
+                address[r - 0x16] = v;
+                self.vaddr = u16::from_le_bytes(address);
+                self.prefetch_vram();
             }
             0x18 | 0x19 => {
                 let high = r == 0x19;
@@ -221,7 +236,7 @@ impl Ppu {
                 let high = r & 63 == 0x3a;
                 let v = (self.vbuffer >> if high { 8 } else { 0 }) as u8;
                 if (self.regs[0x15] & 128 != 0) == high {
-                    self.vbuffer = self.vw(self.va());
+                    self.prefetch_vram();
                     self.vinc(high);
                 }
                 v
@@ -760,7 +775,8 @@ mod tests {
         p.write(0x16, 0);
         p.write(0x17, 0);
         // The address write prefetches, then the first high read reloads that
-        // same word and increments: the first pair is the documented dummy.
+        // same word and increments: the first valid word is received twice.
+        // A dummy read can discard either duplicate, not an invalid first word.
         for expected in [0x12, 0x12, 0x56] {
             assert_eq!(p.read(0x39, 0), expected);
             p.read(0x3a, 0);
@@ -809,3 +825,7 @@ mod tests {
         assert_eq!(p.cgram[1], 0x7f);
     }
 }
+
+#[cfg(test)]
+#[path = "ppu_vram_tests.rs"]
+mod vram_tests;

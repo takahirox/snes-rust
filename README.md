@@ -83,6 +83,7 @@ cargo test --locked -p snes-core --test hdma_reload
 cargo test --locked -p snes-core --test hdma_phase
 cargo test --locked -p snes-core --test hdma_ntrl
 cargo test --locked -p snes-core --test ppu_counter_latch
+cargo test --locked -p snes-core --test ppu_vram_access
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -374,7 +375,16 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   edge behavior are outside the tested targets. `ppu-color` remains partial:
   comprehensive window logic, clipping/prevention interactions, subtraction/
   saturation, halving and brightness coverage still need work. VRAM writes obey
-  forced/VBlank access and still increment when blocked. VRAM prefetch,
+  forced/VBlank access and still increment when blocked. VRAM read-buffer fetches
+  likewise require forced blank or VBlank, including address-write prefetch;
+  HBlank and scanline 0 do not grant access. Reads return the old buffered byte,
+  and selected-port reads attempt refill before incrementing. The increment
+  still occurs when access is blocked.
+  Unavailable fetches retain the buffer as a deterministic approximation; exact
+  invalid-fetch bits and physical access/blanking-transition timing remain
+  unverified. The [VRAM validation](docs/issue-41-validation.md) records source
+  qualifications, the operation/state matrix, CPU/DMA/HDMA vectors and original
+  CPU guests. `ppu-ports` remains partial. VRAM prefetch,
   OAM/CGRAM write pairs, latched counters and separate PPU read buses have
   numerical regressions. WRIO starts at `$FF`; bit 7 gates SLHV and falling
   edges capture counters. STAT78 resets both read selectors and acknowledges

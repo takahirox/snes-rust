@@ -164,8 +164,10 @@ unit coverage and documentation.
 
 Physical controller/lightgun inputs, external RDIO pins, exact long-dot/field
 counter conversion, physical warm-reset retention, electrical open-bus values,
-active-display VRAM read restrictions, OAM/CGRAM corruption and access-boundary
-accuracy remain unverified. Raster rendering, interlace/overscan, PAL and DMA
+the exact invalid-fetch VRAM buffer bits, OAM/CGRAM corruption and access-boundary
+accuracy remain unverified. [Issue #41](issue-41-validation.md) subsequently adds
+logical VRAM read-fetch restrictions and labels its buffer approximation.
+Raster rendering, interlace/overscan, PAL and DMA
 startup/alignment are separate work. Limited passes establish neither full
 hardware accuracy nor commercial compatibility. No fixtures, game hashes,
 notices, replay inputs or gameplay/audio assertions changed.
