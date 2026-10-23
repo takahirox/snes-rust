@@ -439,7 +439,12 @@ fn forced_blank_uses_the_current_packed_stride() {
             (p.framebuffer_width(), p.frame.len()),
             (width, width * 224 * 4)
         );
-        assert!(p.frame.chunks_exact(4).all(|rgba| rgba == [0, 0, 0, 255]));
+        assert!(p
+            .frame
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|rgba| *rgba == [0, 0, 0, 255]));
     }
 }
 
