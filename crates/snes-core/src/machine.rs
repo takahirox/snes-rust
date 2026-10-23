@@ -969,3 +969,7 @@ mod ppu_vram_tests;
 #[cfg(test)]
 #[path = "machine/ppu_oam_tests.rs"]
 mod ppu_oam_tests;
+
+#[cfg(test)]
+#[path = "machine/ppu_cgram_tests.rs"]
+mod ppu_cgram_tests;

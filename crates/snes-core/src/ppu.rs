@@ -151,6 +151,22 @@ impl Ppu {
     fn palette(&self, i: usize) -> u16 {
         u16::from_le_bytes([self.cgram[(i * 2) & 511], self.cgram[(i * 2 + 1) & 511]]) & 0x7fff
     }
+    fn cgram_byte_address(&self) -> usize {
+        // CGRAM permits HBlank palette transfers, unlike VRAM. Without a
+        // pixel-fetch pipeline, use backdrop color 0 during rendering and
+        // preserve the software byte phase/cursor. This address and the whole
+        // HBlank window are model policy, NOT exact hardware arbitration.
+        // See docs/issue-47-validation.md for source conflicts and limits.
+        if self.regs[0] & 128 == 0 && self.v < 225 && self.h < 1096 {
+            self.caddr & 1
+        } else {
+            self.caddr
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn cgram_port_state(&self) -> (usize, u8) {
+        (self.caddr, self.clatch)
+    }
     // Fullsnes Direct Color Mode: pixel BBGGGRRR and tile palette bgr
     // supply RRRr0, GGGg0, BBb00. Transparency is checked by the caller.
     fn direct_color(pixel: u8, palette: u8) -> u16 {
@@ -228,8 +244,9 @@ impl Ppu {
                 if self.caddr & 1 == 0 {
                     self.clatch = v;
                 } else {
-                    self.cgram[self.caddr - 1] = self.clatch;
-                    self.cgram[self.caddr] = v & 127;
+                    let a = self.cgram_byte_address();
+                    self.cgram[a - 1] = self.clatch;
+                    self.cgram[a] = v & 127;
                 }
                 self.caddr = (self.caddr + 1) & 511;
             }
@@ -285,7 +302,7 @@ impl Ppu {
                 v
             }
             0x3b => {
-                let v = self.cgram[self.caddr]
+                let v = self.cgram[self.cgram_byte_address()]
                     | if self.caddr & 1 != 0 {
                         self.open2 & 128
                     } else {
@@ -876,3 +893,7 @@ mod vram_tests;
 #[cfg(test)]
 #[path = "ppu_oam_tests.rs"]
 mod oam_tests;
+
+#[cfg(test)]
+#[path = "ppu_cgram_tests.rs"]
+mod cgram_tests;
