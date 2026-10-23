@@ -79,6 +79,7 @@ cargo test --workspace --locked
 cargo test --locked -p snes-core --lib machine::dma_tests
 cargo test --locked -p snes-core --test dma_access
 cargo test --locked -p snes-core --test hdma_init
+cargo test --locked -p snes-core --test hdma_reload
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -108,7 +109,10 @@ effects from unverified electrical byte values, with 48 focused tests and six
 CPU guests. Issue #31 adds separate scanline-0 initial descriptor/indirect-pointer
 prefetch, natural scheduler vectors and two CPU guests; its
 [validation record](docs/issue-31-validation.md) distinguishes supported ordering
-and register effects from approximate clock alignment.
+and register effects from approximate clock alignment. Issue #33 adds subsequent
+row-end metadata reload, ordered payload/reload phases and terminating indirect
+reads; its [validation record](docs/issue-33-validation.md) records natural
+scheduler regressions, two original CPU guests and the corrected older vectors.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -319,8 +323,14 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   bytes. Zero initial headers terminate internally while preserving `$420C`,
   including the indirect-pointer read effects described in the
   [prefetch validation](docs/issue-31-validation.md). Writing `$420C` does not
-  trigger initialization. `dma` and `hdma` remain partial: subsequent row-reload
-  placement, startup/alignment and full overhead timing, arbitrary mid-frame
+  trigger initialization. Subsequent rows reload descriptors and indirect
+  pointers in the HBlank ending the preceding row, after all eligible channel
+  payloads. Terminating indirect reads publish their pointer/table effects,
+  counting later enabled, unterminated channels; `$420C` stays programmed.
+  Prepared metadata survives later table edits while payload bytes stay live.
+  The [row-end validation](docs/issue-33-validation.md) documents the ordered
+  algorithm and the last-channel zero-header derivation. `dma` and `hdma`
+  remain partial: startup/alignment and full overhead timing, arbitrary mid-frame
   enabling, same-channel contention, exact electrical open-bus behavior and the
   complete mode-interaction matrix remain separate work. The initialization
   phase and retained HBlank timing are approximate scheduler conventions.

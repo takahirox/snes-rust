@@ -72,7 +72,7 @@ fn metadata_edits_after_init_do_not_replace_first_row_but_payload_is_live() {
         assert_eq!(b.dma[0][10], 0x81);
         until(&mut b, 0, 1, 1150);
         assert_eq!(b.apu.input[0], 0x22);
-        assert_eq!(b.dma[0][10], 0x80);
+        assert_eq!(b.dma[0][10], 0); // Issue #33: row-end termination is already visible.
     }
 }
 #[test]
@@ -194,9 +194,10 @@ fn different_channel_dma_crosses_init_and_first_hblanks_once() {
             assert_eq!(b.frames, u64::from(wrap));
             assert_eq!(&b.dma[1][2..7], &[0x90, 0x11, 0x7e, 0, 0]);
             assert_eq!(b.apu.input[..2], [0x22, 0x77]);
-            assert_eq!(&b.dma[0][8..11], &[3, 1, 0x80]);
+            // Issue #33: final payload reloads zero and its terminating pointer now.
+            assert_eq!(&b.dma[0][8..11], &[if indirect { 5 } else { 4 }, 1, 0]);
             if indirect {
-                assert_eq!(&b.dma[0][5..7], &[2, 2]);
+                assert_eq!(&b.dma[0][5..7], &[0, 0]);
             }
             assert_eq!(b.io[11], 0);
             let samples = b.apu.samples.len() as f64 / 2.0;

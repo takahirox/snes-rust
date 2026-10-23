@@ -46,7 +46,6 @@ pub struct SystemBus {
     auto_buttons: u16,
     dma_pending: u8,
     hdma_active: u8,
-    hdma_prepared: u8,
     hdma_line: [u8; 8],
     hdma_transfer: [bool; 8],
     hdma_pending: bool,
@@ -145,7 +144,6 @@ impl SystemBus {
             auto_buttons: 0,
             dma_pending: 0,
             hdma_active: 0,
-            hdma_prepared: 0,
             hdma_line: [0; 8],
             hdma_transfer: [false; 8],
             hdma_pending: false,
@@ -506,34 +504,13 @@ impl SystemBus {
         if self.hdma_init {
             self.hdma_init = false;
             self.hdma_active = self.io[12];
-            self.hdma_prepared = self.hdma_active;
             for i in 0..8 {
                 if self.hdma_active & (1 << i) == 0 {
                     continue;
                 }
                 self.dma[i][8] = self.dma[i][2];
                 self.dma[i][9] = self.dma[i][3];
-                let counter = self.hdma_read(i);
-                self.hdma_line[i] = counter;
-                self.dma[i][10] = counter;
-                self.hdma_transfer[i] = true;
-                if self.dma[i][0] & 64 != 0 {
-                    // Anomie's zero-header oddity: the final active channel
-                    // uses the zero header as low byte, fetching only high.
-                    // Later enabled channels have not been initialized yet.
-                    let later = self.hdma_active & (0xfeu8 << i) != 0;
-                    let low = if counter == 0 && !later {
-                        0
-                    } else {
-                        self.hdma_read(i)
-                    };
-                    let high = self.hdma_read(i);
-                    self.dma[i][5] = low;
-                    self.dma[i][6] = high;
-                }
-                if counter == 0 {
-                    self.hdma_active &= !(1 << i);
-                }
+                self.hdma_reload(i);
             }
         }
         if self.hdma_pending {
@@ -541,25 +518,6 @@ impl SystemBus {
             for i in 0..8 {
                 if self.hdma_active & (1 << i) == 0 || self.io[12] & (1 << i) == 0 {
                     continue;
-                }
-                // An initial $80 header is a fresh 128-line row, whereas $80
-                // after decrementing a repeated row requests the next header.
-                let prepared = self.hdma_prepared & (1 << i) != 0;
-                self.hdma_prepared &= !(1 << i);
-                if !prepared && self.hdma_line[i] & 127 == 0 {
-                    let counter = self.hdma_read(i);
-                    self.hdma_line[i] = counter;
-                    self.hdma_transfer[i] = true;
-                    if counter == 0 {
-                        self.hdma_active &= !(1 << i);
-                        continue;
-                    }
-                    if self.dma[i][0] & 64 != 0 {
-                        let l = self.hdma_read(i);
-                        let h = self.hdma_read(i);
-                        self.dma[i][5] = l;
-                        self.dma[i][6] = h;
-                    }
                 }
                 if self.hdma_transfer[i] {
                     let d = self.dma[i];
@@ -575,10 +533,45 @@ impl SystemBus {
                         self.dma[i][pair + 1] = (next >> 8) as u8;
                     }
                 }
+            }
+            // Complete every channel's payload before fetching next-row
+            // metadata (Anomie HDMA steps 1-2, then 3-5; see Issue #33 record).
+            for i in 0..8 {
+                if self.hdma_active & self.io[12] & (1 << i) == 0 {
+                    continue;
+                }
                 self.hdma_line[i] = self.hdma_line[i].wrapping_sub(1);
                 self.dma[i][10] = self.hdma_line[i];
                 self.hdma_transfer[i] = self.hdma_line[i] & 128 != 0;
+                if self.hdma_line[i] & 127 == 0 {
+                    self.hdma_reload(i);
+                }
             }
+        }
+    }
+    // Both initialization and row-end reload publish metadata through timed
+    // A-bus reads, independent of the payload direction. A fresh $80 is never
+    // decremented until the next HBlank, so it naturally represents 128 lines.
+    fn hdma_reload(&mut self, i: usize) {
+        let counter = self.hdma_read(i);
+        self.hdma_line[i] = counter;
+        self.dma[i][10] = counter;
+        self.hdma_transfer[i] = true;
+        if self.dma[i][0] & 64 != 0 {
+            // Later enabled, unterminated channels still count even if their
+            // own row will terminate later in this reload pass (step 5b).
+            let later = self.hdma_active & self.io[12] & (0xfeu8 << i) != 0;
+            let low = if counter == 0 && !later {
+                0
+            } else {
+                self.hdma_read(i)
+            };
+            let high = self.hdma_read(i);
+            self.dma[i][5] = low;
+            self.dma[i][6] = high;
+        }
+        if counter == 0 {
+            self.hdma_active &= !(1 << i);
         }
     }
     fn hdma_read(&mut self, i: usize) -> u8 {
@@ -622,6 +615,10 @@ mod dma_tests;
 #[cfg(test)]
 #[path = "machine/hdma_init_tests.rs"]
 mod hdma_init_tests;
+
+#[cfg(test)]
+#[path = "machine/hdma_reload_tests.rs"]
+mod hdma_reload_tests;
 
 #[cfg(test)]
 mod tests {

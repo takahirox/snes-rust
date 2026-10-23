@@ -455,3 +455,25 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   [Issue #31 validation](../../docs/issue-31-validation.md).
 - Decision: original sources and generated code/data may be redistributed under
   MIT. Existing external fixture pins, notices and licensing decisions remain.
+
+## Original HDMA row-end reload CPU guests: approved
+
+- Sources: [`crates/snes-core/tests/hdma_reload.rs`](../../crates/snes-core/tests/hdma_reload.rs)
+  and [`crates/snes-core/src/machine/hdma_reload_tests.rs`](../../crates/snes-core/src/machine/hdma_reload_tests.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Two original 65C816 instruction streams, tables, payloads, result vectors,
+  title/header and reset vector construct zero-filled 32 KiB LoROMs in memory.
+  Encoded SEI, LDA/STA, AND, conditional branches and STP use no assembler,
+  runtime, font, firmware, commercial ROM or external instruction/data source.
+- Guests configure in VBlank and poll executed `$4212` reads through successive
+  HBlanks. They record the prepared second descriptor/pointer, overwrite those
+  table bytes, change live payload data, read numeric CGRAM and final register
+  results into WRAM, then check a sentinel after termination. Host code only
+  supplies the cartridge and observes WRAM and the stop/deadline state; no CPU,
+  bus, scheduler or memory state is injected. Each guest has a 100,000-instruction,
+  fewer-than-three-frame bound. Generated ROMs are not committed.
+- Decision: original source and generated instruction/data artifacts may be
+  redistributed under MIT. Existing fixture pins, game inputs, hashes and
+  licensing decisions remain intact. The
+  [Issue #33 record](../../docs/issue-33-validation.md) separates specification
+  facts, derived expectations and retained scheduler approximations.
