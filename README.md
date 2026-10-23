@@ -77,6 +77,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo test -p snes-core --test dsp_noise --locked
+cargo test -p snes-core --test dsp_pitch --locked
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -302,9 +303,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   noise is selected. The [noise validation](docs/issue-15-validation.md) covers
   all rates, shared routing, signed PCM/OUTX, continuity, an original uploaded
   SPC700 guest and APU partition invariance. Noise remains partial: subcycle
-  NON/FLG sampling, register-write races and interactions with unimplemented
-  pitch modulation remain unverified. Pitch modulation and reference echo
-  saturation remain unsupported/unverified and unused by these targets.
+  NON/FLG sampling and register-write races remain unverified. Sample-level PMON
+  routes each preceding voice's full-resolution post-envelope output, including
+  noise, through signed pitch arithmetic and bounded interpolation advancement.
+  The [pitch validation](docs/issue-17-validation.md) covers routing, rounding,
+  high increments/saturation, live writes, noise interactions, an original SPC
+  guest and APU partition invariance. Pitch remains partial: DSP subcycle register
+  sampling, torn pitch writes, SPC bus timing and register/RAM races are outside
+  this implementation. Exhaustive BRR filters/interpolation phases, hidden
+  envelope corrections and reference echo saturation remain unverified.
   Browser tests bound device-clock drift, queue duration and live sources,
   including main-thread stalls and repeated pause/reset/play.
 - Enhancement chips, ExLoROM/ExHiROM, PAL, save states and broad commercial
