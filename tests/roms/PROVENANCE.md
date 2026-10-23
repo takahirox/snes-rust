@@ -33,9 +33,10 @@ are not release acceptance evidence.
 ## Original DMA A-bus 65C816 guests: approved
 
 - Source: [`crates/snes-core/tests/dma_access.rs`](../../crates/snes-core/tests/dma_access.rs),
-  including its `guest` and `status_guest` builders; no upstream code or data input.
+  including its `guest`, `status_guest` and WRAM-conflict guest builders;
+  no upstream code or data input.
 - Copyright: 2026 snes-rust contributors; [MIT](../../LICENSE).
-- Three 32,768-byte LoROMs are generated in memory from original SEI, LDA/STA,
+- Four 32,768-byte LoROMs are generated in memory from original SEI, LDA/STA,
   AND, conditional-branch and STP instruction streams, literal transfer data
   and an original header.
   All register initialization and transfer triggers execute through `Machine`;
@@ -50,14 +51,21 @@ are not release acceptance evidence.
   mask floating bits and copy numeric results into WRAM. The host injects no
   private flags or expected result bytes. Division and multiplication results,
   first-controller `$A590`, acknowledgement and final DMA registers are checked.
-- The original two guests are bounded to 10,000 instructions; the status guest
-  to 100,000 instructions. All must finish in fewer than two frames.
+- Issue #25's WRAM-conflict guest initializes `$7E:0100`, destination sentinels
+  and a 17-bit WMDATA pointer through CPU instructions, triggers conflicting DMA,
+  and records numeric A-address/bank/count and port-readback results in WRAM.
+  A legal ROM-to-WMDATA control uses the original literal `$6B` at `$00:F000`.
+  The host supplies only the generated cartridge and independently asserts results.
+- The original two guests and WRAM-conflict guest are bounded to 10,000
+  instructions; the status guest to 100,000 instructions. All must finish in
+  fewer than two frames.
   No font, firmware, commercial ROM, external binary, assembler or runtime is used.
   The associated original unit vectors in `src/machine/dma_tests.rs` are also MIT.
 - Decision: original source and generated ROMs may be redistributed under MIT.
   No additional binary is committed. These are diagnostics, not game or complete
-  hardware acceptance. See [original validation](../../docs/issue-21-validation.md) and
-  [corrected-read validation](../../docs/issue-23-validation.md).
+  hardware acceptance. See [original validation](../../docs/issue-21-validation.md),
+  [corrected-read validation](../../docs/issue-23-validation.md) and
+  [WRAM-conflict validation](../../docs/issue-25-validation.md).
 
 ## Original direct-color guest tests: approved
 

@@ -1,4 +1,4 @@
-//! Original MIT DMA/HDMA address and side-effect vectors for Issues #21/#23.
+//! Original MIT DMA/HDMA address and side-effect vectors for Issues #21/#23/#25.
 use super::*;
 
 fn bus() -> SystemBus {
@@ -189,24 +189,26 @@ fn dma_reverse_prohibited_writes_still_consume_b_bus_reads() {
 #[test]
 fn dma_progression_rechecks_each_byte_and_wraps_without_bank_carry() {
     // Literal output vectors: legal unmapped addresses read the previous open
-    // value, excluded addresses inject zero, and $0000 is WRAM in bank $80.
+    // value, excluded addresses inject zero, and $0000 in bank $80 conflicts.
     for (mode, start, count, end, expected) in [
         (8, 0x4016, 3, 0x4016, vec![0, 0, 0]),
         (0, 0x20ff, 3, 0x2102, vec![0x5a, 0, 0]),
         (0, 0x21ff, 3, 0x2202, vec![0, 0, 0]),
         (16, 0x2200, 3, 0x21fd, vec![0x5a, 0, 0]),
         (16, 0x2100, 3, 0x20fd, vec![0, 0, 0]),
-        (0, 0xffff, 2, 0x0001, vec![0x6b, 0x37]),
-        (16, 0x0000, 2, 0xfffe, vec![0x37, 0x6b]),
+        (0, 0xffff, 2, 0x0001, vec![0x6b]),
+        (16, 0x0000, 2, 0xfffe, vec![0x6b]),
     ] {
         let mut b = bus();
         b.cart.rom.fill(0x6b);
         b.wram[0] = 0x37;
+        b.wram[0x10000..0x10004].fill(0xa6);
         b.waddr = 0x10000;
         b.open = 0x5a;
         general(&mut b, mode, 0x80, 0x800000 | start, count);
         assert_eq!(&b.wram[0x10000..0x10000 + expected.len()], expected);
         assert_eq!(b.waddr, 0x10000 + expected.len());
+        assert_eq!(b.wram[0x10000 + expected.len()], 0xa6);
         assert_eq!(u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]), end);
         assert_eq!(b.dma[0][4..7], [0x80, 0, 0]);
         assert_eq!(b.clocks, 16 + u64::from(count) * 8);
@@ -768,4 +770,264 @@ fn hdma_loaded_status_payload_acknowledges_then_table_terminates() {
             assert_eq!(b.clocks, 40);
         }
     }
+}
+
+#[test]
+fn dma_wram_conflict_reproduction() {
+    let mut b = bus();
+    b.wram[0x100] = 0x5a;
+    b.waddr = 0x11000;
+    b.wram[0x11000] = 0xa6;
+    general(&mut b, 0, 0x80, 0x7e0100, 1);
+    assert_eq!((b.wram[0x11000], b.waddr), (0xa6, 0x11000));
+    assert_eq!(b.dma[0][2..7], [1, 1, 0x7e, 0, 0]);
+    assert_eq!((b.dma_pending, b.clocks), (0, 24));
+}
+
+#[test]
+fn dma_wram_conflict_full_banks_and_mirror_boundaries() {
+    // Literal addresses, independent of the production decoder.
+    for a in [
+        0x7e0000, 0x7e1fff, 0x7e2000, 0x7effff, 0x7f0000, 0x7f1fff, 0x7f2000, 0x7fffff, 0x000000,
+        0x001fff, 0x3f0000, 0x3f1fff, 0x800000, 0x801fff, 0xbf0000, 0xbf1fff,
+    ] {
+        let mut b = bus();
+        b.wram.fill(0x5a);
+        b.waddr = 0x11000;
+        b.wram[0x11000..0x11003].fill(0xa6);
+        general(&mut b, 8, 0x80, a, 3);
+        assert_eq!(&b.wram[0x11000..0x11003], &[0xa6; 3], "{a:06x}");
+        assert_eq!(b.waddr, 0x11000);
+        assert_eq!(u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]), a as u16);
+        assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+        assert_eq!((b.dma_pending, b.clocks), (0, 40));
+        // The same WRAM source remains legal for ordinary B-bus registers.
+        general(&mut b, 8, 6, a, 1);
+        assert_eq!(b.ppu.regs[6], 0x5a);
+        assert_eq!(b.waddr, 0x11000);
+    }
+}
+
+#[test]
+fn dma_wram_conflict_non_wram_and_legal_reverse_controls() {
+    for a in [0x002000, 0x3f2000, 0x802000, 0xbf2000] {
+        let mut b = bus();
+        b.waddr = 0x11000;
+        b.wram[0x11001] = 0xa6;
+        general(&mut b, 8, 0x80, a, 1);
+        // Unmapped data is not a hardware value assertion; only the port access.
+        assert_eq!((b.waddr, b.wram[0x11001]), (0x11001, 0xa6));
+        assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+        assert_eq!(b.clocks, 24);
+    }
+    for a in [
+        0x400000, 0x401fff, 0x402000, 0xc00000, 0xc01fff, 0xc02000, 0x008000, 0x700100,
+    ] {
+        let mut b = bus();
+        b.cart.rom.fill(0x6b);
+        b.cart.sram = vec![0x6d; 0x8000];
+        b.waddr = 0x11000;
+        b.wram[0x11000..0x11003].fill(0xa6);
+        general(&mut b, 0, 0x80, a, 2);
+        let expected = if a == 0x700100 { 0x6d } else { 0x6b };
+        assert_eq!(&b.wram[0x11000..0x11003], &[expected, expected, 0xa6]);
+        assert_eq!(b.waddr, 0x11002);
+        assert_eq!(
+            u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]),
+            (a as u16) + 2
+        );
+        assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+        assert_eq!(b.clocks, 32);
+    }
+    // WMDATA -> cartridge SRAM is legal; no reverse WRAM conflict is asserted.
+    let mut b = bus();
+    b.cart.sram = vec![0xa6; 0x8000];
+    b.wram[0x1ffff] = 0x5a;
+    b.wram[0] = 0x37;
+    b.waddr = 0x1ffff;
+    general(&mut b, 0x80, 0x80, 0x700100, 2);
+    assert_eq!(&b.cart.sram[0x100..0x103], &[0x5a, 0x37, 0xa6]);
+    assert_eq!(b.waddr, 1);
+    assert_eq!(b.dma[0][2..7], [2, 1, 0x70, 0, 0]);
+    assert_eq!(b.clocks, 32);
+}
+
+#[test]
+fn dma_wram_conflict_progression_enters_exits_and_wraps() {
+    for (mode, a, end, writes) in [
+        (0, 0x001ffe, 0x2002, 2),  // Exit mirrored WRAM.
+        (16, 0x3f2001, 0x1ffd, 2), // Enter mirrored WRAM.
+        (0, 0x80fffe, 2, 2),       // ROM then mirrored WRAM, no bank carry.
+        (16, 0xbf0001, 0xfffd, 2), // Mirrored WRAM then ROM.
+        (0, 0x7efffe, 2, 0),       // Full WRAM banks stay conflicting over wrap.
+        (16, 0x7f0001, 0xfffd, 0),
+    ] {
+        let mut b = bus();
+        b.cart.rom.fill(0x6b);
+        b.wram.fill(0x5a);
+        b.waddr = 0x11000;
+        b.wram[0x11000..0x11005].fill(0xa6);
+        general(&mut b, mode, 0x80, a, 4);
+        assert_eq!(b.waddr, 0x11000 + writes, "{a:06x}");
+        assert_eq!(&b.wram[0x11000 + writes..0x11005], &vec![0xa6; 5 - writes]);
+        assert_eq!(u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]), end);
+        assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+        assert_eq!((b.dma_pending, b.clocks), (0, 48));
+    }
+}
+
+#[test]
+fn dma_wram_conflict_effective_b_pattern_and_bbad_wrapping() {
+    let mut b = bus();
+    b.wram[0x100..0x104].copy_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+    b.waddr = 0x11000;
+    b.wram[0x11000..0x11003].fill(0xa6);
+    // Mode 1 alternates legal APU port $217f and conflicting WMDATA $2180.
+    general(&mut b, 1, 0x7f, 0x7e0100, 4);
+    assert_eq!(b.apu.input[3], 0x33);
+    assert_eq!(&b.wram[0x11000..0x11003], &[0xa6; 3]);
+    assert_eq!(b.waddr, 0x11000);
+    assert_eq!(b.dma[0][2..7], [4, 1, 0x7e, 0, 0]);
+    assert_eq!(b.clocks, 48);
+    // Eight-bit BBAD wrapping reaches $2100, never $2200.
+    b.wram[0x100..0x102].copy_from_slice(&[0x80, 0x8f]);
+    general(&mut b, 1, 0xff, 0x7e0100, 2);
+    assert_eq!(b.ppu.regs[0], 0x8f);
+    assert_eq!(b.waddr, 0x11000);
+    assert_eq!(b.dma[0][2..7], [2, 1, 0x7e, 0, 0]);
+    assert_eq!(b.clocks, 80);
+}
+
+#[test]
+fn dma_wram_conflict_zero_count_consumes_65536_slots() {
+    for (mode, a) in [(0, 0x7e0100), (8, 0x7f0100), (16, 0x7f0100)] {
+        let mut b = bus();
+        b.wram.fill(0x5a);
+        b.waddr = 0x11000;
+        b.wram[0x11000] = 0xa6;
+        general(&mut b, mode, 0x80, a, 0);
+        assert_eq!((b.waddr, b.wram[0x11000]), (0x11000, 0xa6));
+        assert_eq!(b.dma[0][2..7], [0, 1, (a >> 16) as u8, 0, 0]);
+        assert_eq!(b.dma_pending, 0);
+        // Retained model: 16 + 65536*8 work clocks plus 396 refresh holds.
+        // Exactly 396 scanlines, not a claim about hardware setup/alignment.
+        assert_eq!(b.clocks, 540144);
+    }
+}
+
+#[test]
+fn hdma_wram_conflict_complete_direct_and_indirect_tables() {
+    // Two repeated rows, a two-line non-repeating entry, then termination.
+    // Mixed B pattern proves ordinary payloads continue after each conflict.
+    for indirect in [false, true] {
+        let mut b = bus();
+        let table: &[u8] = if indirect {
+            &[0x82, 0, 2, 2, 4, 2, 0]
+        } else {
+            &[0x82, 0x11, 0x22, 0x33, 0x44, 2, 0x55, 0x66, 0]
+        };
+        b.wram[0x100..0x100 + table.len()].copy_from_slice(table);
+        b.wram[0x200..0x206].copy_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+        hdma(&mut b, if indirect { 0x41 } else { 1 }, 0x7e0100);
+        b.dma[0][1] = 0x7f;
+        b.dma[0][7] = 0x7e;
+        b.waddr = 0x11000;
+        b.wram[0x11000..0x11004].fill(0xa6);
+        let states = if indirect {
+            [
+                (0x103, 0x202, 40),
+                (0x103, 0x204, 56),
+                (0x106, 0x206, 96),
+                (0x106, 0x206, 96),
+                (0x107, 0x206, 104),
+            ]
+        } else {
+            [
+                (0x103, 0, 24),
+                (0x105, 0, 40),
+                (0x108, 0, 64),
+                (0x108, 0, 64),
+                (0x109, 0, 72),
+            ]
+        };
+        for (row, (table, payload, clocks)) in states.into_iter().enumerate() {
+            b.hdma_pending = true;
+            b.events();
+            assert_eq!(u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]), table);
+            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), payload);
+            assert_eq!(b.hdma_line[0], [0x81, 0x80, 1, 0, 0][row]);
+            assert_eq!(b.hdma_active, [1, 1, 1, 1, 0][row]);
+            assert_eq!(b.apu.input[3], [0x11, 0x33, 0x55, 0x55, 0x55][row]);
+            assert_eq!(b.waddr, 0x11000);
+            assert_eq!(&b.wram[0x11000..0x11004], &[0xa6; 4]);
+            assert_eq!(b.dma[0][2..5], [0, 1, 0x7e]);
+            assert_eq!(b.dma[0][7], 0x7e);
+            assert_eq!(b.io[12], 1);
+            assert_eq!(b.clocks, clocks);
+        }
+    }
+}
+
+#[test]
+fn hdma_wram_conflict_uses_payload_bank_not_table_bank() {
+    for (table, payload_bank, expected, pointer) in [
+        (0x7e0100, 0x00, [0x5a, 0x37, 0xa6], 0x11002), // WRAM table, ROM payload.
+        (0x008100, 0x7f, [0xa6, 0xa6, 0xa6], 0x11000), // ROM table, WRAM payload.
+    ] {
+        let mut b = bus();
+        let bytes = [0x82, 0, 0x82, 0];
+        b.wram[0x100..0x104].copy_from_slice(&bytes);
+        b.cart.rom[0x100..0x104].copy_from_slice(&bytes);
+        b.cart.rom[0x200..0x202].copy_from_slice(&[0x5a, 0x37]);
+        b.wram[0x18200..0x18202].copy_from_slice(&[0x5a, 0x37]);
+        b.waddr = 0x11000;
+        b.wram[0x11000..0x11003].fill(0xa6);
+        hdma(&mut b, 0x40, table);
+        b.dma[0][1] = 0x80;
+        b.dma[0][7] = payload_bank;
+        for (row, (end, payload, line, active, clocks)) in [
+            (0x103, 0x8201, 0x81, 1, 32),
+            (0x103, 0x8202, 0x80, 1, 40),
+            (0x104, 0x8202, 0, 0, 48),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            b.hdma_pending = true;
+            b.events();
+            assert_eq!(
+                u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]),
+                if table == 0x008100 { end + 0x8000 } else { end }
+            );
+            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), payload);
+            assert_eq!(
+                (b.hdma_line[0], b.hdma_active, b.clocks),
+                (line, active, clocks)
+            );
+            assert_eq!(b.wram[0x11002], 0xa6);
+            if row == 2 {
+                assert_eq!(&b.wram[0x11000..0x11003], &expected);
+                assert_eq!(b.waddr, pointer);
+            }
+            assert_eq!(b.dma[0][4], (table >> 16) as u8);
+            assert_eq!(b.dma[0][7], payload_bank);
+        }
+    }
+}
+
+#[test]
+fn cpu_wmdata_reads_writes_and_pointer_wrap_remain_legal() {
+    let mut b = bus();
+    b.write(0x2181, 0xff);
+    b.write(0x2182, 0xff);
+    b.write(0x2183, 1);
+    b.write(0x2180, 0x5a);
+    b.write(0x2180, 0x37);
+    assert_eq!((b.wram[0x1ffff], b.wram[0], b.waddr), (0x5a, 0x37, 1));
+    b.write(0x2181, 0xff);
+    b.write(0x2182, 0xff);
+    b.write(0x2183, 1);
+    assert_eq!(b.read(0x2180), 0x5a);
+    assert_eq!(b.read(0x2180), 0x37);
+    assert_eq!(b.waddr, 1);
 }

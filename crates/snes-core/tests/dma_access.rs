@@ -1,4 +1,4 @@
-//! Original MIT 65C816 guests for Issues #21/#23; no external code/data/firmware.
+//! Original MIT 65C816 guests for Issues #21/#23/#25; no external code/data/firmware.
 //! Copyright (c) 2026 snes-rust contributors.
 use snes_core::Machine;
 
@@ -222,4 +222,70 @@ fn guest_dma_status_acknowledgement_arithmetic_and_automatic_controller_results(
         }
         assert!(instruction < 99_999, "status guest instruction deadline");
     }
+}
+
+#[test]
+fn guest_wram_conflict_and_legal_rom_control() {
+    let mut code = vec![0x78]; // SEI, emulation-mode eight-bit accumulator.
+    for (a, v) in [
+        (0x2100, 0x80),
+        (0x4200, 0),
+        (0x0100, 0x5a),
+        (0x2181, 0),
+        (0x2182, 0x10),
+        (0x2183, 1),
+        (0x2180, 0xa6),
+        (0x2180, 0x37),
+        (0x2181, 0),
+    ] {
+        write(&mut code, a, v);
+    }
+    // Full WRAM bank $7e, configured entirely through CPU instructions.
+    for (a, v) in [
+        (0x4300, 0),
+        (0x4301, 0x80),
+        (0x4302, 0),
+        (0x4303, 1),
+        (0x4304, 0x7e),
+        (0x4305, 1),
+        (0x4306, 0),
+        (0x420b, 1),
+    ] {
+        write(&mut code, a, v);
+    }
+    for (a, result) in (0x4302..=0x4306).zip(0x1800..=0x1804) {
+        save(&mut code, a, result);
+    }
+    // If the conflict incremented the port, this CPU read returns $37, not $a6.
+    save(&mut code, 0x2180, 0x1805);
+    write(&mut code, 0x2181, 0);
+    // Legal ROM source $00:f000 writes $6b to the same destination.
+    transfer(&mut code, 0, 0x80, 0xf000, 1);
+    for (a, result) in (0x4302..=0x4306).zip(0x1806..=0x180a) {
+        save(&mut code, a, result);
+    }
+    // Port now points at the second sentinel; then read back the legal write.
+    save(&mut code, 0x2180, 0x180b);
+    write(&mut code, 0x2181, 0);
+    save(&mut code, 0x2180, 0x180c);
+    write(&mut code, 0x18f0, 0xa5);
+    code.push(0xdb);
+    let mut rom = cartridge(&code);
+    rom[0x7000] = 0x6b; // Original literal payload, not an external ROM.
+    let mut m = Machine::new(&rom).unwrap();
+    for _ in 0..10_000 {
+        m.step();
+        assert!(m.bus.frames < 2, "WRAM conflict guest frame deadline");
+        if m.cpu.stopped {
+            assert_eq!(m.bus.peek(0x18f0), 0xa5);
+            let results: Vec<_> = (0x1800..=0x180c).map(|a| m.bus.peek(a)).collect();
+            assert_eq!(
+                results,
+                [1, 1, 0x7e, 0, 0, 0xa6, 1, 0xf0, 0, 0, 0, 0x37, 0x6b]
+            );
+            assert_eq!((m.bus.peek(0x7e0100), m.bus.peek(0x7f1000)), (0x5a, 0x6b));
+            return;
+        }
+    }
+    panic!("WRAM conflict guest instruction deadline");
 }
