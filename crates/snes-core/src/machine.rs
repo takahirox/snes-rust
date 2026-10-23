@@ -408,13 +408,39 @@ impl SystemBus {
             }
         }
     }
+    // Only the A-bus endpoint is restricted; CPU and B-bus accesses keep their
+    // ordinary decoding. See docs/issue-21-validation.md for the address map.
+    fn dma_a_blocked(a: u32) -> bool {
+        a & 0x400000 == 0
+            && matches!(a & 0xffff, 0x2100..=0x21ff | 0x4000..=0x41ff | 0x4200..=0x421f | 0x4300..=0x437f)
+    }
+    fn dma_read_a(&mut self, a: u32) -> u8 {
+        if Self::dma_a_blocked(a) {
+            0
+        } else {
+            self.read_raw(a)
+        }
+    }
+    fn dma_write_a(&mut self, a: u32, v: u8) {
+        if !Self::dma_a_blocked(a) {
+            self.write_raw(a, v);
+        }
+    }
     fn transfer(&mut self, channel: usize, a: u32, offset: u8) {
         let d = self.dma[channel];
         let b = 0x2100 | d[1].wrapping_add(offset) as u32;
         self.bus_tick(4);
-        let v = self.read_raw(if d[0] & 128 == 0 { a } else { b });
+        let v = if d[0] & 128 == 0 {
+            self.dma_read_a(a)
+        } else {
+            self.read_raw(b)
+        };
         self.bus_tick(4);
-        self.write_raw(if d[0] & 128 == 0 { b } else { a }, v);
+        if d[0] & 128 == 0 {
+            self.write_raw(b, v);
+        } else {
+            self.dma_write_a(a, v);
+        }
         self.open = v;
     }
     fn events(&mut self) {
@@ -510,7 +536,7 @@ impl SystemBus {
     fn hdma_read(&mut self, i: usize) -> u8 {
         let addr = u16::from_le_bytes([self.dma[i][8], self.dma[i][9]]);
         let a = ((self.dma[i][4] as u32) << 16) | addr as u32;
-        let v = self.read_raw(a);
+        let v = self.dma_read_a(a);
         let next = addr.wrapping_add(1);
         self.dma[i][8] = next as u8;
         self.dma[i][9] = (next >> 8) as u8;
@@ -540,6 +566,10 @@ impl Bus for SystemBus {
         self.cpu_cycle();
     }
 }
+
+#[cfg(test)]
+#[path = "machine/dma_tests.rs"]
+mod dma_tests;
 
 #[cfg(test)]
 mod tests {
