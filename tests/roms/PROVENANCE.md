@@ -783,3 +783,45 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   [Issue #57 validation](../../docs/issue-57-validation.md). This bounded work
   does not establish physical evaluation/fetch timing, full OBJ/hardware
   accuracy or commercial compatibility and does not complete Issue #3.
+
+## Original Mode 7 scroll and shared-latch guest: approved
+
+- Sources: `crates/snes-core/tests/common/mode7_scroll.rs`,
+  `crates/snes-core/tests/ppu_mode7_scroll.rs`,
+  `crates/snes-core/src/ppu_mode7_tests.rs`,
+  `crates/snes-core/examples/mode7-scroll-fixture.rs`, and
+  `web/tests/mode7-scroll.spec.js`. Copyright 2026 snes-rust contributors;
+  repository [MIT](../../LICENSE). Encoded 65C816 instructions, sparse colored
+  source stripes, palette, map, LoROM header/vectors and literal result/pixel
+  expectations are original MIT code/data. No external ROM, firmware, font,
+  graphics or assembler is incorporated or acquired. Both sources and generated
+  code/data may be redistributed under MIT. No generated cartridge is committed.
+- One 32 KiB cartridge initializes graphics/registers using executed CPU bus
+  writes under forced blank. Fourteen multiplication cases run outside Mode 7:
+  both offsets, C/D and both centers feeding A's low byte, H/V interleaving,
+  signed 16-bit A, and all six planar-only scroll ports preserving M7_old.
+  Sixteen NOPs precede each readback; latency is not asserted. The guest saves
+  42 actual result bytes to `$1800..$1829`, compares independent literal values
+  and clears `$31` on any mismatch. It never repairs that sticky pass byte.
+  It then initializes an identity matrix/zero centers and writes H=$15,
+  BG2H=$42, H=$00 in Mode 1 before switching to Mode 7. Mode 7 H=21 selects
+  red; the incorrect planar H=69 selects green. A stable display publishes
+  sticky completion `$30=$59`. No host state patches or new public debug API.
+- Native startup is bounded to 300,000 instructions/eight frames; STP fails.
+  Three further frames stabilize the final scene and preserve completion/pass.
+  Browser execution has a 30-second test deadline/five-second polling bound.
+  Both hosts assert literal result bytes and pixels; Chromium also checks
+  256x224 geometry, 229376 actual Wasm RGBA bytes and canvas ImageData at the
+  same coordinates on rows 0/24/223. Hosts only load, advance and observe.
+- Reproduce without an assembler:
+  `cargo run --locked -p snes-core --example mode7-scroll-fixture -- .cache/mode7-scroll`.
+  Run `cargo test --locked -p snes-core --test ppu_mode7_scroll` and, after the
+  normal web build,
+  `SNES_TEST_PORT=18085 npm --prefix web test -- --grep 'Mode 7 scroll:'`.
+  Generated `mode7-scroll.sfc` SHA-256:
+  `31f5383fb1b81201dab672e769a52f5450117d5c84cfc4e65755e3ce57c67610`.
+- [Issue #59 validation](../../docs/issue-59-validation.md) records the reference
+  contract, exact-baseline failures, independently authored pixel vectors,
+  actual gates and remaining uncertainty. Mode 7 remains partial; bounded
+  identity checks establish neither full hardware accuracy nor commercial
+  compatibility and do not complete Issue #3.
