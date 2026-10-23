@@ -10,7 +10,6 @@ const BLUE: [u8; 4] = [0, 0, 255, 255];
 const WHITE: [u8; 4] = [255; 4];
 const BLACK: [u8; 4] = [0, 0, 0, 255];
 const CYAN: [u8; 4] = [0, 255, 255, 255];
-const MAGENTA: [u8; 4] = [255, 0, 255, 255];
 fn word(p: &mut Ppu, a: usize, n: u16) {
     p.vram[a..a + 2].copy_from_slice(&n.to_le_bytes());
 }
@@ -60,7 +59,7 @@ fn scene() -> Ppu {
     ] {
         palette(&mut p, i, c);
     }
-    p.write(0x32, 0xbf); // Fixed magenta; main backdrop cyan.
+    p.write(0x32, 0xbf); // Fixed magenta; both displayed backdrops are cyan.
     character(&mut p, 0x2000, 0, 4, |x, _| [1, 2, 0, 3, 1, 2, 1, 2][x]);
     character(&mut p, 0x4000, 0, 4, |x, _| [1, 2, 0, 3, 2, 1, 2, 1][x]);
     for i in 0..1024 {
@@ -87,7 +86,7 @@ fn pseudo_width_and_literal_phases() {
     for (x, sub, main) in [
         (0, BLUE, RED),
         (1, WHITE, GREEN),
-        (2, MAGENTA, CYAN),
+        (2, CYAN, CYAN),
         (3, BLACK, BLACK),
         (254, WHITE, RED),
         (255, BLUE, GREEN),
@@ -146,15 +145,15 @@ fn independent_enables_backdrops_transparency_and_opaque_black() {
                     &p,
                     0,
                     0,
-                    if ts == 0 { MAGENTA } else { BLUE },
+                    if ts == 0 { CYAN } else { BLUE },
                     if tm == 0 { CYAN } else { RED },
                 );
-                pair(&p, 2, 0, MAGENTA, CYAN);
+                pair(&p, 2, 0, CYAN, CYAN);
                 pair(
                     &p,
                     3,
                     0,
-                    if ts == 0 { MAGENTA } else { BLACK },
+                    if ts == 0 { CYAN } else { BLACK },
                     if tm == 0 { CYAN } else { BLACK },
                 );
             }
@@ -185,7 +184,7 @@ fn layer_windows_use_full_dots_and_independent_masks() {
                     &p,
                     x,
                     0,
-                    if inside && tsw != 0 { MAGENTA } else { sub },
+                    if inside && tsw != 0 { CYAN } else { sub },
                     if inside && tmw != 0 { CYAN } else { main },
                 );
             }
@@ -348,7 +347,7 @@ fn identity_mode7_keeps_full_dot_transform_coordinates() {
         for (x, c) in [(0, RED), (1, GREEN), (3, BLACK), (254, GREEN), (255, RED)] {
             pair(&p, x, y, c, c);
         }
-        pair(&p, 2, y, MAGENTA, CYAN);
+        pair(&p, 2, y, CYAN, CYAN);
     }
 }
 #[test]
@@ -383,7 +382,11 @@ fn brightness_forced_blank_and_packed_frame_transitions() {
     pair(&p, 255, 2, GREEN, GREEN);
     p.write(0, 0x80);
     p.render_line(223);
-    assert!(p.frame[223 * 512 * 4..].chunks_exact(4).all(|c| c == BLACK));
+    assert!(p.frame[223 * 512 * 4..]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|c| *c == BLACK));
     p.render_line(0);
     assert_eq!((p.framebuffer_width(), p.frame.len()), (256, 256 * 224 * 4));
     for mode in [1, 5, 6] {
@@ -395,7 +398,7 @@ fn brightness_forced_blank_and_packed_frame_transitions() {
             }
             let w = if mode == 1 && bits == 0 { 256 } else { 512 };
             assert_eq!((p.framebuffer_width(), p.frame.len()), (w, w * 224 * 4));
-            assert!(p.frame.chunks_exact(4).all(|c| c == BLACK));
+            assert!(p.frame.as_chunks::<4>().0.iter().all(|c| *c == BLACK));
         }
     }
 }

@@ -397,7 +397,7 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   each full dot supplies even-sub / odd-main phases without changing BG tile,
   scroll, offset or Mode 7 coordinates. Tested support is non-interlaced,
   non-mosaic, EXTBG disabled, CGADSUB=$00 and CGWSEL=$00 (or $02), with
-  independent TM/TS, TMW/TSW layer windows, CGRAM[0]/COLDATA backdrops,
+  independent TM/TS, TMW/TSW layer windows, CGRAM[0] for both displayed backdrops,
   brightness and forced blank. The same packed-frame promotion policy applies.
   The [pseudo-hires validation](docs/issue-53-validation.md) records literal
   pixels, CPU-executed guests, baseline counterexamples and Wasm/canvas checks.

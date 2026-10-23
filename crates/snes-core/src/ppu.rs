@@ -705,8 +705,8 @@ impl Ppu {
                 layer: 5,
                 math: true,
             };
-            // Transparent subscreen pixels use COLDATA, retaining the backdrop
-            // layer marker so the color-math result is not halved there.
+            // Keep COLDATA as the subscreen math backdrop, retaining the layer
+            // marker so the color-math result is not halved there.
             let mut screens = [
                 back,
                 Pixel {
@@ -743,7 +743,12 @@ impl Ppu {
                 }
             }
             let visible_sub = wide_output && output_x & 1 == 0;
-            let main = screens[usize::from(visible_sub)];
+            let mut main = screens[usize::from(visible_sub)];
+            // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
+            // in true/pseudo hires. Leave the math operand in screens intact.
+            if visible_sub && main.layer == 5 {
+                main.color = back.color;
+            }
             let in_window = self.window(5, x);
             let clip = match self.regs[0x30] >> 6 {
                 0 => false,

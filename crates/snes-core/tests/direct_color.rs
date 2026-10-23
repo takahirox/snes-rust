@@ -201,7 +201,8 @@ fn direct_color_preserves_other_color_sources_and_priority() {
             let hires = matches!(mode, 5 | 6);
             assert_pixel(&mut p, usize::from(hires), [0, 0, 255, 255]);
             if hires {
-                assert_pixel(&mut p, 0, [0, 0, 0, 255]); // TS disabled, COLDATA=0.
+                // Fullsnes Hires Notes: disabled TS displays CGRAM[0], not COLDATA.
+                assert_pixel(&mut p, 0, [0, 255, 0, 255]);
             }
         }
     }

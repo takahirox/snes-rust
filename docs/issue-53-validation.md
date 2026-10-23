@@ -14,11 +14,12 @@ the [Issue #49 record](issue-49-validation.md#specification-contract-recorded-be
   distinct character phases; BG scroll registers still count full dots.
 - [Fullsnes](https://problemkaputt.de/fullsnes.htm), no$sns v1.5 extraction,
   SHA-256 `3853b65a7331bf12eea431ff494a2948a1c78ef22f7e819db4b139fd5a79f6c6`.
-  Sections SETINI, CGRAM, TM/TS, TMW/TSW, Color Math and INIDISP. SETINI
+  Sections SETINI, CGRAM, TM/TS, TMW/TSW, Hires Notes, Color Math and INIDISP. SETINI
   shifts the subscreen half a dot left. TM/TS independently enable BG/OBJ;
   TMW/TSW independently suppress layers inside their windows. CGRAM index
-  zero is the main backdrop; COLDATA is the sub backdrop when no opaque
-  layer is selected. A zero BG pixel color index is transparent, while a nonzero
+  zero is the main backdrop. Hires Notes overrides the general CGRAM description:
+  both displayed backdrops use CGRAM[0] in true and pseudo horizontal hires,
+  rather than COLDATA. A zero BG pixel color index is transparent, while a nonzero
   index whose palette entry is black is opaque.
 
 Derived in-scope rule: for low-resolution BGMODE, dot x supplies both output
@@ -29,8 +30,12 @@ OR SETINI bit 3 gives 512 samples, never 1024. No other SETINI bit enables
 horizontal expansion. Identity Mode 7 retains the existing row-origin convention.
 
 The tested domain is non-interlaced, non-mosaic, CGADSUB=$00, CGWSEL=$00
-(also $02 as a selection control), with EXTBG disabled. No in-scope predecessor
-rule was disproved. Fullsnes and Anomie still disagree about hires math;
+(also $02 as a selection control), with EXTBG disabled. Review correction:
+the Issue #49 displayed-sub-backdrop rule was disproved by Fullsnes Hires Notes.
+The source was retrieved again on 2026-10-24 with the same SHA-256 above before
+correcting the pixel expectations. COLDATA remains the fixed-color math operand;
+the visible backdrop override does not change math operand selection.
+Fullsnes and Anomie still disagree about hires math;
 Anomie additionally describes previous-main-dependent sub math and clipping,
 including an unknown left-edge case. The existing renderer's math gate and
 clipping are not evidence resolving that dispute. Math-enabled pseudo-hires
@@ -59,10 +64,10 @@ register description; it does not override TM/TS selection of visible phases.
 
 | Test | Independent evidence |
 | --- | --- |
-| `pseudo_width_and_literal_phases` | Exact 512x224/458752 RGBA geometry; adjacent blue/red, white/green, transparent magenta/cyan and opaque black/black pairs; both edges |
+| `pseudo_width_and_literal_phases` | Exact 512x224/458752 RGBA geometry; adjacent blue/red, white/green, transparent cyan/cyan and opaque black/black pairs; both edges |
 | `isolated_low_resolution_control` | SETINI clear gives 256x224/229376 bytes and literal main-only colors |
 | `setini_preserves_ordinary_hires_character_phases` | Both Modes 5/6, bit 3 clear/set/clear, distinct phases and both character halves, cell boundaries and right edge |
-| `independent_enables_backdrops_transparency_and_opaque_black` | All four TM/TS combinations, distinct CGRAM[0]/COLDATA backdrops, zero versus opaque black; CGWSEL=$00/$02 |
+| `independent_enables_backdrops_transparency_and_opaque_black` | All four TM/TS combinations, cyan CGRAM[0] versus unused magenta COLDATA, zero versus opaque black; CGWSEL=$00/$02 |
 | `layer_windows_use_full_dots_and_independent_masks` | All four TMW/TSW combinations at full-dot window boundaries 6/7/8/9, both phases and image edges |
 | `bg_and_obj_priority_and_screen_routing` | BG1 low versus BG2 low/high; high/low-priority OBJ at dot 5, independent main/sub routing and adjacent no-OBJ control |
 | `planar_scroll_tile_page_boundaries_and_both_edges` | Modes 0/1/3/4, 8/16-dot cells, ten scroll displacements, adjacent dots/tile edges and both image edges, including final row |
@@ -123,6 +128,11 @@ passed. Representative baseline failures:
 | Original enabled CPU guest | 256x224, 229376 bytes | 512x224, 458752 bytes |
 | Runner enabled fixture | P6 `256 224` | P6 `512 224` |
 
+These observations record the original comparison. The both-screens-disabled
+row used the incorrect COLDATA oracle, superseded by the review correction:
+cyan/cyan is required, so that individual assertion is not a counterexample.
+The independent width and opaque phase counterexamples remain valid.
+
 Reproduce (the final command is expected to fail on baseline):
 
 ```sh
@@ -134,15 +144,19 @@ cargo test --manifest-path .cache/issue-53/baseline/Cargo.toml --locked -p snes-
 
 The first new-test run passed all eleven tests then present. Adding the explicit
 ordinary-hires SETINI phase control produced twelve passing focused tests and
-the two passing baseline controls above. No expectations were adjusted to fit
-either implementation, and no existing test file was modified.
+the two passing baseline controls above. That initial implementation did not
+modify existing tests. Review subsequently corrected source-disproved backdrop
+expectations in both the new vectors and predecessor tests, as recorded below.
 
 ## Mandatory validation (2026-10-24)
 
 Executed in this macOS worktree with Homebrew Rust 1.94.0. Wasm uses the rustup
 compiler owning its installed target. The auxiliary SPC assembler uses
-installed Rust 1.99.0 with the script's existing bootstrap flag. An additional
-warning-denying Clippy run with CI's Rust 1.99.0 also passed.
+installed Rust 1.99.0 with the script's existing bootstrap flag. The initial
+claim of an additional Clippy 1.99 pass was incorrect: the `rustup run 1.99.0
+cargo clippy` invocation below selected Homebrew Clippy 1.94. Review reproduced
+two `chunks_exact_to_as_chunks` errors with the actual Clippy 1.99 binary.
+See the corrected invocation and results under [Review fixes](#review-fixes).
 
 ```sh
 cargo fmt --all -- --check
@@ -186,12 +200,61 @@ SNES_TEST_PORT=18085 npm --prefix web test -- --grep-invert '301 seconds'
   the new SETINI guest, both ordinary-hires canvas checks, Castle/Memory
   five-minute emulated replays, Castle route/credits, music/effects, Web Audio
   drift/queue checks, the freeze negative control, persistence failure/recovery
-  and Pages subpath loading. No mandatory check failed or was skipped.
+  and Pages subpath loading. These were the initial local results; the mandatory
+  Clippy 1.99 gate failed in CI and review as described above.
 
 Raw logs remain under `.cache/issue-53/`; hardware evidence is in
 `.cache/hardware-tests/results.json` and `.cache/ppu-test/results.json`, and
 browser artifacts are under `web/test-results`. The expected baseline failure
-is recorded separately above. No unexpected implementation-test failures occurred.
+is recorded separately above. Subsequent review and fix results follow.
+
+## Review fixes
+
+Both agent-fixable findings are addressed for Issue #53:
+
+- Displayed empty/transparent/window-masked sub pixels now use CGRAM[0] in
+  Mode 5/6 and SETINI pseudo-hires, following the hash-matched Fullsnes Hires
+  Notes. COLDATA remains separate for fixed-color/sub-backdrop math, including
+  its existing halving rules. Ordinary-hires, pseudo-hires (including Mode 7
+  and layer windows), and the direct-color disabled-TS control now use the
+  corrected literal backdrop vectors. The first workspace run after the
+  renderer fix exposed that stale direct-color expectation (green observed,
+  black expected); it was corrected with the same specification attribution.
+- The two forced-blank checks now use `as_chunks::<4>().0.iter()`, resolving
+  Clippy 1.99's `chunks_exact_to_as_chunks` errors without changing assertions.
+  `rustup run 1.99.0 cargo clippy --version` reproduces `clippy 0.1.94` here;
+  selecting the toolchain bin directory explicitly reports
+  `clippy 0.1.99 (b940084d7e 2026-09-28)`.
+
+Correct Clippy invocation for this macOS installation:
+
+```sh
+PATH="$(dirname "$(rustup which --toolchain 1.99.0 cargo-clippy)"):$PATH" \
+  cargo clippy --workspace --all-targets --locked -- -D warnings
+```
+
+Revision validation (2026-10-24), using the commands above with the corrected
+Clippy invocation:
+
+- Formatting and both local Clippy 1.94 and actual Clippy 1.99 passed with
+  warnings denied. All **276 workspace tests** and **52 focused tests** passed,
+  including the corrected backdrop vectors and the existing fixed-color math
+  and halving controls in `regression.rs`.
+- Smoke regeneration matched byte-for-byte with the same SHA-256. Pinned
+  assembler builds passed, retaining the existing auxiliary SPC
+  `rust-objcopy`/`libLLVM.dylib` warning. CPU suites passed at last tests $0649
+  and $0452, PC $0081A2; SPC passed at $0557, PC $008060. HDMA passed all eleven
+  grayscale bands through row 223.
+- Both cleared-game rebuilds passed with the same Castle and Memory hashes.
+  npm installation/audit, release Wasm build and Chromium installation passed.
+- The full required browser filter passed **21 tests in 2.8 minutes**, including
+  SETINI and Mode 5/6 actual Wasm/canvas transitions, cleared-game replays,
+  route/credits, audio checks and negative controls. No mandatory revision
+  check was skipped or remains failing; optional external-game tests remain
+  excluded by the required `--grep-invert '301 seconds'` filter.
+
+Logs are under `.cache/issue-53-fixes/`. Hires math and clipping remain unresolved;
+no source fixture, game hash, replay input, duration or negative control is changed.
 
 ## Remaining uncertainty and inventory
 
