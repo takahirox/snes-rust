@@ -708,3 +708,36 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   and generated code/graphics/data may be redistributed under MIT. The exact
   supported register domain, fixture hashes and unresolved interactions are
   recorded in [Issue #53 validation](../../docs/issue-53-validation.md).
+
+## Original rectangular OBJ guests and graphics: approved
+
+- Sources: `crates/snes-core/tests/common/obj_sizes.rs`,
+  `crates/snes-core/tests/ppu_obj_sizes.rs`,
+  `crates/snes-core/examples/obj-sizes-fixture.rs` and
+  `web/tests/obj-sizes.spec.js`. Copyright 2026 snes-rust contributors;
+  repository [MIT](../../LICENSE). All encoded 65C816 instructions, planar
+  graphics, coordinate images, palettes, literal expectations and LoROM
+  headers/vectors are original MIT code/data. No external ROM, firmware,
+  font, graphics or assembler is incorporated or acquired for these fixtures.
+- The builder emits two 32 KiB cartridges for OBSEL selectors 6/7. Executed
+  CPU instructions initialize relevant registers, VRAM, CGRAM and both OAM
+  tables under forced blank, publish `$30=$55`, `$31=selector`, and enable
+  OBJ display. Each shows small/large and small/large V-flipped objects,
+  below evaluation limits. Hosts supply only the cartridges, advance execution
+  and observe completion/pixels; they do not patch CPU/PPU/memory state.
+- Core execution is bounded by five frames and 300,000 instructions; STP
+  fails. Browser tests have a 30-second timeout and five-second pixel-poll
+  deadline. Literal vectors check lower rectangular halves, square-half flip
+  boundaries, final rows and adjacent backdrop in both actual Wasm framebuffer
+  bytes and canvas ImageData. Independent image crops additionally cover all
+  sizes/flips, partial horizontal clipping, Y wrap, character-nibble wrapping,
+  both name tables and wrapping OBSEL addresses.
+- Reproduce: `cargo run --locked -p snes-core --example obj-sizes-fixture -- .cache/obj-sizes`.
+  Generated `.sfc` files stay ignored; source and generated code/data may be
+  redistributed under MIT. Output SHA-256:
+  - `obj-sizes-6.sfc`: `7e199c553feb40a0b8d31219678fc47e18a0f95836c872b754b21854d642a846`
+  - `obj-sizes-7.sfc`: `ea0975ba98501585e928a96e1a42288bd891b44d53fd9d2c74cfe2d6a39b11e6`
+- Exact browser reproduction, baseline failures, specification derivations,
+  toolchain selection, gate results and retained 24-category inventory are in
+  [Issue #55 validation](../../docs/issue-55-validation.md). These bounded checks
+  establish neither complete OBJ/hardware accuracy nor commercial compatibility.

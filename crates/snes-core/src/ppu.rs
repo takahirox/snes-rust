@@ -578,14 +578,14 @@ impl Ppu {
     fn objects(&self, y: usize) -> [Option<Pixel>; 256] {
         let mut pixels = [None; 256];
         let sizes = [
-            (8, 16),
-            (8, 32),
-            (8, 64),
-            (16, 32),
-            (16, 64),
-            (32, 64),
-            (16, 32),
-            (16, 32),
+            ((8, 8), (16, 16)),
+            ((8, 8), (32, 32)),
+            ((8, 8), (64, 64)),
+            ((16, 16), (32, 32)),
+            ((16, 16), (64, 64)),
+            ((32, 32), (64, 64)),
+            ((16, 32), (32, 64)),
+            ((16, 32), (32, 32)),
         ];
         let (small, large) = sizes[(self.regs[1] >> 5) as usize];
         let base = (self.regs[1] as usize & 7) * 16384;
@@ -600,10 +600,10 @@ impl Ppu {
         for n in 0..128 {
             let i = (n + start) & 127;
             let hi = (self.oam[512 + i / 4] >> ((i & 3) * 2)) & 3;
-            let size = if hi & 2 != 0 { large } else { small };
+            let (width, height) = if hi & 2 != 0 { large } else { small };
             let sy = self.oam[i * 4 + 1] as usize;
             let row = (y + 256 - sy) & 255;
-            if row >= size {
+            if row >= height {
                 continue;
             }
             count += 1;
@@ -613,8 +613,14 @@ impl Ppu {
             let sx = self.oam[i * 4] as i32 - if hi & 1 != 0 { 256 } else { 0 };
             let attr = self.oam[i * 4 + 3];
             let name = self.oam[i * 4 + 2] as usize;
-            let row = if attr & 128 != 0 { size - 1 - row } else { row };
-            for col in 0..size {
+            // Rectangles flip within each stacked square, preserving half order.
+            // For squares this is the usual full-height reversal.
+            let row = if attr & 128 != 0 {
+                row ^ (width - 1)
+            } else {
+                row
+            };
+            for col in 0..width {
                 let screen = sx + col as i32;
                 if !(0..256).contains(&screen) {
                     continue;
@@ -625,7 +631,7 @@ impl Ppu {
                         break;
                     }
                 }
-                let tx = if attr & 64 != 0 { size - 1 - col } else { col };
+                let tx = if attr & 64 != 0 { width - 1 - col } else { col };
                 let tile =
                     (name & 0xf0).wrapping_add((row / 8) * 16) & 255 | ((name + tx / 8) & 15);
                 let color = self.tile_pixel(

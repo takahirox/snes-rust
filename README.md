@@ -93,9 +93,11 @@ cargo test -p snes-core --test ppu_offset --locked
 cargo test --locked -p snes-core --test ppu_hires
 cargo test --locked -p snes-core --test ppu_mode6_offset
 cargo test --locked -p snes-core --test ppu_pseudo_hires
+cargo test --locked -p snes-core --test ppu_obj_sizes
 # Original CPU-built browser/runner fixtures (also built by browser tests).
 cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
 cargo run --locked -p snes-core --example pseudo-hires-fixture -- .cache/pseudo-hires
+cargo run --locked -p snes-core --example obj-sizes-fixture -- .cache/obj-sizes
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -401,6 +403,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   brightness and forced blank. The same packed-frame promotion policy applies.
   The [pseudo-hires validation](docs/issue-53-validation.md) records literal
   pixels, CPU-executed guests, baseline counterexamples and Wasm/canvas checks.
+  Static non-interlaced OBJs use independent width/height for all eight OBSEL
+  selectors, including 16x32 and 32x64 rectangles. Vertical flips reverse rows
+  within each stacked square half; character increments retain independent
+  nibble wrapping and name-table selection. The
+  [OBJ size validation](docs/issue-55-validation.md) records source sections,
+  coordinate derivations, independent pixel crops, exact-baseline failures,
+  original CPU-built cartridges and actual Wasm/canvas checks. `ppu-objects`
+  remains partial: exact overflow/evaluation limits, rotation, X=-256, interlace,
+  hires interactions and fetch timing remain outside this bounded coverage.
   Rendering snapshots registers per scanline. Math-enabled pseudo-hires,
   color-window clipping/prevention interactions, ordinary-hires composition,
   hires mosaic/color-math/window/OBJ accuracy,
