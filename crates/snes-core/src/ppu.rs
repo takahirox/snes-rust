@@ -389,11 +389,14 @@ impl Ppu {
     // Read the raw screen word: BG3 offset descriptors must not be interpreted
     // as character numbers, palettes, priorities or flips.
     fn bg_map_entry(&self, bg: usize, x: usize, y: usize) -> u16 {
+        self.bg_map_word(bg, x, y, self.bg_tile_width(bg))
+    }
+    fn bg_map_word(&self, bg: usize, x: usize, y: usize, column_width: usize) -> u16 {
         let size = self.bg_tile_size(bg);
         let sc = self.regs[7 + bg];
         let width = if sc & 1 != 0 { 64 } else { 32 };
         let height = if sc & 2 != 0 { 64 } else { 32 };
-        let tx = (x & 1023) / self.bg_tile_width(bg) % width;
+        let tx = (x & 1023) / column_width % width;
         let ty = (y & 1023) / size % height;
         let page = usize::from(tx >= 32) + usize::from(ty >= 32) * if width == 64 { 2 } else { 1 };
         let address = ((sc as usize & 0xfc) << 9) + page * 2048 + ((ty & 31) * 32 + (tx & 31)) * 2;
@@ -406,13 +409,18 @@ impl Ppu {
         let mut sx = (x + hofs * if self.hires() { 2 } else { 1 }) & 1023;
         let mut sy = (y + 1 + self.scroll[bg][1] as usize) & 1023;
         let mode = self.regs[5] & 7;
-        let q = x + (hofs & 7);
-        if bg < 2 && matches!(mode, 2 | 4) && q >= 8 {
+        // Offset columns count full dots, including in Mode 6. Its BG3
+        // columns are always eight dots; the BG3 size bit affects only height.
+        // See docs/issue-51-validation.md for the unit/boundary derivation.
+        let scale = if mode == 6 { 2 } else { 1 };
+        let q = x / scale + (hofs & 7);
+        if bg < 2 && matches!(mode, 2 | 4 | 6) && q >= 8 {
             // Offset columns are always eight pixels, independent of BGn's
-            // character size. BG3's own size still controls its map lookup.
+            // character size. In Modes 2/4, BG3's size also controls width.
             let table_x = q - 8 + (self.scroll[2][0] as usize & !7);
             let table_y = self.scroll[2][1] as usize;
-            let h = self.bg_map_entry(2, table_x, table_y);
+            let column_width = if mode == 6 { 8 } else { self.bg_tile_size(2) };
+            let h = self.bg_map_word(2, table_x, table_y, column_width);
             let enable = 0x2000 << bg;
             if mode == 4 {
                 if h & enable != 0 {
@@ -423,9 +431,9 @@ impl Ppu {
                     }
                 }
             } else {
-                let v = self.bg_map_entry(2, table_x, table_y + 8);
+                let v = self.bg_map_word(2, table_x, table_y + 8, column_width);
                 if h & enable != 0 {
-                    sx = (q + (h as usize & 0x3f8)) & 1023;
+                    sx = (x + scale * ((hofs & 7) + (h as usize & 0x3f8))) & 1023;
                 }
                 if v & enable != 0 {
                     sy = (y + 1 + (v as usize & 0x3ff)) & 1023;

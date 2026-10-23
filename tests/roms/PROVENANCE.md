@@ -657,3 +657,25 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   under MIT. Bounded passing checks establish the scope described in
   [Issue #49 validation](../../docs/issue-49-validation.md). Existing fixture/game
   pins, licenses, notices, hashes, replays and gameplay/audio expectations remain.
+
+## Original Mode 6 offset guests and graphics: approved
+
+- Source: `crates/snes-core/tests/ppu_mode6_offset.rs`, authored for Issue #51.
+  Copyright 2026 snes-rust contributors; repository [MIT](../../LICENSE).
+- All coordinate images, planar characters, palettes, map/descriptor words,
+  literal vectors, encoded 65C816 instructions and LoROM headers/vectors are
+  original source/data. No external assembler, emulator implementation, game
+  asset, ROM, firmware or reference binary is incorporated or downloaded.
+- `guest_rom` reproducibly constructs eight 32 KiB cartridges in memory:
+  neither/H/V/both axes enabled, each with ordinary H scroll 0 or 3. SEI/CLD
+  and LDA/STA initialize registers, VRAM and CGRAM through CPU writes under
+  forced blank, publish completion `$30=$51`, enable display and loop. The
+  host supplies only the cartridge and observes completion, 512x224 geometry,
+  literal RGBA pixels in both phases and deadlines (three frames, at most
+  150,000 instructions). No host PPU, memory, CPU or raster patches occur.
+- Reproduce with `cargo test --locked -p snes-core --test ppu_mode6_offset`.
+  No generated ROM binary is committed. Original source/generated code and
+  data may be redistributed under MIT. The source-derived static addressing
+  rules and remaining uncertainty are in
+  [Issue #51 validation](../../docs/issue-51-validation.md); these checks do
+  not establish physical fetch/raster behavior or full hardware accuracy.
