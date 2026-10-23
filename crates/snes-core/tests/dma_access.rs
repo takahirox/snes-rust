@@ -1,4 +1,4 @@
-//! Original MIT 65C816 guests for Issues #21/#23/#25/#27; no external code/data/firmware.
+//! Original MIT 65C816 guests for Issues #21/#23/#25/#27/#29; no external code/data/firmware.
 //! Copyright (c) 2026 snes-rust contributors.
 use snes_core::Machine;
 
@@ -432,4 +432,88 @@ fn guest_wram_address_conflicts_and_legal_cpu_rom_controls() {
         }
     }
     panic!("WRAM address guest instruction deadline");
+}
+
+#[test]
+fn guest_reverse_wmdata_conflict_pointer_and_legal_controls() {
+    let mut code = vec![0x78];
+    write(&mut code, 0x2100, 0x80);
+    write(&mut code, 0x4200, 0);
+    for (case, (bank, pointer)) in [(0x7e, 0x11000_u32), (0x7f, 0x1ffff), (0x00, 0x02345)]
+        .into_iter()
+        .enumerate()
+    {
+        for (address, value) in [
+            (0x7e0100, 0x5a),
+            (0x7f0100, 0x5a),
+            (0x7e0000 + pointer, 0xa6),
+            (0x7e0000 + ((pointer + 1) & 0x1ffff), 0x37),
+        ] {
+            code.extend([
+                0xa9,
+                value,
+                0x8f,
+                address as u8,
+                (address >> 8) as u8,
+                (address >> 16) as u8,
+            ]);
+        }
+        for (address, value) in [
+            (0x2181, pointer as u8),
+            (0x2182, (pointer >> 8) as u8),
+            (0x2183, (pointer >> 16) as u8),
+            (0x4300, 0x80),
+            (0x4301, 0x80),
+            (0x4302, 0),
+            (0x4303, 1),
+            (0x4304, bank),
+            (0x4305, 1),
+            (0x4306, 0),
+            (0x420b, 1),
+        ] {
+            write(&mut code, address, value);
+        }
+        let result = 0x1800 + case as u16 * 7;
+        for (address, dest) in (0x4302..=0x4306).zip(result..result + 5) {
+            save(&mut code, address, dest);
+        }
+        // Observe preserved pointer, not the unspecified conflict destination byte.
+        save(&mut code, 0x2180, result + 5);
+        save(&mut code, 0x2180, result + 6);
+    }
+    // Reverse WMDATA -> ROM must still consume a legal port read. CPU read then
+    // sees the next byte; an ordinary readable B port can still write to WRAM.
+    for (address, value) in [(0x2181, 0), (0x2182, 0x10), (0x2183, 1)] {
+        write(&mut code, address, value);
+    }
+    transfer(&mut code, 0x80, 0x80, 0xf000, 1);
+    save(&mut code, 0x2180, 0x1820);
+    for (address, value) in [(0x2121, 0), (0x2122, 0x35), (0x2122, 0x12), (0x2121, 0)] {
+        write(&mut code, address, value);
+    }
+    transfer(&mut code, 0x80, 0x3b, 0x0200, 2);
+    save(&mut code, 0x0200, 0x1821);
+    save(&mut code, 0x0201, 0x1822);
+    write(&mut code, 0x18f0, 0xa5);
+    code.push(0xdb);
+    let mut rom = cartridge(&code);
+    rom[0x7000] = 0x6b;
+    let mut m = Machine::new(&rom).unwrap();
+    for _ in 0..10_000 {
+        m.step();
+        assert!(m.bus.frames < 2, "reverse WMDATA guest frame deadline");
+        if m.cpu.stopped {
+            assert_eq!(m.bus.peek(0x18f0), 0xa5);
+            for (case, bank) in [0x7e, 0x7f, 0].into_iter().enumerate() {
+                let start = 0x1800 + case as u32 * 7;
+                let results: Vec<_> = (start..start + 7).map(|a| m.bus.peek(a)).collect();
+                assert_eq!(results, [1, 1, bank, 0, 0, 0xa6, 0x37], "case {case}");
+            }
+            let controls: Vec<_> = (0x1820..=0x1822).map(|a| m.bus.peek(a)).collect();
+            assert_eq!(controls, [0x37, 0x35, 0x12]);
+            assert_eq!(m.bus.peek(0xf000), 0x6b);
+            return;
+        }
+    }
+    panic!("reverse WMDATA guest instruction deadline");
 }
