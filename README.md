@@ -91,6 +91,7 @@ cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
 cargo test --locked -p snes-core --test ppu_hires
+cargo test --locked -p snes-core --test ppu_mode6_offset
 # Original CPU-built browser/runner fixtures (also built by browser tests).
 cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
 python3 tools/make-fixture.py .cache/smoke.bin
@@ -386,8 +387,12 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   physical switching/fetch timing. The [hires validation](docs/issue-49-validation.md)
   records specifications, equations, original CPU guests and transition checks.
   `ppu-hires` is partial; `ppu-raster` remains unimplemented.
-  Rendering snapshots registers per scanline. Mode 6 offset-per-tile,
-  pseudo-hires through SETINI, hires mosaic/color-math/window/OBJ accuracy,
+  Non-mosaic Mode 6 BG1 also supports independent H/V offsets from raw BG3
+  descriptors, with full-dot columns and retained fine scroll. Its
+  [offset validation](docs/issue-51-validation.md) records source-derived units,
+  numerical boundaries, original CPU guests, baseline failures and gate results.
+  Rendering snapshots registers per scanline. Pseudo-hires through SETINI,
+  hires mosaic/color-math/window/OBJ accuracy,
   mosaic/offset interactions, timed mosaic state, mid-scanline raster effects,
   interlace/overscan/PAL, exact object overflow/rotation and Mode 7 EXTBG/transform
   edge behavior are outside the tested targets. `ppu-color` remains partial:
