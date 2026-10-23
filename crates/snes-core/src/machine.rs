@@ -431,9 +431,15 @@ impl SystemBus {
     fn transfer(&mut self, channel: usize, a: u32, offset: u8) {
         let d = self.dma[channel];
         let b = 0x2100 | d[1].wrapping_add(offset) as u32;
+        let wram = matches!(a >> 16, 0x7e | 0x7f) || (a & 0x400000 == 0 && a & 0xffff < 0x2000);
         self.bus_tick(4);
         let v = if d[0] & 128 == 0 {
             self.dma_read_a(a)
+        } else if b == 0x2180 && wram {
+            // Reverse conflicts still write A, but cannot read/increment WMDATA.
+            // Retaining the previous bus byte is a deterministic approximation,
+            // not a verified electrical value. See docs/issue-29-validation.md.
+            self.open
         } else {
             self.read_raw(b)
         };
@@ -442,8 +448,7 @@ impl SystemBus {
             // WRAM cannot drive A and the WRAM B ports simultaneously.
             // Suppress data/address writes (including WMDATA's increment), but retain
             // this byte's timing and the caller's DMA/HDMA progression.
-            // See docs/issue-27-validation.md; reverse conflicts are unresolved.
-            let wram = matches!(a >> 16, 0x7e | 0x7f) || (a & 0x400000 == 0 && a & 0xffff < 0x2000);
+            // See docs/issue-27-validation.md for the forward contract.
             if !(0x2180..=0x2183).contains(&b) || !wram {
                 self.write_raw(b, v);
             }

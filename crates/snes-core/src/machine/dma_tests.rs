@@ -1,4 +1,4 @@
-//! Original MIT DMA/HDMA address and side-effect vectors for Issues #21/#23/#25/#27.
+//! Original MIT DMA/HDMA address and side-effect vectors for Issues #21/#23/#25/#27/#29.
 use super::*;
 
 fn bus() -> SystemBus {
@@ -1340,5 +1340,386 @@ fn hdma_wram_address_complete_tables_and_payload_bank_controls() {
                 assert_eq!(b.clocks, clocks);
             }
         }
+    }
+}
+
+// Issue #29: hardware-derived side effects. No conflict byte is asserted here.
+#[test]
+fn dma_reverse_wmdata_conflict_reproduction() {
+    let mut b = bus();
+    b.wram[0x100] = 0x5a;
+    b.wram[0x11000] = 0xa6;
+    b.waddr = 0x11000;
+    general(&mut b, 0x80, 0x80, 0x7e0100, 1);
+    // Preserve baseline observations separately from the pointer contract.
+    eprintln!(
+        "reverse reproduction: destination={:02x}, pointer={:05x}",
+        b.wram[0x100], b.waddr
+    );
+    assert_eq!(b.waddr, 0x11000);
+    assert_eq!(b.wram[0x11000], 0xa6);
+    assert_eq!(b.dma[0][2..7], [1, 1, 0x7e, 0, 0]);
+    assert_eq!((b.dma_pending, b.clocks), (0, 24));
+}
+
+#[test]
+fn dma_reverse_wmdata_full_banks_and_mirror_boundaries() {
+    for a in [
+        0x7e0000, 0x7e1fff, 0x7e2000, 0x7effff, 0x7f0000, 0x7f1fff, 0x7f2000, 0x7fffff, 0x000000,
+        0x001fff, 0x3f0000, 0x3f1fff, 0x800000, 0x801fff, 0xbf0000, 0xbf1fff,
+    ] {
+        for pointer in [0x02345, 0x12345, 0x1ffff] {
+            let mut b = bus();
+            b.waddr = pointer;
+            b.wram[pointer] = 0xa6;
+            general(&mut b, 0x88, 0x80, a, 3);
+            assert_eq!(b.waddr, pointer, "{a:06x}");
+            // A writes may alias the WMDATA-addressed byte itself.
+            if !(a == 0x7fffff && pointer == 0x1ffff) {
+                assert_eq!(b.wram[pointer], 0xa6);
+            }
+            assert_eq!(u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]), a as u16);
+            assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+            assert_eq!((b.dma_pending, b.clocks), (0, 40));
+        }
+    }
+}
+
+#[test]
+fn dma_reverse_wmdata_progression_and_non_wram_controls() {
+    // Independently count only non-WRAM A destinations as real WMDATA reads.
+    for (mode, a, end, reads) in [
+        (0x80, 0x001ffe, 0x2002, 2),
+        (0x90, 0x3f2001, 0x1ffd, 2),
+        (0x80, 0x80fffe, 2, 2),
+        (0x90, 0xbf0001, 0xfffd, 2),
+        (0x80, 0x7efffe, 2, 0),
+        (0x90, 0x7f0001, 0xfffd, 0),
+        (0x88, 0x7e0100, 0x0100, 0),
+    ] {
+        let mut b = bus();
+        b.waddr = 0x11000;
+        b.wram[0x11000..0x11005].copy_from_slice(&[0xa6, 0x37, 0xc9, 0xd8, 0xe5]);
+        general(&mut b, mode, 0x80, a, 4);
+        assert_eq!(b.waddr, 0x11000 + reads, "{a:06x}");
+        assert_eq!(&b.wram[0x11000..0x11005], &[0xa6, 0x37, 0xc9, 0xd8, 0xe5]);
+        assert_eq!(u16::from_le_bytes([b.dma[0][2], b.dma[0][3]]), end);
+        assert_eq!(b.dma[0][4..7], [(a >> 16) as u8, 0, 0]);
+        assert_eq!((b.dma_pending, b.clocks), (0, 48));
+    }
+    for a in [
+        0x002000, 0x3f2000, 0x802000, 0xbf2000, 0x400000, 0xc00000, 0x008000, 0x700100,
+    ] {
+        let mut b = bus();
+        b.cart.sram = vec![0x6d; 0x8000];
+        let rom = b.cart.rom.clone();
+        b.wram[0x1ffff] = 0x5a;
+        b.wram[0] = 0x37;
+        b.waddr = 0x1ffff;
+        general(&mut b, 0x80, 0x80, a, 2);
+        assert_eq!(b.waddr, 1, "{a:06x}");
+        assert_eq!(b.cart.rom, rom);
+        assert_eq!(
+            b.dma[0][2..7],
+            [
+                (a as u8).wrapping_add(2),
+                (a >> 8) as u8,
+                (a >> 16) as u8,
+                0,
+                0
+            ]
+        );
+        if a == 0x700100 {
+            assert_eq!(&b.cart.sram[0x100..0x103], &[0x5a, 0x37, 0x6d]);
+        }
+        assert_eq!(b.clocks, 32);
+    }
+}
+
+#[test]
+fn dma_reverse_wmdata_zero_count_progresses_without_port_reads() {
+    for (mode, a) in [(0x80, 0x7e0100), (0x88, 0x7f0100), (0x90, 0x7f0100)] {
+        let mut b = bus();
+        b.waddr = 0x11000;
+        general(&mut b, mode, 0x80, a, 0);
+        assert_eq!(b.waddr, 0x11000);
+        assert_eq!(b.dma[0][2..7], [0, 1, (a >> 16) as u8, 0, 0]);
+        assert_eq!(b.dma_pending, 0);
+        // Retained emulator timing, including 396 refresh holds; not hardware alignment evidence.
+        assert_eq!(b.clocks, 540144);
+    }
+}
+
+#[test]
+fn dma_reverse_wmdata_effective_patterns_and_bbad_wrap() {
+    // Modes 0/2/6 use only WMDATA. Others mix APU mirrors with WMDATA;
+    // mode 4 begins at $217d, avoiding out-of-scope $2181-$2183 reads.
+    for (mode, port, count, legal) in [
+        (0, 0x80, 4, vec![]),
+        (1, 0x7f, 4, vec![(0, 0x44), (2, 0x44)]),
+        (2, 0x80, 4, vec![]),
+        (3, 0x7f, 4, vec![(0, 0x44), (1, 0x44)]),
+        (4, 0x7d, 4, vec![(0, 0x22), (1, 0x33), (2, 0x44)]),
+        (5, 0x7f, 4, vec![(0, 0x44), (2, 0x44)]),
+        (6, 0x80, 4, vec![]),
+        (7, 0x7f, 4, vec![(0, 0x44), (1, 0x44)]),
+    ] {
+        let mut b = bus();
+        b.apu.output = [0x11, 0x22, 0x33, 0x44];
+        b.wram[0x11000] = 0xa6;
+        b.waddr = 0x11000;
+        general(&mut b, 0x80 | mode, port, 0x7e0100, count);
+        assert_eq!(b.waddr, 0x11000, "mode {mode}");
+        assert_eq!(b.wram[0x11000], 0xa6);
+        for (offset, value) in legal {
+            assert_eq!(b.wram[0x100 + offset], value, "mode {mode}");
+        }
+        assert_eq!(b.dma[0][2..7], [4, 1, 0x7e, 0, 0]);
+        assert_eq!(b.clocks, 48);
+    }
+    let mut b = bus();
+    // $21ff -> $2100, not $2200; neither read is WMDATA.
+    b.open = 0x3c;
+    b.waddr = 0x11000;
+    general(&mut b, 0x81, 0xff, 0x7e0100, 2);
+    assert_eq!(b.waddr, 0x11000);
+    assert_eq!(b.dma[0][2..7], [2, 1, 0x7e, 0, 0]);
+    assert_eq!(b.clocks, 32);
+}
+
+#[test]
+fn hdma_reverse_wmdata_complete_direct_and_indirect_tables() {
+    for indirect in [false, true] {
+        for table_bank in [0x7e, 0x00] {
+            let mut b = bus();
+            let bytes: &[u8] = if indirect {
+                &[0x82, 0, 2, 2, 4, 2, 0]
+            } else {
+                &[0x82, 0x5a, 0x5a, 0x5a, 0x5a, 2, 0x5a, 0x5a, 0]
+            };
+            b.wram[0x100..0x100 + bytes.len()].copy_from_slice(bytes);
+            b.cart.rom[0x100..0x100 + bytes.len()].copy_from_slice(bytes);
+            b.apu.output[3] = 0x44;
+            b.wram[0x11000] = 0xa6;
+            b.waddr = 0x11000;
+            let table = if table_bank == 0x7e {
+                0x7e0100
+            } else {
+                0x008100
+            };
+            hdma(&mut b, if indirect { 0xc1 } else { 0x81 }, table);
+            b.dma[0][1] = 0x7f;
+            b.dma[0][7] = 0x7f;
+            let states = if indirect {
+                [
+                    (3, 0x202, 40),
+                    (3, 0x204, 56),
+                    (6, 0x206, 96),
+                    (6, 0x206, 96),
+                    (7, 0x206, 104),
+                ]
+            } else {
+                [(3, 0, 24), (5, 0, 40), (8, 0, 64), (8, 0, 64), (9, 0, 72)]
+            };
+            for (row, (advance, payload, clocks)) in states.into_iter().enumerate() {
+                b.hdma_pending = true;
+                b.events();
+                assert_eq!(
+                    u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]),
+                    table as u16 + advance
+                );
+                assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), payload);
+                assert_eq!(b.hdma_line[0], [0x81, 0x80, 1, 0, 0][row]);
+                assert_eq!(b.dma[0][10], [0x81, 0x80, 1, 0, 0][row]);
+                assert_eq!(b.hdma_transfer[0], [true, true, false, false, true][row]);
+                assert_eq!(b.hdma_active, [1, 1, 1, 1, 0][row]);
+                assert_eq!(
+                    (b.waddr, b.wram[0x11000]),
+                    (
+                        0x11000
+                            + if !indirect && table_bank == 0 {
+                                [1, 2, 3, 3, 3][row]
+                            } else {
+                                0
+                            },
+                        0xa6
+                    )
+                );
+                assert_eq!(
+                    b.dma[0][2..5],
+                    [table as u8, (table >> 8) as u8, table_bank]
+                );
+                assert_eq!((b.dma[0][7], b.io[12], b.clocks), (0x7f, 1, clocks));
+            }
+            // Descriptors/indirect-pointer bytes are never reverse payload writes.
+            if indirect {
+                assert_eq!(&b.wram[0x100..0x107], bytes);
+                assert_eq!(
+                    [b.wram[0x10200], b.wram[0x10202], b.wram[0x10204]],
+                    [0x44; 3]
+                );
+            } else if table_bank == 0x7e {
+                assert_eq!([b.wram[0x100], b.wram[0x105], b.wram[0x108]], [0x82, 2, 0]);
+                assert_eq!([b.wram[0x101], b.wram[0x103], b.wram[0x106]], [0x44; 3]);
+            }
+        }
+    }
+}
+
+#[test]
+fn hdma_reverse_wmdata_indirect_payload_bank_controls() {
+    for (table, bank, pointer) in [
+        (0x7e0100, 0x70, 0x11003),
+        (0x7e0100, 0x00, 0x11003),
+        (0x008100, 0x7f, 0x11000),
+    ] {
+        let mut b = bus();
+        // LoROM SRAM is mapped below $8000; ROM controls use $8200.
+        let high = if bank == 0x70 { 2 } else { 0x82 };
+        let bytes = [0x82, 0, high, 2, 2, high, 0];
+        b.wram[0x100..0x107].copy_from_slice(&bytes);
+        b.cart.rom[0x100..0x107].copy_from_slice(&bytes);
+        let rom = b.cart.rom.clone();
+        b.cart.sram = vec![0x5a; 0x8000];
+        b.wram[0x11000..0x11004].copy_from_slice(&[0xa6, 0x37, 0xc9, 0xd8]);
+        b.waddr = 0x11000;
+        hdma(&mut b, 0xc0, table);
+        b.dma[0][1] = 0x80;
+        b.dma[0][7] = bank;
+        for (advance, payload, line, active, clocks) in [
+            (3, 0x8201, 0x81, 1, 32),
+            (3, 0x8202, 0x80, 1, 40),
+            (6, 0x8203, 1, 1, 72),
+            (6, 0x8203, 0, 1, 72),
+            (7, 0x8203, 0, 0, 80),
+        ] {
+            b.hdma_pending = true;
+            b.events();
+            assert_eq!(
+                u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]),
+                table as u16 + advance
+            );
+            assert_eq!(
+                u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]),
+                if bank == 0x70 {
+                    payload - 0x8000
+                } else {
+                    payload
+                }
+            );
+            assert_eq!(
+                (b.hdma_line[0], b.hdma_active, b.clocks),
+                (line, active, clocks)
+            );
+            assert_eq!(
+                (b.dma[0][4], b.dma[0][7], b.io[12]),
+                ((table >> 16) as u8, bank, 1)
+            );
+        }
+        assert_eq!(b.waddr, pointer);
+        assert_eq!(&b.wram[0x11000..0x11004], &[0xa6, 0x37, 0xc9, 0xd8]);
+        assert_eq!(b.cart.rom, rom);
+        assert_eq!(&b.wram[0x100..0x107], &bytes);
+        if bank == 0x70 {
+            assert_eq!(&b.cart.sram[0x200..0x204], &[0xa6, 0x37, 0xc9, 0x5a]);
+        }
+    }
+}
+
+// Deterministic emulator approximation ONLY. These byte values are not hardware
+// expectations: retain the previous SystemBus::open byte on a conflicting read.
+#[test]
+fn dma_reverse_wmdata_approximation_writes_previous_bus_byte() {
+    for mode in [0x80, 0x88, 0x90] {
+        let mut b = bus();
+        b.wram.fill(0x5a);
+        b.wram[0x11000] = 0xa6;
+        b.waddr = 0x11000;
+        b.open = 0x3c;
+        let mut expected = b.wram.clone();
+        for index in if mode == 0x88 {
+            vec![0x100]
+        } else if mode == 0x90 {
+            vec![0x100, 0xff, 0xfe]
+        } else {
+            vec![0x100, 0x101, 0x102]
+        } {
+            expected[index] = 0x3c;
+        }
+        general(&mut b, mode, 0x80, 0x7e0100, 3);
+        assert!(b.wram == expected); // A writes occur, no ordinary copy from $11000.
+        assert_eq!(b.open, 0x3c);
+    }
+    let mut b = bus();
+    b.apu.output[3] = 0x44;
+    b.waddr = 0x11000;
+    b.wram[0x11000] = 0xa6;
+    b.open = 0x3c;
+    general(&mut b, 0x81, 0x7f, 0x7e0100, 4);
+    assert_eq!(&b.wram[0x100..0x104], &[0x44; 4]);
+}
+
+#[test]
+fn hdma_reverse_wmdata_approximation_writes_payload_destinations_only() {
+    for indirect in [false, true] {
+        let mut b = bus();
+        let table: &[u8] = if indirect {
+            &[0x82, 0, 2, 0]
+        } else {
+            &[0x82, 0x5a, 0x5a, 0]
+        };
+        b.wram.fill(0x5a);
+        b.wram[0x100..0x104].copy_from_slice(table);
+        b.wram[0x11000] = 0xa6;
+        let mut expected = b.wram.clone();
+        if indirect {
+            expected[0x200..0x202].fill(0x3c);
+        } else {
+            expected[0x101..0x103].fill(0x3c);
+        }
+        b.waddr = 0x11000;
+        b.open = 0x3c;
+        hdma(&mut b, if indirect { 0xc0 } else { 0x80 }, 0x7e0100);
+        b.dma[0][1] = 0x80;
+        b.dma[0][7] = 0x7e;
+        for _ in 0..3 {
+            b.hdma_pending = true;
+            b.events();
+        }
+        // The emulator's hdma_read currently leaves open unchanged. This literal
+        // is solely the documented emulator convention.
+        assert!(b.wram == expected);
+        assert_eq!(b.hdma_active, 0);
+    }
+}
+
+#[test]
+fn hdma_reverse_wmdata_reclassifies_each_indirect_destination_and_wraps() {
+    for (bank, start, ends, reads) in [
+        (0x00, 0x1fff_u16, [0x2000, 0x2001], [0, 1]),
+        (0xbf, 0xffff, [0, 1], [1, 1]),
+        (0x7e, 0xffff, [0, 1], [0, 0]),
+    ] {
+        let mut b = bus();
+        b.wram[0x100..0x104].copy_from_slice(&[0x82, start as u8, (start >> 8) as u8, 0]);
+        hdma(&mut b, 0xd8, 0x7f0100); // DMA fixed/decrement flags do not affect HDMA.
+        b.wram[0x10100..0x10104].copy_from_slice(&[0x82, start as u8, (start >> 8) as u8, 0]);
+        b.dma[0][1] = 0x80;
+        b.dma[0][7] = bank;
+        b.waddr = 0x11000;
+        for row in 0..2 {
+            b.hdma_pending = true;
+            b.events();
+            assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), ends[row]);
+            assert_eq!(b.waddr, 0x11000 + reads[row]);
+            assert_eq!(b.dma[0][8..10], [3, 1]);
+            assert_eq!(b.hdma_line[0], [0x81, 0x80][row]);
+            assert_eq!((b.hdma_active, b.dma[0][7]), (1, bank));
+        }
+        b.hdma_pending = true;
+        b.events();
+        assert_eq!(b.dma[0][8..10], [4, 1]);
+        assert_eq!((b.hdma_active, b.hdma_line[0], b.io[12]), (0, 0, 1));
+        assert_eq!(b.dma[0][2..5], [0, 1, 0x7f]);
     }
 }

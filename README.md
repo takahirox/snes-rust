@@ -101,6 +101,10 @@ baseline failures, compiler selection, game replay results and remaining limits.
 Issue #27 extends suppression to the WRAM address registers; its
 [validation record](docs/issue-27-validation.md) records the new baseline failures,
 38 focused unit tests, five CPU guests and the final mandatory gate results.
+Issue #29 adds direction-specific reverse WMDATA conflict handling; its
+[validation record](docs/issue-29-validation.md) separates supported write/pointer
+effects from unverified electrical byte values, with 48 focused tests and six
+CPU guests.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -298,9 +302,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   remain legal. The [WMDATA validation](docs/issue-25-validation.md) and
   [address-register validation](docs/issue-27-validation.md) record specification
   sections, the HDMA derivation, baseline failures, original vectors and CPU guests.
+  Reverse DMA/direct HDMA/indirect HDMA from `$2180` into a current WRAM
+  destination retains the A-bus write and all 17 WMDATA pointer bits. The written
+  byte uses the previous emulator bus byte as a deterministic approximation;
+  exact electrical values remain unverified. The
+  [reverse-conflict validation](docs/issue-29-validation.md) records the
+  direction-specific evidence and separates approximation tests from hardware
+  side-effect assertions.
   `dma` and `hdma` remain partial:
-  reverse `$2180`/WRAM conflicts, startup/alignment timing, HDMA initialization/
-  overhead and first-frame behavior, same-channel contention, exact electrical
+  startup/alignment timing, HDMA initialization/overhead and first-frame behavior, same-channel contention, exact electrical
   open-bus behavior and the complete mode-interaction matrix remain separate work.
 - Planar BG modes, tilemaps, scroll/mosaic, sprites, priorities, windows and
   color math, plus a basic Mode 7 transform. BG1 direct color is supported in
