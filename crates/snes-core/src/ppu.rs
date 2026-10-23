@@ -30,6 +30,7 @@ pub struct Ppu {
     latch_enabled: bool,
     open1: u8,
     open2: u8,
+    obj_overflow: u8,
 }
 impl Default for Ppu {
     fn default() -> Self {
@@ -65,6 +66,7 @@ impl Default for Ppu {
             latch_enabled: true,
             open1: 0,
             open2: 0,
+            obj_overflow: 0,
         }
     }
 }
@@ -76,6 +78,13 @@ struct Pixel {
     math: bool,
 }
 impl Ppu {
+    pub(crate) fn obj_frame_start(&mut self) {
+        // Fullsnes STAT77: end-of-VBlank reset is inhibited by forced blank.
+        // Assertion remains scanline-granular; see issue-57-validation.md.
+        if self.regs[0] & 128 == 0 {
+            self.obj_overflow = 0;
+        }
+    }
     fn reload_oam_address(&mut self) {
         self.oaddr = (((self.regs[3] as usize & 1) << 8) | self.regs[2] as usize) * 2;
         self.oport_addr = self.oaddr;
@@ -331,7 +340,7 @@ impl Ppu {
                 self.vflip = !self.vflip;
                 v
             }
-            0x3e => (self.open1 & 0x10) | 1,
+            0x3e => self.obj_overflow | (self.open1 & 0x10) | 1,
             0x3f => {
                 self.hflip = false;
                 self.vflip = false;
@@ -575,7 +584,7 @@ impl Ppu {
             },
         }
     }
-    fn objects(&self, y: usize) -> [Option<Pixel>; 256] {
+    fn objects(&mut self, y: usize) -> [Option<Pixel>; 256] {
         let mut pixels = [None; 256];
         let sizes = [
             ((8, 8), (16, 16)),
@@ -596,7 +605,7 @@ impl Ppu {
             0
         };
         let mut count = 0;
-        let mut tiles = 0;
+        let mut selected = [(0, 0, 0, 0, 0); 32];
         for n in 0..128 {
             let i = (n + start) & 127;
             let hi = (self.oam[512 + i / 4] >> ((i & 3) * 2)) & 3;
@@ -606,11 +615,25 @@ impl Ppu {
             if row >= height {
                 continue;
             }
-            count += 1;
-            if count > 32 {
+            let sx = self.oam[i * 4] as i32 - if hi & 1 != 0 { 256 } else { 0 };
+            // X=-256 participates at X=0 in both budgets, never in drawing.
+            let evaluation_x = if sx == -256 { 0 } else { sx };
+            if evaluation_x <= -(width as i32) || evaluation_x >= 256 {
+                continue;
+            }
+            if count == 32 {
+                self.obj_overflow |= 0x40;
                 break;
             }
-            let sx = self.oam[i * 4] as i32 - if hi & 1 != 0 { 256 } else { 0 };
+            selected[count] = (i, width, row, sx, evaluation_x);
+            count += 1;
+        }
+        // Anomie Drawing the Sprites: reverse selection order for fetching,
+        // destination columns left to right, including partially clipped tiles.
+        // Compose back to front, so an earlier object's opaque pixels replace
+        // later ones regardless of their BG-priority bits.
+        let mut tiles = 0;
+        'fetch: for &(i, width, row, sx, evaluation_x) in selected[..count].iter().rev() {
             let attr = self.oam[i * 4 + 3];
             let name = self.oam[i * 4 + 2] as usize;
             // Rectangles flip within each stacked square, preserving half order.
@@ -620,43 +643,48 @@ impl Ppu {
             } else {
                 row
             };
-            for col in 0..width {
-                let screen = sx + col as i32;
-                if !(0..256).contains(&screen) {
+            for column in (0..width).step_by(8) {
+                let tile_x = evaluation_x + column as i32;
+                if tile_x <= -8 || tile_x >= 256 {
                     continue;
                 }
-                if col & 7 == 0 {
-                    tiles += 1;
-                    if tiles > 34 {
-                        break;
+                if tiles == 34 {
+                    self.obj_overflow |= 0x80;
+                    break 'fetch;
+                }
+                tiles += 1;
+                for col in column..column + 8 {
+                    let screen = sx + col as i32;
+                    if !(0..256).contains(&screen) {
+                        continue;
                     }
+                    let tx = if attr & 64 != 0 { width - 1 - col } else { col };
+                    let tile =
+                        (name & 0xf0).wrapping_add((row / 8) * 16) & 255 | ((name + tx / 8) & 15);
+                    let color = self.tile_pixel(
+                        base + if attr & 1 != 0 { gap } else { 0 },
+                        tile,
+                        tx & 7,
+                        row & 7,
+                        4,
+                    );
+                    let screen = screen as usize;
+                    if color == 0 {
+                        continue;
+                    }
+                    let pal = ((attr >> 1) & 7) as usize;
+                    let rank = match self.regs[5] & 7 {
+                        0 => [3, 6, 9, 12],
+                        1 => [2, 4, 8, 11],
+                        _ => [2, 4, 6, 8],
+                    }[((attr >> 4) & 3) as usize];
+                    pixels[screen] = Some(Pixel {
+                        color: self.palette(128 + pal * 16 + color as usize),
+                        rank,
+                        layer: 4,
+                        math: pal >= 4,
+                    });
                 }
-                let tx = if attr & 64 != 0 { width - 1 - col } else { col };
-                let tile =
-                    (name & 0xf0).wrapping_add((row / 8) * 16) & 255 | ((name + tx / 8) & 15);
-                let color = self.tile_pixel(
-                    base + if attr & 1 != 0 { gap } else { 0 },
-                    tile,
-                    tx & 7,
-                    row & 7,
-                    4,
-                );
-                let screen = screen as usize;
-                if color == 0 || pixels[screen].is_some() {
-                    continue;
-                }
-                let pal = ((attr >> 1) & 7) as usize;
-                let rank = match self.regs[5] & 7 {
-                    0 => [3, 6, 9, 12],
-                    1 => [2, 4, 8, 11],
-                    _ => [2, 4, 6, 8],
-                }[((attr >> 4) & 3) as usize];
-                pixels[screen] = Some(Pixel {
-                    color: self.palette(128 + pal * 16 + color as usize),
-                    rank,
-                    layer: 4,
-                    math: pal >= 4,
-                });
             }
         }
         pixels

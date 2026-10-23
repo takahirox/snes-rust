@@ -94,10 +94,12 @@ cargo test --locked -p snes-core --test ppu_hires
 cargo test --locked -p snes-core --test ppu_mode6_offset
 cargo test --locked -p snes-core --test ppu_pseudo_hires
 cargo test --locked -p snes-core --test ppu_obj_sizes
+cargo test --locked -p snes-core --test ppu_obj_limits
 # Original CPU-built browser/runner fixtures (also built by browser tests).
 cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
 cargo run --locked -p snes-core --example pseudo-hires-fixture -- .cache/pseudo-hires
 cargo run --locked -p snes-core --example obj-sizes-fixture -- .cache/obj-sizes
+cargo run --locked -p snes-core --example obj-limits-fixture -- .cache/obj-limits
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -409,15 +411,22 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   nibble wrapping and name-table selection. The
   [OBJ size validation](docs/issue-55-validation.md) records source sections,
   coordinate derivations, independent pixel crops, exact-baseline failures,
-  original CPU-built cartridges and actual Wasm/canvas checks. `ppu-objects`
-  remains partial: exact overflow/evaluation limits, rotation, X=-256, interlace,
-  hires interactions and fetch timing remain outside this bounded coverage.
+  original CPU-built cartridges and actual Wasm/canvas checks. Non-interlaced
+  OBJ evaluation selects 32 objects and admits 34 eight-pixel tiles in reverse
+  object order, with clipped-tile accounting, X=-256's counting exception and
+  stable programmed priority rotation. STAT77 overflow flags accumulate until
+  the frame boundary, where forced blank inhibits clearing. The
+  [OBJ limit validation](docs/issue-57-validation.md) records the specification
+  contract, independent survivor vectors, CPU status/lifetime guests and actual
+  Wasm/canvas checks. `ppu-objects` remains partial: physical evaluation/fetch
+  timing, rotation oddities, interlace and hires interactions remain outstanding.
   Rendering snapshots registers per scanline. Math-enabled pseudo-hires,
   color-window clipping/prevention interactions, ordinary-hires composition,
   hires mosaic/color-math/window/OBJ accuracy,
   mosaic/offset interactions, timed mosaic state, mid-scanline raster effects,
-  interlace/overscan/PAL, exact object overflow/rotation and Mode 7 EXTBG/transform
-  edge behavior are outside the tested targets. `ppu-color` remains partial:
+  interlace/overscan/PAL, physical object overflow timing/rotation oddities and
+  Mode 7 EXTBG/transform edge behavior are outside the tested targets.
+  `ppu-color` remains partial:
   comprehensive window logic, clipping/prevention interactions, subtraction/
   saturation, halving and brightness coverage still need work. VRAM writes obey
   forced/VBlank access and still increment when blocked. VRAM read-buffer fetches

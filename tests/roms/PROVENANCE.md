@@ -741,3 +741,45 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   toolchain selection, gate results and retained 24-category inventory are in
   [Issue #55 validation](../../docs/issue-55-validation.md). These bounded checks
   establish neither complete OBJ/hardware accuracy nor commercial compatibility.
+
+## Original OBJ-limit and STAT77 guests and graphics: approved
+
+- Sources: `crates/snes-core/tests/common/obj_limits.rs`,
+  `crates/snes-core/tests/ppu_obj_limits.rs`,
+  `crates/snes-core/examples/obj-limits-fixture.rs` and
+  `web/tests/obj-limits.spec.js`. Copyright 2026 snes-rust contributors;
+  repository [MIT](../../LICENSE). All encoded 65C816 instructions, planar
+  red/green/blue/transparent tiles, palettes, OAM scenes, literal status/pixel
+  expectations and LoROM headers/vectors are original MIT code/data.
+  No external ROM, firmware, font, graphics or assembler is incorporated or
+  acquired. Source and generated code/data may be redistributed under MIT.
+- Four 32 KiB cartridges cover neither flag, RANGE OVER alone, TIME OVER alone,
+  and both flags. CPU register writes initialize VRAM/CGRAM/OAM under forced
+  blank. Ordinary IRQ/WAI and VBlank polling synchronize status observations;
+  CPU instructions mask/read $213E, save nine actual values at $1800..$1808,
+  compare independent expected constants, and keep a sticky pass byte at $31.
+  Results include repeated reads, a non-overflow line, VBlank, forcing blank,
+  a frame boundary under forced blank, disabling blank, next-frame clearing,
+  and a subsequent non-overflow line. The CPU then restores the original scene
+  through registers and publishes `$30=$57`, `$32=mode`.
+- The core host supplies only a cartridge, steps and observes. Startup has an
+  eight-frame and 300,000-instruction deadline; STP fails. Three further complete
+  frames stabilize literal survivor pixels. The browser loads the same original
+  guests through the normal ROM picker, observes CPU results and compares
+  literal pixels in actual Wasm framebuffer bytes and canvas ImageData. Each
+  has a 30-second test deadline and five-second polling limit. No CPU/PPU/WRAM
+  state patches, result-flag injection or new debug APIs are used.
+- Reproduce without an assembler:
+  `cargo run --locked -p snes-core --example obj-limits-fixture -- .cache/obj-limits`.
+  Run `cargo test --locked -p snes-core --test ppu_obj_limits` and, after the
+  normal web build, `SNES_TEST_PORT=18085 npm --prefix web test -- --grep 'OBJ limits:'`.
+  Generated cartridges stay ignored. SHA-256:
+  - `obj-limits-0.sfc`: `7e3d8ebe4b928a838910004c945bb3102dca228e9139b5978a6b96b3f5d18919`
+  - `obj-limits-1.sfc`: `1d144b53983a17211b8fa238033739d614dd42db3ffba9ea55f78fa6c1006d16`
+  - `obj-limits-2.sfc`: `a5a6a6314d54112aba0265ca94393ccb6123d9edaa7991c3c278b4f46fa8720e`
+  - `obj-limits-3.sfc`: `357987c2e96ecdee768b9d336e01ca245c0a2ff86d229fc6a17bfd2a865fd3c6`
+- Specification qualifications, baseline counterexamples, commands, actual gate
+  results and remaining 24-category scopes are in
+  [Issue #57 validation](../../docs/issue-57-validation.md). This bounded work
+  does not establish physical evaluation/fetch timing, full OBJ/hardware
+  accuracy or commercial compatibility and does not complete Issue #3.
