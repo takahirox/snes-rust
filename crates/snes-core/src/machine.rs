@@ -954,3 +954,7 @@ mod hdma_ntrl_tests;
 #[cfg(test)]
 #[path = "machine/ppu_counter_tests.rs"]
 mod ppu_counter_tests;
+
+#[cfg(test)]
+#[path = "machine/ppu_vram_tests.rs"]
+mod ppu_vram_tests;

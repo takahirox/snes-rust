@@ -63,7 +63,12 @@ source-derived requirements, not conclusions inferred from non-silent samples.
   rollover, masked IRQ/WAI and the 4,224-clock automatic-controller busy period.
   Completed joypad values are published at the end of that period.
 - VRAM rejects active-display/HBlank writes while still incrementing its address;
-  forced/VBlank transfers work. Tests verify prefetch/dummy-read sequence,
+  forced/VBlank transfers work. Tests verify prefetch/duplicated-first-word sequence,
+  qualified by the [Issue #41 contract](issue-41-validation.md#evidence-and-contract-recorded-before-implementation):
+  an accessible address write makes the first word valid immediately; a dummy
+  read discards one duplicate. These old write-gating assertions did not verify
+  restricted-period reads. The later record adds read-specific evidence and
+  explicitly identifies the invalid-fetch buffer approximation. Tests also cover
   remapping/increments, OAM paired writes/high-table mirroring, CGRAM pairs/open
   bit, and held H/V counter values with independent read flipflops and status
   acknowledgement. Existing rendering tests cover 16×16 tile wrapping/flips,
