@@ -133,7 +133,11 @@ impl SystemBus {
             wram: vec![0; 131072],
             clocks: 0,
             frames: 0,
-            io: [0; 32],
+            io: {
+                let mut io = [0; 32];
+                io[1] = 0xff; // WRIO power-on value; no falling-edge latch.
+                io
+            },
             dma: [[0xff; 16]; 8],
             open: 0,
             waddr: 0,
@@ -379,6 +383,7 @@ impl SystemBus {
                                 self.irq = false;
                             }
                         }
+                        0x4201 => self.ppu.set_latch_enabled(v & 0x80 != 0),
                         0x4203 => {
                             let r = self.io[2] as u16 * v as u16;
                             self.math = Some((8, v as u16, r));
@@ -945,3 +950,7 @@ mod tests {
 #[cfg(test)]
 #[path = "machine/hdma_ntrl_tests.rs"]
 mod hdma_ntrl_tests;
+
+#[cfg(test)]
+#[path = "machine/ppu_counter_tests.rs"]
+mod ppu_counter_tests;

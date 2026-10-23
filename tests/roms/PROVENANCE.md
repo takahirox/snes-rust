@@ -521,3 +521,24 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   MIT. Existing fixture pins, notices, hashes, gameplay inputs and licensing
   decisions remain intact. The [Issue #37 validation](../../docs/issue-37-validation.md)
   separates explicit source rules, derived expectations and timing conventions.
+
+## Original WRIO counter-latch CPU guest: approved
+
+- Source: [`crates/snes-core/tests/ppu_counter_latch.rs`](../../crates/snes-core/tests/ppu_counter_latch.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- The original encoded 65C816 instructions, numerical expected data, LoROM
+  header/reset vector and zero-filled 32 KiB image are constructed in memory
+  by Rust during the test. No external assembler, code, runtime, font, firmware,
+  commercial ROM, game asset or emulator implementation is used. No generated
+  cartridge is committed or downloaded.
+- The guest initializes WRIO, polls executed HVBJOY reads and programs a masked
+  H/V IRQ to wake WAI at V=256/H=256. It exercises enabled SLHV, falling-edge
+  capture between low/high counter reads, disabled SLHV, repeated low writes,
+  independent selectors, repeated low/high STAT78 and release/re-enable behavior.
+  Numerical WRAM results mask floating high-byte/status bits in guest instructions.
+  Host code supplies only the generated ROM and observes WRAM, STP and deadlines:
+  a success marker within 100,000 instructions and fewer than three frame wraps.
+- Decision: original sources and generated code/data may be redistributed under
+  MIT. Existing fixture pins, notices, hashes, licensing decisions and replay
+  inputs remain unchanged. The [validation record](../../docs/issue-39-validation.md)
+  separates register evidence from retained timing and reset conventions.
