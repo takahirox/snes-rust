@@ -72,6 +72,34 @@ pub extern "C" fn framebuffer() -> usize {
             .map_or(0, |m| m.framebuffer().as_ptr() as usize)
     })
 }
+/// Geometry and length describe the current packed RGBA buffer.
+#[no_mangle]
+pub extern "C" fn framebuffer_width() -> usize {
+    STATE.with(|s| {
+        s.borrow()
+            .machine
+            .as_ref()
+            .map_or(0, Machine::framebuffer_width)
+    })
+}
+#[no_mangle]
+pub extern "C" fn framebuffer_height() -> usize {
+    STATE.with(|s| {
+        s.borrow()
+            .machine
+            .as_ref()
+            .map_or(0, Machine::framebuffer_height)
+    })
+}
+#[no_mangle]
+pub extern "C" fn framebuffer_len() -> usize {
+    STATE.with(|s| {
+        s.borrow()
+            .machine
+            .as_ref()
+            .map_or(0, |m| m.framebuffer().len())
+    })
+}
 #[no_mangle]
 pub extern "C" fn audio_buffer() -> usize {
     STATE.with(|s| s.borrow().audio.as_ptr() as usize)

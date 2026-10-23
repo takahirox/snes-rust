@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const canvas = document.querySelector('canvas');
 const context = canvas.getContext('2d', { alpha: false });
-const image = context.createImageData(256, 224);
+let image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
 let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
 let keyboard = 0;
@@ -14,7 +14,17 @@ const held = new Set();
 const bytes = (pointer, length) => new Uint8Array(core.memory.buffer, pointer, length);
 function check(ok) { if (!ok) throw new Error(decoder.decode(bytes(core.error_buffer(), core.error_len())) || 'Emulator operation failed'); }
 function copyInput(data) { const pointer = core.input_buffer(data.length); if (!pointer) throw new Error('ROM exceeds the supported size'); bytes(pointer, data.length).set(data); }
-function draw() { image.data.set(bytes(core.framebuffer(), image.data.length)); context.putImageData(image, 0, 0); }
+function draw() {
+  const width = core.framebuffer_width(), height = core.framebuffer_height();
+  if (image.width !== width || image.height !== height) {
+    canvas.width = width; canvas.height = height;
+    image = context.createImageData(width, height);
+  }
+  const length = core.framebuffer_len(), pointer = core.framebuffer();
+  if (length !== width * height * 4) throw new Error('Invalid framebuffer geometry');
+  // Reacquire memory after core calls, including frame growth/reset/replacement.
+  image.data.set(bytes(pointer, length)); context.putImageData(image, 0, 0);
+}
 function showErrors() { $('error').textContent = [operationError, persistenceError].filter(Boolean).join('\n'); }
 function report(error) { operationError = error.message || String(error); showErrors(); }
 function clearError() { operationError = ''; showErrors(); }

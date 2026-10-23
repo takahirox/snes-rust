@@ -7,6 +7,7 @@ pub struct Ppu {
     pub oam: [u8; 544],
     pub regs: [u8; 64],
     pub frame: Vec<u8>,
+    frame_width: usize,
     vaddr: u16,
     vbuffer: u16,
     caddr: usize,
@@ -42,6 +43,7 @@ impl Default for Ppu {
                 r
             },
             frame: vec![0; WIDTH * HEIGHT * 4],
+            frame_width: WIDTH,
             vaddr: 0,
             vbuffer: 0,
             caddr: 0,
@@ -367,6 +369,16 @@ impl Ppu {
         }
         color
     }
+    fn hires(&self) -> bool {
+        matches!(self.regs[5] & 7, 5 | 6)
+    }
+    fn bg_tile_width(&self, bg: usize) -> usize {
+        if self.hires() {
+            16
+        } else {
+            self.bg_tile_size(bg)
+        }
+    }
     fn bg_tile_size(&self, bg: usize) -> usize {
         if self.regs[5] & (16 << bg) != 0 {
             16
@@ -381,7 +393,7 @@ impl Ppu {
         let sc = self.regs[7 + bg];
         let width = if sc & 1 != 0 { 64 } else { 32 };
         let height = if sc & 2 != 0 { 64 } else { 32 };
-        let tx = (x & 1023) / size % width;
+        let tx = (x & 1023) / self.bg_tile_width(bg) % width;
         let ty = (y & 1023) / size % height;
         let page = usize::from(tx >= 32) + usize::from(ty >= 32) * if width == 64 { 2 } else { 1 };
         let address = ((sc as usize & 0xfc) << 9) + page * 2048 + ((ty & 31) * 32 + (tx & 31)) * 2;
@@ -389,7 +401,9 @@ impl Ppu {
     }
     fn bg_source(&self, bg: usize, x: usize, y: usize) -> (usize, usize) {
         let hofs = self.scroll[bg][0] as usize;
-        let mut sx = (x + hofs) & 1023;
+        // HOFS counts full dots even in hires; x counts half-dot samples.
+        // Map widths divide 1024, so mask after doubling (see Issue #49).
+        let mut sx = (x + hofs * if self.hires() { 2 } else { 1 }) & 1023;
         let mut sy = (y + 1 + self.scroll[bg][1] as usize) & 1023;
         let mode = self.regs[5] & 7;
         let q = x + (hofs & 7);
@@ -448,10 +462,11 @@ impl Ppu {
         let (sx, sy) = self.bg_source(bg, x, y);
         let size = self.bg_tile_size(bg);
         let entry = self.bg_map_entry(bg, sx, sy);
-        let mut px = sx & (size - 1);
+        let tile_width = self.bg_tile_width(bg);
+        let mut px = sx & (tile_width - 1);
         let mut py = sy & (size - 1);
         if entry & 0x4000 != 0 {
-            px = size - 1 - px;
+            px = tile_width - 1 - px;
         }
         if entry & 0x8000 != 0 {
             py = size - 1 - py;
@@ -629,13 +644,39 @@ impl Ppu {
         }
         pixels
     }
+    pub fn framebuffer_width(&self) -> usize {
+        self.frame_width
+    }
+    pub fn framebuffer_height(&self) -> usize {
+        HEIGHT
+    }
+    fn prepare_frame_width(&mut self, y: usize, hires: bool) {
+        let width = if hires { WIDTH * 2 } else { WIDTH };
+        if y == 0 && self.frame_width != width {
+            self.frame.resize(width * HEIGHT * 4, 0);
+            self.frame.fill(0);
+            self.frame_width = width;
+        } else if hires && self.frame_width == WIDTH {
+            // Promote packed rows backwards, preserving all earlier dots.
+            // See issue-49-validation.md: this is a representation policy.
+            self.frame.resize(WIDTH * 2 * HEIGHT * 4, 0);
+            for i in (0..WIDTH * HEIGHT).rev() {
+                let pixel: [u8; 4] = self.frame[i * 4..i * 4 + 4].try_into().unwrap();
+                self.frame[i * 8..i * 8 + 4].copy_from_slice(&pixel);
+                self.frame[i * 8 + 4..i * 8 + 8].copy_from_slice(&pixel);
+            }
+            self.frame_width = WIDTH * 2;
+        }
+    }
     pub fn render_line(&mut self, y: usize) {
         if y >= HEIGHT {
             return;
         }
+        let hires = self.hires();
+        self.prepare_frame_width(y, hires);
         if self.regs[0] & 128 != 0 {
-            for x in 0..256 {
-                let i = (y * 256 + x) * 4;
+            for x in 0..self.frame_width {
+                let i = (y * self.frame_width + x) * 4;
                 self.frame[i..i + 4].copy_from_slice(&[0, 0, 0, 255]);
             }
             return;
@@ -643,7 +684,10 @@ impl Ppu {
         let fixed_color =
             self.fixed[0] as u16 | ((self.fixed[1] as u16) << 5) | ((self.fixed[2] as u16) << 10);
         let objects = self.objects(y);
-        for (x, obj) in objects.iter().enumerate() {
+        let samples = if hires { WIDTH * 2 } else { WIDTH };
+        for output_x in 0..samples {
+            let x = if hires { output_x / 2 } else { output_x };
+            let obj = &objects[x];
             let back = Pixel {
                 color: self.palette(0),
                 rank: 0,
@@ -666,7 +710,13 @@ impl Ppu {
                     if enable & (1 << bg) == 0 || (mask & (1 << bg) != 0 && self.window(bg, x)) {
                         continue;
                     }
-                    if let Some(p) = self.bg_pixel(bg, x, y) {
+                    // Anomie Modes 5/6: even character samples feed TS, odd TM.
+                    let sample_x = if hires {
+                        x * 2 + usize::from(screen == 0)
+                    } else {
+                        x
+                    };
+                    if let Some(p) = self.bg_pixel(bg, sample_x, y) {
                         if p.rank > pixel.rank {
                             *pixel = p;
                         }
@@ -680,7 +730,8 @@ impl Ppu {
                     }
                 }
             }
-            let main = screens[0];
+            let visible_sub = hires && output_x & 1 == 0;
+            let main = screens[usize::from(visible_sub)];
             let in_window = self.window(5, x);
             let clip = match self.regs[0x30] >> 6 {
                 0 => false,
@@ -695,7 +746,8 @@ impl Ppu {
                 _ => true,
             };
             let color = if clip { 0 } else { main.color };
-            let math = !prevent && main.math && self.regs[0x31] & (1 << main.layer) != 0;
+            let math =
+                !visible_sub && !prevent && main.math && self.regs[0x31] & (1 << main.layer) != 0;
             let use_sub = self.regs[0x30] & 2 != 0;
             let sub = if use_sub {
                 screens[1].color
@@ -703,7 +755,12 @@ impl Ppu {
                 fixed_color
             };
             let bright = (self.regs[0] & 15) as u16;
-            let i = (y * 256 + x) * 4;
+            let repeats = if !hires && self.frame_width == WIDTH * 2 {
+                2
+            } else {
+                1
+            };
+            let i = (y * self.frame_width + output_x * repeats) * 4;
             for ch in 0..3 {
                 let mut value = ((color >> (ch * 5)) & 31) as i16;
                 if math {
@@ -721,6 +778,10 @@ impl Ppu {
                 self.frame[i + ch] = (value as u32 * 255 * bright as u32 / (31 * 15)) as u8;
             }
             self.frame[i + 3] = 255;
+            if repeats == 2 {
+                let pixel: [u8; 4] = self.frame[i..i + 4].try_into().unwrap();
+                self.frame[i + 4..i + 8].copy_from_slice(&pixel);
+            }
         }
     }
 }

@@ -632,3 +632,28 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   emulator policy; they do not establish electrical hardware behavior. The
   accompanying PPU and scheduler/DMA/HDMA numerical vectors are also original MIT.
 - Evidence and remaining limits: [Issue #47 validation](../../docs/issue-47-validation.md).
+
+## Original Mode 5/6 hires fixtures: approved
+
+- Sources: `crates/snes-core/tests/common/hires.rs`,
+  `crates/snes-core/tests/ppu_hires.rs`,
+  `crates/snes-core/examples/hires-fixture.rs`, and `web/tests/hires.spec.js`.
+  Copyright 2026 snes-rust contributors; repository [MIT](../../LICENSE).
+- All encoded 65C816 instructions, coordinate-labelled planar characters,
+  palette/map words, LoROM headers/vectors, numeric expectations and generated
+  cartridge bytes are original MIT work. No external assembler, ROM, font,
+  firmware, game asset, emulator implementation or reference binary is included.
+- The shared builder executes LDA/STA initialization through the emulated CPU,
+  including forced blank, VRAM, CGRAM, scroll and main/sub enable registers.
+  Static Mode 1/5/6 guests publish `$30=$49` and `$31=mode`; interactive variants
+  poll VBlank/auto-joypad completion, select Mode 5/6 while A is held (otherwise
+  Mode 1), and publish the selected mode in `$31`. Tests supply cartridges and
+  controller input only, with no host register/memory/raster patches.
+- Core tests limit each batch to 300,000 instructions and a specified number of
+  frame wraps (five for initialization, three per switch). The example command
+  in README reproducibly emits six 32 KiB `.sfc` files in `.cache/hires`; browser
+  tests build these from the same source. Generated ROMs are not committed.
+- Decision: original source and generated graphics/code/data may be redistributed
+  under MIT. Bounded passing checks establish the scope described in
+  [Issue #49 validation](../../docs/issue-49-validation.md). Existing fixture/game
+  pins, licenses, notices, hashes, replays and gameplay/audio expectations remain.
