@@ -270,11 +270,17 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   direct/indirect HDMA. HDMA preempts DMA between bytes; all devices advance
   during transfers. Tests check DMA writes across the VBlank access boundary,
   deferred NMI, IRQ comparisons and guest-generated HDMA raster bands.
-  DMA/HDMA A-bus I/O exclusions return zero on reads and discard writes,
-  including HDMA table/pointer fetches, while legal B-bus and CPU accesses
-  retain their behavior. The [A-bus validation](docs/issue-21-validation.md)
-  records the Issue #21 contract, reference-document discrepancies, boundary
-  tests and original CPU-executed guests. `dma` and `hdma` remain partial:
+  DMA/HDMA A-bus reads of `$4210–$421F` in system-I/O banks reach the existing
+  status/result handlers, including read-clear NMI/IRQ acknowledgement for
+  payloads, HDMA descriptors and indirect pointers. Writes remain excluded.
+  Other established A-bus exclusions retain zero-read/discard-write
+  approximations; zero and floating-bit values are not electrical hardware claims.
+  Legal B-bus and CPU accesses retain their behavior. The
+  [corrected A-bus validation](docs/issue-23-validation.md) supersedes Issue #21's
+  blanket CPU-register read exclusion and records reference sections, register
+  vectors, baseline failures and an original CPU-executed guest. Restrictions
+  elsewhere in `$4200–$420F` remain unresolved where unsupported by references.
+  `dma` and `hdma` remain partial:
   WRAM-to-`$2180` conflicts, startup/alignment timing, HDMA initialization/
   overhead and first-frame behavior, same-channel contention, exact electrical
   open-bus behavior and the complete mode-interaction matrix remain separate work.

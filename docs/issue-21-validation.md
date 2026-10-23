@@ -1,8 +1,18 @@
-# Issue #21: DMA/HDMA A-bus I/O exclusions
+# Issue #21: DMA/HDMA A-bus I/O exclusions (historical)
 
 Validated on 2026-10-23 against evaluation baseline
 `03cc363011cab05992f0c2165d1c43cfef4b1764` for
 [Issue #21](https://github.com/takahirox/snes-rust/issues/21).
+
+**Superseded in part by [Issue #23 validation](issue-23-validation.md).**
+The `$4210–$421F` read exclusion and assertions preserving pending NMI/IRQ below
+were incorrect. Those reads now reach the existing register handlers in every
+DMA/HDMA path, including descriptor/pointer fetches, and acknowledge flags.
+The sections below record the original Issue #21 implementation and its checks,
+not the current read contract. Current tests replace those contradictory vectors;
+write restrictions, unrelated exclusions and their regression coverage remain.
+Zero excluded-read values and existing `$4200–$420F` restrictions remain emulator
+approximations, not hardware certification.
 
 ## Contract and reference limitations
 
