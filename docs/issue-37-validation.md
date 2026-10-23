@@ -209,6 +209,31 @@ and Pages subpath loading. Existing replay inputs, fixture pins, licensed-source
 assertions, notices and inventory statuses were unchanged. The alternate port
 was selected using the README's documented `SNES_TEST_PORT` override.
 
+## Review follow-up: CI Clippy gate
+
+Reproduced the review finding with CI's Rust 1.99.0 (`b940084d7`) and Clippy
+0.1.99: the mandatory workspace Clippy command failed with
+`clippy::chunks_exact_to_as_chunks` in `hdma_phase_tests.rs`. The earlier
+Homebrew Rust 1.94 result above did not exercise that lint. Replaced the
+four-byte chunk assertion with direct equality of all 1,024 rendered bytes
+against 255. Because the checked length is divisible by four, this preserves
+the original pixel coverage and expected values.
+
+Selected the installed CI toolchain explicitly; `rustup run 1.99.0 cargo clippy`
+alone still selected Homebrew Clippy 0.1.94 in this environment:
+
+```sh
+export PATH="$(dirname "$(rustup which --toolchain 1.99.0 cargo)"):$PATH"
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+```
+
+All three commands pass with Rust 1.99.0. The workspace run passes all 201 tests,
+including the changed direct/indirect rendering regression, and doctests.
+Hardware fixtures and browser checks were not rerun for this assertion-only
+fix; their earlier results remain recorded above.
+
 ## Retained uncertainty and scope
 
 The reference-backed rules and arithmetic above establish the tested live-write
