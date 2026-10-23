@@ -271,6 +271,59 @@ impl Ppu {
         }
         color
     }
+    fn bg_tile_size(&self, bg: usize) -> usize {
+        if self.regs[5] & (16 << bg) != 0 {
+            16
+        } else {
+            8
+        }
+    }
+    // Read the raw screen word: BG3 offset descriptors must not be interpreted
+    // as character numbers, palettes, priorities or flips.
+    fn bg_map_entry(&self, bg: usize, x: usize, y: usize) -> u16 {
+        let size = self.bg_tile_size(bg);
+        let sc = self.regs[7 + bg];
+        let width = if sc & 1 != 0 { 64 } else { 32 };
+        let height = if sc & 2 != 0 { 64 } else { 32 };
+        let tx = (x & 1023) / size % width;
+        let ty = (y & 1023) / size % height;
+        let page = usize::from(tx >= 32) + usize::from(ty >= 32) * if width == 64 { 2 } else { 1 };
+        let address = ((sc as usize & 0xfc) << 9) + page * 2048 + ((ty & 31) * 32 + (tx & 31)) * 2;
+        self.vw(address)
+    }
+    fn bg_source(&self, bg: usize, x: usize, y: usize) -> (usize, usize) {
+        let hofs = self.scroll[bg][0] as usize;
+        let mut sx = (x + hofs) & 1023;
+        let mut sy = (y + 1 + self.scroll[bg][1] as usize) & 1023;
+        let mode = self.regs[5] & 7;
+        let q = x + (hofs & 7);
+        if bg < 2 && matches!(mode, 2 | 4) && q >= 8 {
+            // Offset columns are always eight pixels, independent of BGn's
+            // character size. BG3's own size still controls its map lookup.
+            let table_x = q - 8 + (self.scroll[2][0] as usize & !7);
+            let table_y = self.scroll[2][1] as usize;
+            let h = self.bg_map_entry(2, table_x, table_y);
+            let enable = 0x2000 << bg;
+            if mode == 4 {
+                if h & enable != 0 {
+                    if h & 0x8000 == 0 {
+                        sx = (q + (h as usize & 0x3f8)) & 1023;
+                    } else {
+                        sy = (y + 1 + (h as usize & 0x3ff)) & 1023;
+                    }
+                }
+            } else {
+                let v = self.bg_map_entry(2, table_x, table_y + 8);
+                if h & enable != 0 {
+                    sx = (q + (h as usize & 0x3f8)) & 1023;
+                }
+                if v & enable != 0 {
+                    sy = (y + 1 + (v as usize & 0x3ff)) & 1023;
+                }
+            }
+        }
+        (sx, sy)
+    }
     fn bg_pixel(&self, bg: usize, x: usize, y: usize) -> Option<Pixel> {
         let mode = self.regs[5] & 7;
         let depths = [
@@ -296,23 +349,9 @@ impl Ppu {
         } else {
             (x, y)
         };
-        let sx = (x + self.scroll[bg][0] as usize) & 1023;
-        let sy = (y + 1 + self.scroll[bg][1] as usize) & 1023;
-        let size = if self.regs[5] & (16 << bg) != 0 {
-            16
-        } else {
-            8
-        };
-        let tx = sx / size;
-        let ty = sy / size;
-        let sc = self.regs[7 + bg];
-        let width = if sc & 1 != 0 { 64 } else { 32 };
-        let height = if sc & 2 != 0 { 64 } else { 32 };
-        let tx = tx % width;
-        let ty = ty % height;
-        let page = usize::from(tx >= 32) + usize::from(ty >= 32) * if width == 64 { 2 } else { 1 };
-        let address = ((sc as usize & 0xfc) << 9) + page * 2048 + ((ty & 31) * 32 + (tx & 31)) * 2;
-        let entry = self.vw(address);
+        let (sx, sy) = self.bg_source(bg, x, y);
+        let size = self.bg_tile_size(bg);
+        let entry = self.bg_map_entry(bg, sx, sy);
         let mut px = sx & (size - 1);
         let mut py = sy & (size - 1);
         if entry & 0x4000 != 0 {
