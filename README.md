@@ -92,8 +92,10 @@ cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
 cargo test --locked -p snes-core --test ppu_hires
 cargo test --locked -p snes-core --test ppu_mode6_offset
+cargo test --locked -p snes-core --test ppu_pseudo_hires
 # Original CPU-built browser/runner fixtures (also built by browser tests).
 cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
+cargo run --locked -p snes-core --example pseudo-hires-fixture -- .cache/pseudo-hires
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -391,7 +393,16 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   descriptors, with full-dot columns and retained fine scroll. Its
   [offset validation](docs/issue-51-validation.md) records source-derived units,
   numerical boundaries, original CPU guests, baseline failures and gate results.
-  Rendering snapshots registers per scanline. Pseudo-hires through SETINI,
+  SETINI bit 3 also enables 512-sample pseudo-hires in low-resolution modes:
+  each full dot supplies even-sub / odd-main phases without changing BG tile,
+  scroll, offset or Mode 7 coordinates. Tested support is non-interlaced,
+  non-mosaic, EXTBG disabled, CGADSUB=$00 and CGWSEL=$00 (or $02), with
+  independent TM/TS, TMW/TSW layer windows, CGRAM[0]/COLDATA backdrops,
+  brightness and forced blank. The same packed-frame promotion policy applies.
+  The [pseudo-hires validation](docs/issue-53-validation.md) records literal
+  pixels, CPU-executed guests, baseline counterexamples and Wasm/canvas checks.
+  Rendering snapshots registers per scanline. Math-enabled pseudo-hires,
+  color-window clipping/prevention interactions, ordinary-hires composition,
   hires mosaic/color-math/window/OBJ accuracy,
   mosaic/offset interactions, timed mosaic state, mid-scanline raster effects,
   interlace/overscan/PAL, exact object overflow/rotation and Mode 7 EXTBG/transform
