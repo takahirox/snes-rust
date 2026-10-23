@@ -611,3 +611,24 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   windows under the retained scheduler/IRQ conventions and separates those
   assumptions from source-backed address reload and pair behavior. Existing
   fixture/game pins, hashes, notices, licensing decisions and replay inputs remain.
+
+## Original CGRAM access CPU guest: approved
+
+- Source: `crates/snes-core/tests/ppu_cgram_access.rs`, authored for Issue #47.
+- License: repository MIT; copyright 2026 snes-rust contributors.
+- Original encoded SEI, LDA/STA, AND/branch, WAI and STP instructions construct a
+  zero-filled 32 KiB LoROM in memory. Header, reset vector, palette sentinels,
+  numeric results and completion marker are original MIT source/data. No external
+  assembler, ROM, font, firmware, game asset or emulator code is incorporated.
+- Executed CPU instructions initialize CGRAM, program and acknowledge masked
+  H/V IRQs, poll HVBJOY, access visible/HBlank/forced/VBlank/scanline-0 states,
+  exercise mixed reads/writes and pending-latch readdressing, and publish eighteen
+  WRAM bytes plus `$18F0=$A5`. The host supplies only the cartridge and observes
+  results/STP/deadlines: at most 150,000 instructions and fewer than four wraps.
+  No raster, memory, phase, latch or expected result is injected into the machine.
+- Decision: original source and generated code/data may be redistributed under
+  MIT. No ROM is committed. Restricted numeric addresses/bytes, scanline-0
+  ownership, full HBlank availability and phase/latch retention assert documented
+  emulator policy; they do not establish electrical hardware behavior. The
+  accompanying PPU and scheduler/DMA/HDMA numerical vectors are also original MIT.
+- Evidence and remaining limits: [Issue #47 validation](../../docs/issue-47-validation.md).
