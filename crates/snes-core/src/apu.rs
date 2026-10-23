@@ -837,6 +837,75 @@ mod timing_tests {
     use super::*;
 
     #[test]
+    fn rate_clocked_envelope_and_pcm_match_across_tick_partitions() {
+        fn configured() -> Apu {
+            let mut apu = Apu::default();
+            apu.ram[0x200..0x204].copy_from_slice(&[0, 3, 0, 3]);
+            apu.ram[0x300] = 0x93;
+            apu.ram[0x301..0x309].fill(0x77);
+            for (r, v) in [
+                (0x6c, 0x20),
+                (0x5d, 2),
+                (0x0c, 127),
+                (0x1c, 127),
+                (0, 127),
+                (1, 127),
+                (3, 0x10),
+                (7, 0xc3),
+                (0x4c, 1),
+            ] {
+                apu.dsp.write(r, v);
+            }
+            apu
+        }
+        let mut whole = configured();
+        let mut split = configured();
+        let mut master = 0;
+        for (tick, envelope) in [
+            (535, 0u16),
+            (536, 32),
+            (537, 32),
+            (1039, 32),
+            (1040, 64),
+            (1041, 64),
+            (2575, 64),
+            (2576, 96),
+            (2577, 96),
+            (30719, 672),
+            (30720, 672),
+            (30721, 672),
+            (61440, 1312),
+        ] {
+            let target = (tick * 32u64 * 21_477_272).div_ceil(1_024_000);
+            let delta = target - master;
+            whole.tick(delta);
+            let mut remaining = delta;
+            for chunk in [1, 7, 666, 1001, 21].into_iter().cycle() {
+                if remaining == 0 {
+                    break;
+                }
+                let step = remaining.min(chunk);
+                split.tick(step);
+                remaining -= step;
+            }
+            master = target;
+            assert_eq!(whole.samples.len(), tick as usize * 2);
+            assert_eq!(whole.dsp.regs[8], (envelope >> 4) as u8, "tick {tick}");
+            assert_eq!(whole.dsp.regs, split.dsp.regs, "tick {tick}");
+            assert_eq!(whole.samples, split.samples, "tick {tick}");
+            if tick == 537 {
+                whole.dsp.write(7, 0xc2);
+                split.dsp.write(7, 0xc2);
+            }
+        }
+        assert!(whole.samples.iter().any(|s| *s != 0.0));
+        assert!(whole
+            .samples
+            .iter()
+            .all(|s| s.is_finite() && s.abs() <= 1.0));
+    }
+
+    #[test]
     fn sample_clock_is_32khz_and_independent_of_cpu_tick_partition() {
         fn configured() -> Apu {
             let mut a = Apu::default();

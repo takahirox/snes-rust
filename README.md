@@ -289,9 +289,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   DSP provides BRR voices, Gaussian interpolation, ADSR/gain, signed stereo
   mixing, five-sample key-on delay and FIR echo. Numerical tests cover the
   selected game's filter-0 BRR, interpolation/overflow, direct gain, pitch,
-  release/retrigger and deterministic 32 kHz output. Noise, pitch modulation,
-  exact ADSR rate phase, DSP subcycle register polling and reference echo
-  saturation are unverified/unsupported and unused by these targets.
+  release/retrigger and deterministic 32 kHz output. ADSR and dynamic GAIN use
+  one cyclic 30,720-sample rate counter with rate-specific phase offsets. The
+  [envelope validation](docs/issue-13-validation.md) covers every rate over two
+  periods, selected envelope boundaries, an uploaded original SPC700 guest and
+  APU partition invariance. `dsp-envelope` remains partial: exhaustive envelope
+  transitions, hidden-envelope/bent-GAIN behavior, live register interactions
+  and DSP subcycle sampling remain unverified beyond those tests. Noise, pitch
+  modulation and reference echo saturation remain unverified/unsupported and
+  unused by these targets.
   Browser tests bound device-clock drift, queue duration and live sources,
   including main-thread stalls and repeated pause/reset/play.
 - Enhancement chips, ExLoROM/ExHiROM, PAL, save states and broad commercial

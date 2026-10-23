@@ -48,6 +48,27 @@ are not release acceptance evidence.
   See [validation](../../docs/issue-11-validation.md) for baseline failure evidence
   and the unchanged external fixture provenance/hashes.
 
+## Original envelope-rate SPC700 guest: approved
+
+- Source: [`crates/snes-core/tests/dsp_envelope.rs`](../../crates/snes-core/tests/dsp_envelope.rs),
+  including its `guest` Rust builder; no upstream program or data input.
+- Copyright: 2026 snes-rust contributors; [MIT](../../LICENSE).
+- The original 146-byte SPC700 instruction stream is generated in memory during
+  `cargo test --workspace --locked`. It configures two GAIN voices through
+  `$F2/$F3`, waits for host commands through `$F4`, changes a rate without KON,
+  records four ENVX pairs at `$1000..$1007`, acknowledges each checkpoint and
+  stops. The host uses the existing firmware-free IPL upload port protocol.
+- All instructions, command/checkpoint data and initially zeroed 64 KiB RAM are
+  original. Pitch remains zero: no BRR sample, font, firmware, external test
+  binary, game asset, compiler runtime or emulator implementation is imported.
+  Source-level rate facts are attributed in the
+  [validation record](../../docs/issue-13-validation.md#specification-and-counter-convention).
+- Execution has explicit per-acknowledgement and per-checkpoint bounds. Checkpoint
+  expectations are literal numerical vectors, independent of production helpers.
+  No generated binary is committed or downloaded; no external assembler is needed.
+- Decision: original source and generated guest/data may be redistributed under
+  MIT. This is a bounded envelope diagnostic, not full DSP or game acceptance.
+
 ## Source-built hardware suites: approved with documented alterations
 
 ### gilyon/snes-tests
