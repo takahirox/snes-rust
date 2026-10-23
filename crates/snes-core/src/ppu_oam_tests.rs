@@ -119,6 +119,8 @@ fn blanking_reload_events_preserve_latch_and_reset_phase_as_documented_policy() 
         p.write(0, if force { 128 } else { 15 });
         let old = p.oam_port_state();
         p.oam_scanline_start(225);
+        assert_eq!(p.oam_port_state(), old); // H=0 only changes availability.
+        p.oam_vblank_reload(); // Scheduler delivers the distinct H=40 event.
         assert_eq!(p.oam_port_state(), if force { old } else { (8, 8, 0x65) });
     }
     for line in [100, 225, 226, 261] {
@@ -159,7 +161,7 @@ fn sprite_rotation_uses_advancing_cursor_not_rendering_substitute() {
     p.write(0, 15); // Rendering substitute must not rotate to sprite 0.
     p.render_line(0);
     assert_eq!(&p.frame[..4], &[0, 255, 0, 255]);
-    p.oam_scanline_start(225);
+    p.oam_vblank_reload();
     p.v = 225;
     p.read(0x38, 0);
     p.read(0x38, 0);
@@ -167,7 +169,7 @@ fn sprite_rotation_uses_advancing_cursor_not_rendering_substitute() {
     p.read(0x38, 0); // Advance to sprite 2, wraps through sprites 0 then 1.
     p.render_line(0);
     assert_eq!(&p.frame[..4], &[255, 0, 0, 255]);
-    p.oam_scanline_start(225); // Reload puts sprite 1 first again.
+    p.oam_vblank_reload(); // Reload puts sprite 1 first again.
     p.render_line(0);
     assert_eq!(&p.frame[..4], &[0, 255, 0, 255]);
     p.write(3, 0); // Rotation disabled.

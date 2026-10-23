@@ -589,3 +589,25 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   the [Issue #43 validation](../../docs/issue-43-validation.md). Existing fixture
   and game source pins, hashes, notices, licensing decisions and replay inputs
   remain unchanged.
+
+## Original H=40 OAM reload CPU guest: approved
+
+- Source: [`crates/snes-core/tests/ppu_oam_reload.rs`](../../crates/snes-core/tests/ppu_oam_reload.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- Original encoded 65C816 instructions, four OAM sentinel bytes, numeric result
+  vectors, LoROM header/reset vector and zero-filled 32 KiB cartridge are built
+  in memory. No external assembler, runtime, font, firmware, commercial ROM,
+  game asset, emulator implementation or external test binary is used. Generated
+  ROMs are not committed or downloaded.
+- The guest executes SEI, OAM initialization, H/V IRQ programming and WAI. It
+  writes the OAM address during early VBlank, reads before H=40, and observes
+  one automatic reload afterward through subsequent reads. Expected bytes are
+  independent of rendering-corruption substitutes. It publishes four result
+  bytes and `$18F0=$A5` before STP. The host supplies only the cartridge and
+  observes results/deadlines, injecting no CPU, bus, raster, PPU or memory state.
+  Bounds are 100,000 steps and fewer than two frame wraps.
+- Decision: original source/generated code and data may be redistributed under
+  MIT. The [Issue #45 record](../../docs/issue-45-validation.md) derives access
+  windows under the retained scheduler/IRQ conventions and separates those
+  assumptions from source-backed address reload and pair behavior. Existing
+  fixture/game pins, hashes, notices, licensing decisions and replay inputs remain.

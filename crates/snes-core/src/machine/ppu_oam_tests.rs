@@ -1,5 +1,7 @@
 //! Original MIT natural-scheduler vectors. Timing edges and restricted numeric
 //! addresses/bytes assert emulator policy, not physical access strobes.
+//! Coincident raster events precede CPU/DMA sampling or commitment in this
+//! model; physical strobe ordering and forced-blank latency remain unverified.
 use super::*;
 
 fn bus() -> SystemBus {
@@ -253,22 +255,25 @@ fn dma_source_and_destination_sampling_straddle_blanking_boundaries() {
                 let available = (access / LINE) % 262 >= 225;
                 assert_eq!(b.clocks, access + if reverse { 10 } else { 6 });
                 assert_eq!((pair(&b, 2), pair(&b, 5)), (0x401, 0));
-                // A VBlank reload between reverse source and destination resets
-                // the progressed cursor, but cannot change the sampled byte.
+                // H=0 grants VBlank access but does not restore the cursor.
+                // At frame wrap, rendering owns the address again. Neither
+                // boundary is the H=40 automatic reload tested separately.
+                let software_address = available && boundary != 225 * LINE;
                 if reverse {
-                    assert_eq!(b.wram[0x400], if available { 0x12 } else { 0xa1 });
+                    assert_eq!(b.wram[0x400], if software_address { 0x12 } else { 0xa1 });
                 } else {
                     assert_eq!(&b.ppu.oam[8..10], &[0x12, 0x34]);
-                    assert_eq!(b.ppu.oam[512], if available { 0xa1 } else { 0x65 });
+                    assert_eq!(b.ppu.oam[512], if software_address { 0xa1 } else { 0x65 });
                 }
                 let crossed_after_access = offset == -2;
-                let expected = if crossed_after_access && boundary == 225 * LINE {
-                    (8, 8)
-                } else if crossed_after_access {
-                    (513, 9)
-                } else {
-                    (if available { 9 } else { 513 }, 9)
-                };
+                let expected = (
+                    if software_address && !crossed_after_access {
+                        9
+                    } else {
+                        513
+                    },
+                    9,
+                );
                 let (port, rotation, latch) = b.ppu.oam_port_state();
                 assert_eq!((port, rotation), expected);
                 assert_eq!(latch, if reverse { 0xc3 } else { 0x65 });
@@ -381,6 +386,164 @@ fn direct_indirect_forward_reverse_hdma_port_effects_progression_and_termination
                 assert_eq!(pair(&b, 8), if indirect { 0x305 } else { 0x306 });
                 assert_eq!(b.ppu.oam_port_state().1, 12);
             }
+        }
+    }
+}
+
+#[test]
+fn automatic_reload_waits_for_h40_and_is_partition_invariant() {
+    for force in [false, true] {
+        for partitioned in [false, true] {
+            let mut b = bus();
+            at(&mut b, 224 * LINE + 1200);
+            address(&mut b, 0x104);
+            b.write(0x2104, 0x65); // High-even commit/latch, odd cursor 521.
+            b.write(0x2100, if force { 128 } else { 15 });
+            let old = if force {
+                (521, 521, 0x65)
+            } else {
+                (513, 521, 0x65)
+            };
+            b.tick(225 * LINE - b.clocks);
+            assert_eq!((b.v, b.h), (225, 0));
+            assert_eq!(b.ppu.oam_port_state(), old, "H=0 must not reload");
+            b.tick(38);
+            assert_eq!(b.ppu.oam_port_state(), old, "H=38");
+            if partitioned {
+                b.tick(1);
+                assert_eq!(b.ppu.oam_port_state(), old, "H=39");
+                b.tick(1);
+            } else {
+                b.tick(2);
+            }
+            let reloaded = if force { old } else { (520, 520, 0x65) };
+            assert_eq!(b.ppu.oam_port_state(), reloaded, "H=40");
+            b.tick(2);
+            assert_eq!(b.ppu.oam_port_state(), reloaded, "H=42");
+            assert_eq!(&b.ppu.regs[2..4], &[4, 1]);
+            b.read(0x2138);
+            let advanced = if force {
+                (522, 522, 0x65)
+            } else {
+                (521, 521, 0x65)
+            };
+            b.tick(2 * LINE); // Cross several line starts, no repeated reload.
+            assert_eq!(b.ppu.oam_port_state(), advanced);
+            b.tick(487 * LINE + 38 - b.clocks); // Next frame, V=225/H=38.
+            assert_eq!(
+                b.ppu.oam_port_state(),
+                if force { advanced } else { (513, 521, 0x65) }
+            );
+            b.tick(2);
+            assert_eq!(
+                b.ppu.oam_port_state(),
+                if force { advanced } else { (520, 520, 0x65) }
+            );
+        }
+    }
+}
+
+#[test]
+fn automatic_reload_crossing_lines_in_one_advance_matches_partitions() {
+    for chunks in [&[2 * LINE + 100][..], &[LINE, 38, 2, LINE + 60][..]] {
+        let mut b = bus();
+        b.write(0x2100, 15);
+        at(&mut b, 224 * LINE);
+        address(&mut b, 4);
+        b.read(0x2138);
+        at(&mut b, 224 * LINE + 100);
+        for &n in chunks {
+            b.tick(n);
+        }
+        assert_eq!((b.v, b.h), (226, 200));
+        assert_eq!(b.ppu.oam_port_state(), (8, 8, 0xc3));
+        assert_eq!(&b.ppu.regs[2..4], &[4, 0]);
+        assert_eq!(b.read(0x2138), 0x12);
+        assert_eq!(b.ppu.oam_port_state(), (9, 9, 0xc3));
+    }
+}
+
+#[test]
+fn cpu_oam_access_completion_before_at_after_h40() {
+    for h in [38, 40, 42] {
+        for write in [false, true] {
+            let mut b = bus();
+            b.write(0x2100, 15);
+            at(&mut b, 224 * LINE + 1200);
+            b.read(0x2138); // Rendering-owned odd cursor, rotation 9.
+            at(&mut b, 225 * LINE + h - 6);
+            if write {
+                b.write(0x2104, 0x65);
+            } else {
+                assert_eq!(b.read(0x2138), if h < 40 { 0xb2 } else { 0x12 });
+            }
+            assert_eq!(b.clocks, 225 * LINE + h);
+            assert_eq!(
+                b.ppu.oam_port_state(),
+                if h < 40 {
+                    (514, 10, 0xc3)
+                } else {
+                    (9, 9, if write { 0x65 } else { 0xc3 })
+                }
+            );
+            if h < 40 {
+                b.idle(); // Cross H=40 through an ordinary six-clock CPU idle.
+                assert_eq!(b.ppu.oam_port_state(), (8, 8, 0xc3));
+            }
+            assert_eq!(&b.ppu.oam[8..10], &[0x12, 0x34]);
+            assert_eq!(b.ppu.oam[513], if write && h < 40 { 0x65 } else { 0xb2 });
+        }
+    }
+}
+
+#[test]
+fn dma_oam_sampling_and_pair_commit_before_at_after_h40() {
+    for h in [38, 40, 42] {
+        for reverse in [false, true] {
+            let mut b = bus();
+            b.write(0x7e0400, 0x65);
+            b.write(0x7e0401, 0x78);
+            dma(&mut b, reverse, 2);
+            b.write(0x2100, 15);
+            at(&mut b, 224 * LINE + 1200);
+            b.read(0x2138); // Odd cursor, distinct from programmed byte 8.
+
+            // Arm +6, overhead +16, source +4 / destination +8.
+            // Reverse h names source sampling; forward h names commitment.
+            at(&mut b, 225 * LINE + h - if reverse { 26 } else { 30 });
+            b.write(0x420b, 1);
+            b.read(0x4305); // Two transfers, then the CPU read.
+            assert_eq!(b.clocks, 225 * LINE + h + if reverse { 18 } else { 14 });
+            assert_eq!((pair(&b, 2), pair(&b, 5), b.dma[0][4]), (0x402, 0, 0x7e));
+            assert_eq!((b.io[11], b.dma_pending), (0, 0));
+            let cursor = if h < 40 { 9 } else { 10 };
+            let latch = if reverse {
+                0xc3
+            } else if h < 40 {
+                0x78
+            } else {
+                0x65
+            };
+            assert_eq!(b.ppu.oam_port_state(), (cursor, cursor, latch));
+            if reverse {
+                // Source at 38 survives reload at 40 before A commitment at 42.
+                assert_eq!(
+                    &b.wram[0x400..0x402],
+                    if h < 40 { &[0xb2, 0x12] } else { &[0x12, 0x34] }
+                );
+                assert_eq!(&b.ppu.oam[8..10], &[0x12, 0x34]);
+            } else {
+                // Destination at 42 uses byte 8 after source was sampled at 38.
+                assert_eq!(
+                    &b.ppu.oam[8..10],
+                    if h < 40 { &[0x12, 0x34] } else { &[0x65, 0x78] }
+                );
+                assert_eq!(b.ppu.oam[513], if h < 40 { 0x65 } else { 0xb2 });
+            }
+            at(&mut b, 225 * LINE + 100);
+            assert_eq!(b.ppu.oam_port_state(), (cursor, cursor, latch));
+            b.read(0x2138);
+            assert_eq!(b.ppu.oam_port_state(), (cursor + 1, cursor + 1, latch));
         }
     }
 }
