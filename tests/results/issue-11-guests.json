@@ -1,0 +1,91 @@
+{
+  "source": "crates/snes-core/tests/direct_color.rs:guest_rom",
+  "authorship": "Original code and data, 2026 snes-rust contributors",
+  "license": "MIT",
+  "guests": [
+    {
+      "mode": 3,
+      "direct": false,
+      "cgram255": "0x001f",
+      "bytes": 32768,
+      "sha256": "5d33277de5e2974cd91afe2171427148c0bd16b80c7faa38a9d8b193913e3f72"
+    },
+    {
+      "mode": 3,
+      "direct": false,
+      "cgram255": "0x7c00",
+      "bytes": 32768,
+      "sha256": "29c50e6f8c7d68b0c583e4ab91afce6fb7bf808b17a46c81b314f05959ce245a"
+    },
+    {
+      "mode": 3,
+      "direct": true,
+      "cgram255": "0x001f",
+      "bytes": 32768,
+      "sha256": "29d45c7a5de55c949b2ad95ee16b4f43f56c70ab4bd55115851258385a661892"
+    },
+    {
+      "mode": 3,
+      "direct": true,
+      "cgram255": "0x7c00",
+      "bytes": 32768,
+      "sha256": "b4f51b6f14aa70b21c567972798f33819b061729fd5dbabc080ba2b0bb9633d5"
+    },
+    {
+      "mode": 4,
+      "direct": false,
+      "cgram255": "0x001f",
+      "bytes": 32768,
+      "sha256": "a94a15be96e084080fecb8339066ef24a3fa7a89e5f465fe1ecefea430cf114d"
+    },
+    {
+      "mode": 4,
+      "direct": false,
+      "cgram255": "0x7c00",
+      "bytes": 32768,
+      "sha256": "7be6228805349d3a06405cf1412ff2e9e009c5e9fdd94ff12d3b4c63ebbc0b97"
+    },
+    {
+      "mode": 4,
+      "direct": true,
+      "cgram255": "0x001f",
+      "bytes": 32768,
+      "sha256": "21ab2ef105594ba7720381bc16f6a2d03c451e9728e20188394bf85fc9fb2609"
+    },
+    {
+      "mode": 4,
+      "direct": true,
+      "cgram255": "0x7c00",
+      "bytes": 32768,
+      "sha256": "fe26658fb2519bf8c31b2f3587713b5a6402ecf87511acc855678cbcc979e2a3"
+    },
+    {
+      "mode": 7,
+      "direct": false,
+      "cgram255": "0x001f",
+      "bytes": 32768,
+      "sha256": "f1d6da5292e72c25779cf7fa97c23df59cfb5ab88a47753e4d125a2c5398a146"
+    },
+    {
+      "mode": 7,
+      "direct": false,
+      "cgram255": "0x7c00",
+      "bytes": 32768,
+      "sha256": "d91ff7dfe9fb9aa0d7559bde6bb1f2d72c6515902ca6c4c5a3d6aa8e43017cf0"
+    },
+    {
+      "mode": 7,
+      "direct": true,
+      "cgram255": "0x001f",
+      "bytes": 32768,
+      "sha256": "9f67fdb7f5c24f656a44088fa6032ae1cca1af62cde8b7b98c0ce416dd23146e"
+    },
+    {
+      "mode": 7,
+      "direct": true,
+      "cgram255": "0x7c00",
+      "bytes": 32768,
+      "sha256": "d87204f9ce6cc97900e67580410c73bced242854ecbb3e9d67444b6ebbcb10b2"
+    }
+  ]
+}
