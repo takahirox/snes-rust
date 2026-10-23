@@ -76,6 +76,8 @@ RUSTC="$(rustup which rustc)" npm --prefix web run build
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo test --locked -p snes-core --lib machine::dma_tests
+cargo test --locked -p snes-core --test dma_access
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -91,6 +93,11 @@ npx playwright install chromium
 npm test -- --grep-invert '301 seconds'
 # If port 8080 is occupied, prefix the test command with SNES_TEST_PORT=18085.
 ```
+
+For Issue #25, all 29 focused DMA/HDMA unit tests, four CPU guests, 143 workspace
+tests and 18 browser checks passed, together with the source-built hardware gates.
+See the [validation evidence](docs/issue-25-validation.md) for exact commands,
+baseline failures, compiler selection, game replay results and remaining limits.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -280,8 +287,14 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   blanket CPU-register read exclusion and records reference sections, register
   vectors, baseline failures and an original CPU-executed guest. Restrictions
   elsewhere in `$4200–$420F` remain unresolved where unsupported by references.
+  Forward DMA/direct HDMA/indirect HDMA payloads from WRAM to B-bus `$2180`
+  suppress the write and WRAM-port increment while retaining byte/row progression.
+  Full WRAM banks and system-bank mirrors are checked per payload byte using the
+  effective B register; ROM/SRAM transfers, CPU port accesses and table fetches
+  remain legal. The [conflict validation](docs/issue-25-validation.md) records
+  specification excerpts, baseline failures, original vectors and a CPU guest.
   `dma` and `hdma` remain partial:
-  WRAM-to-`$2180` conflicts, startup/alignment timing, HDMA initialization/
+  reverse `$2180`/WRAM conflicts, startup/alignment timing, HDMA initialization/
   overhead and first-frame behavior, same-channel contention, exact electrical
   open-bus behavior and the complete mode-interaction matrix remain separate work.
 - Planar BG modes, tilemaps, scroll/mosaic, sprites, priorities, windows and

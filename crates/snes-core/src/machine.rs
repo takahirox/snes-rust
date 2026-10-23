@@ -439,7 +439,14 @@ impl SystemBus {
         };
         self.bus_tick(4);
         if d[0] & 128 == 0 {
-            self.write_raw(b, v);
+            // WRAM cannot drive A and the WMDATA B port simultaneously.
+            // Suppress the port write (including its increment), but retain
+            // this byte's timing and the caller's DMA/HDMA progression.
+            // See docs/issue-25-validation.md; reverse conflicts are unresolved.
+            let wram = matches!(a >> 16, 0x7e | 0x7f) || (a & 0x400000 == 0 && a & 0xffff < 0x2000);
+            if b != 0x2180 || !wram {
+                self.write_raw(b, v);
+            }
         } else {
             self.dma_write_a(a, v);
         }
