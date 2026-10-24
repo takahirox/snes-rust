@@ -971,3 +971,30 @@ hashes remain unchanged. #61's source map ends at row 223: the corrected first
 screen row is 1, so framebuffer row 223 samples the uninitialized map row 28
 and shows its gray backdrop. Native/browser expectations now assert this,
 while also retaining the full composition checks on framebuffer row 222.
+
+## Issue #67: original manual two-pad serial guest
+
+- Source: [`joypad_serial.rs`](../../crates/snes-core/tests/joypad_serial.rs),
+  `guest_rom` and `cpu_guest_records_both_manual_sequences_in_wram`.
+  Original copyright 2026 snes-rust contributors, [MIT](../../LICENSE).
+- All 65C816 instructions and LoROM header bytes are original. No external
+  program, graphics, font, sound, firmware, assembler or compiler runtime is
+  used. The 32768-byte cartridge is built in memory; only source is committed.
+- The guest executes SEI, disables automatic polling through $4200, writes the
+  shared latch high then low, and reads port 1 seven times and port 2 three times
+  before interleaving their remaining reads. Long loads use $80:4016/$81:4017;
+  AND/STA instructions store 24 numeric bits per pad at $1800/$1840. Both
+  sixteen-bit sequences and eight trailing ones are checked against literal
+  $A590/$5A60 expansions. $18F0=$A5 plus STP marks completion.
+- The host supplies only the cartridge and the two button inputs, steps normal
+  CPU/scheduler execution, and observes WRAM at completion. Deadlines are 10000
+  instructions and fewer than two frames; no serial, raster, or result state is
+  injected. These are manual protocol checks, not automatic polling accuracy.
+- The existing original MIT [`dma_access.rs`](../../crates/snes-core/tests/dma_access.rs)
+  guest also attempts prohibited DMA reads from each controller register, then
+  records four CPU-read bits at $1811–$1814. Inputs $8000/$4000 must yield
+  `[1,0,1,0]` in port order 1,2,2,1, establishing neither sequence advanced.
+  Existing guest observations and assertions are retained. Excluded-read bytes
+  retain the documented zero approximation; no new electrical-value claim.
+- Decision: source and generated cartridges are redistributable under MIT.
+  No commercial ROM or firmware was acquired.

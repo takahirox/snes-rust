@@ -118,11 +118,11 @@ fn general(b: &mut SystemBus, mode: u8, port: u8, a: u32, count: u16) {
 
 #[test]
 fn dma_forward_prohibited_reads_preserve_side_effects_and_cpu_controls() {
-    for a in [0x2180, 0x4016] {
+    for a in [0x2180, 0x4016, 0x4017] {
         let mut b = bus();
         b.wram[0x1000..0x1002].copy_from_slice(&[0x5a, 0x12]);
         b.waddr = 0x1000;
-        b.serial = 0x9180;
+        b.serial = [0x9180, 0x5a60];
         b.nmi_flag = true;
         b.irq = true;
         b.open = 0xff;
@@ -130,7 +130,7 @@ fn dma_forward_prohibited_reads_preserve_side_effects_and_cpu_controls() {
         general(&mut b, 8, 0x22, a, 2);
         assert_eq!(&b.ppu.cgram[..2], &[0, 0], "{a:04x}");
         assert_eq!(b.waddr, 0x1000);
-        assert_eq!(b.serial, 0x9180);
+        assert_eq!(b.serial, [0x9180, 0x5a60]);
         assert!(b.nmi_flag && b.irq);
         assert_eq!(b.clocks, 16 + 2 * 8);
         // Real CPU bus accesses still consume/acknowledge the same registers.
@@ -141,7 +141,11 @@ fn dma_forward_prohibited_reads_preserve_side_effects_and_cpu_controls() {
             }
             0x4016 => {
                 assert_eq!(b.read(a) & 1, 1);
-                assert_eq!(b.serial, 0x2301);
+                assert_eq!(b.serial, [0x2301, 0x5a60]);
+            }
+            0x4017 => {
+                assert_eq!(b.read(a) & 1, 0);
+                assert_eq!(b.serial, [0x9180, 0xb4c1]);
             }
             _ => unreachable!(),
         }
@@ -157,7 +161,7 @@ fn dma_reverse_prohibited_writes_still_consume_b_bus_reads() {
         b.ppu.cgram[..3].copy_from_slice(&[0x35, 0x12, 0x67]);
         b.waddr = 0x1000;
         b.wram[0x1000] = 0x5a;
-        b.serial = 0x9180;
+        b.serial = [0x9180, 0x5a60];
         b.nmi_flag = true;
         b.dma[0][0] = 0x88;
         b.dma[0][1] = 0x3b;
@@ -170,7 +174,7 @@ fn dma_reverse_prohibited_writes_still_consume_b_bus_reads() {
         assert_eq!(b.ppu.regs[6], 0);
         assert_eq!(b.waddr, 0x1000);
         assert_eq!(b.wram[0x1000], 0x5a);
-        assert_eq!(b.serial, 0x9180);
+        assert_eq!(b.serial, [0x9180, 0x5a60]);
         assert!(!b.strobe && !b.nmi_pending);
         assert!(b.math.is_none());
         assert_eq!(b.dma_pending, 0);
@@ -263,11 +267,11 @@ fn hdma(b: &mut SystemBus, mode: u8, table: u32) {
 #[test]
 fn hdma_prohibited_descriptors_terminate_without_register_side_effects() {
     for bank in [0x00, 0x3f, 0x80, 0xbf] {
-        for a in [0x2180, 0x4016, 0x4300] {
+        for a in [0x2180, 0x4016, 0x4017, 0x4300] {
             let mut b = bus();
             b.waddr = 0x1000;
             b.wram[0x1000] = 0x81;
-            b.serial = 0x9180;
+            b.serial = [0x9180, 0x5a60];
             b.nmi_flag = true;
             b.irq = true;
             hdma(&mut b, 0, bank << 16 | a);
@@ -276,7 +280,7 @@ fn hdma_prohibited_descriptors_terminate_without_register_side_effects() {
             assert_eq!(b.hdma_active, 0, "{bank:02x}:{a:04x}");
             assert_eq!(u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]), a as u16 + 1);
             assert_eq!(b.waddr, 0x1000);
-            assert_eq!(b.serial, 0x9180);
+            assert_eq!(b.serial, [0x9180, 0x5a60]);
             assert!(b.nmi_flag && b.irq);
             assert_eq!(b.ppu.regs[6], 0x55);
             assert_eq!(b.clocks, 8);
@@ -288,7 +292,7 @@ fn hdma_prohibited_descriptors_terminate_without_register_side_effects() {
 fn hdma_direct_and_indirect_payloads_use_restricted_a_bus_in_both_directions() {
     for indirect in [false, true] {
         for reverse in [false, true] {
-            for a in [0x2180u16, 0x4016, 0x4300] {
+            for a in [0x2180u16, 0x4016, 0x4017, 0x4300] {
                 let mut b = bus();
                 let mode = if indirect { 0x40 } else { 0 } | if reverse { 0x80 } else { 0 };
                 hdma(&mut b, mode, 0x7e0000);
@@ -303,7 +307,7 @@ fn hdma_direct_and_indirect_payloads_use_restricted_a_bus_in_both_directions() {
                 b.dma[0][pair..pair + 2].copy_from_slice(&a.to_le_bytes());
                 b.waddr = 0x1000;
                 b.wram[0x1000] = 0x55;
-                b.serial = 0x9180;
+                b.serial = [0x9180, 0x5a60];
                 b.nmi_flag = true;
                 b.irq = true;
                 b.ppu.regs[6] = 0x55;
@@ -314,7 +318,7 @@ fn hdma_direct_and_indirect_payloads_use_restricted_a_bus_in_both_directions() {
                 b.events();
                 assert_eq!(b.ppu.regs[6], if reverse { 0x55 } else { 0 });
                 assert_eq!(b.waddr, 0x1000);
-                assert_eq!(b.serial, 0x9180);
+                assert_eq!(b.serial, [0x9180, 0x5a60]);
                 assert!(b.nmi_flag && b.irq);
                 assert_eq!(b.dma[0][0], mode);
                 assert_eq!(
@@ -358,17 +362,17 @@ fn hdma_indirect_pointer_fetches_recheck_boundaries_and_wrap() {
     }
     // Each indirect-byte fetch uses the same restricted path even at ports
     // with read side effects (a preloaded row would normally have a descriptor).
-    for a in [0x2180u16, 0x4016] {
+    for a in [0x2180u16, 0x4016, 0x4017] {
         let mut b = bus();
         b.dma[0][4] = 0;
         b.dma[0][8..10].copy_from_slice(&a.to_le_bytes());
         b.waddr = 0x1000;
-        b.serial = 0x9180;
+        b.serial = [0x9180, 0x5a60];
         b.nmi_flag = true;
         b.irq = true;
         assert_eq!(b.hdma_read(0), 0);
         assert_eq!(b.waddr, 0x1000);
-        assert_eq!(b.serial, 0x9180);
+        assert_eq!(b.serial, [0x9180, 0x5a60]);
         assert!(b.nmi_flag && b.irq);
         assert_eq!(u16::from_le_bytes([b.dma[0][8], b.dma[0][9]]), a + 1);
         assert_eq!(b.clocks, 8);
@@ -378,7 +382,7 @@ fn hdma_indirect_pointer_fetches_recheck_boundaries_and_wrap() {
 #[test]
 fn hdma_tables_feed_blocked_payloads_and_then_terminate() {
     for reverse in [false, true] {
-        for a in [0x2180u16, 0x4016, 0x4300] {
+        for a in [0x2180u16, 0x4016, 0x4017, 0x4300] {
             let mut b = bus();
             b.wram[0x100..0x104].copy_from_slice(&[0x81, a as u8, (a >> 8) as u8, 0]);
             hdma(&mut b, 0x40 | if reverse { 0x80 } else { 0 }, 0x7e0100);
@@ -388,14 +392,14 @@ fn hdma_tables_feed_blocked_payloads_and_then_terminate() {
             b.ppu.regs[6] = 0x55;
             b.waddr = 0x1000;
             b.wram[0x1000] = 0x55;
-            b.serial = 0x9180;
+            b.serial = [0x9180, 0x5a60];
             b.nmi_flag = true;
             b.irq = true;
             b.events();
             assert_eq!(b.dma[0][8..10], [5, 1]);
             assert_eq!(u16::from_le_bytes([b.dma[0][5], b.dma[0][6]]), 0);
             assert_eq!(b.waddr, 0x1000);
-            assert_eq!(b.serial, 0x9180);
+            assert_eq!(b.serial, [0x9180, 0x5a60]);
             assert!(b.nmi_flag && b.irq);
             assert_eq!(b.ppu.regs[6], if reverse { 0x55 } else { 0 });
             if reverse {
