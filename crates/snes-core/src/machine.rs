@@ -202,10 +202,11 @@ impl SystemBus {
             // Compare crossings within one scanline, then handle rollover.
             let old_h = self.h;
             let line = self.ppu.line_clocks();
-            // Fullsnes H/V Events: nonzero H/HV asserts 3.5 CPU timer
-            // units after comparison (four master clocks per unit, even near
-            // long PPU dots). H-only zero and line-spanning cases remain approximate.
-            let h_irq = if htime != 0 && htime + 14 < line {
+            // Fullsnes H/V Events: H-only (including zero) and nonzero HV
+            // assert 3.5 timer units after comparison: 4*HTIME+14 master
+            // clocks. Combined zero uses the separate ten-clock event below.
+            // Late/line-spanning comparisons retain approximate scheduling.
+            let h_irq = if (htime != 0 || mode == 0x10) && htime + 14 < line {
                 htime + 14
             } else {
                 htime
@@ -244,6 +245,9 @@ impl SystemBus {
                 && self.h >= h_irq
                 && h_irq < line
                 && (mode & 0x20 == 0 || self.v == vtime)
+                // Initial reset V=0 was not naturally entered. Preserve its
+                // zero-timer no-event policy; physical reset timing is unverified.
+                && (htime != 0 || self.v != 0 || self.frames != 0)
             {
                 self.irq = true;
             }
@@ -272,10 +276,6 @@ impl SystemBus {
             }
             self.ppu.v = self.v;
             self.ppu.oam_scanline_start(self.v);
-            // H-only zero retains its approximate H=0 comparator convention.
-            if mode == 0x10 && htime == 0 {
-                self.irq = true;
-            }
             if self.v == 225 {
                 self.nmi_flag = true;
                 if self.io[0] & 128 != 0 {
@@ -999,22 +999,30 @@ mod tests {
     }
 
     #[test]
-    fn horizontal_zero_timer_fires_once_per_scanline_across_frames() {
-        // Approximate H-only control; physical assertion delay is not verified.
-        let mut bus = timer_bus(0x10, 0, 0);
-        for line in 1..=3 * 262 {
-            let length = if (line - 1) / 262 % 2 == 1 && (line - 1) % 262 == 240 {
-                1360
-            } else {
-                1364
-            };
-            bus.tick(length - 1);
-            assert!(!timeup(&mut bus), "early IRQ on line {line}");
-            bus.tick(1);
-            assert!(timeup(&mut bus), "missing IRQ on line {line}");
-            assert!(!timeup(&mut bus), "TIMEUP must acknowledge IRQ");
+    fn horizontal_zero_irq_fires_once_per_scanline_across_three_natural_fields() {
+        let mut bus = timer_bus(0x10, 0, 511);
+        bus.tick(357367);
+        timeup(&mut bus); // before natural field 1 entry, never at H=0
+        bus.tick(1);
+        for field in 1..=3 {
+            for v in 0..262 {
+                assert_eq!((bus.frames, bus.v, bus.h), (field, v, 0));
+                assert!(!timeup(&mut bus), "no rollover IRQ at {field}/{v}");
+                bus.tick(13);
+                assert!(!timeup(&mut bus), "early IRQ at {field}/{v}");
+                bus.tick(1);
+                assert!(timeup(&mut bus), "missing IRQ at {field}/{v}");
+                assert!(!timeup(&mut bus), "TIMEUP acknowledges once");
+                let length = if field % 2 == 1 && v == 240 {
+                    1360
+                } else {
+                    1364
+                };
+                bus.tick(length - 14);
+                assert!(!timeup(&mut bus), "no duplicate at {field}/{v}");
+            }
         }
-        assert_eq!(bus.frames, 3);
+        assert_eq!((bus.clocks, bus.frames, bus.v, bus.h), (1429464, 4, 0, 0));
     }
 
     #[test]
@@ -1118,3 +1126,7 @@ mod horizontal_irq_tests;
 #[cfg(test)]
 #[path = "machine/combined_zero_irq_tests.rs"]
 mod combined_zero_irq_tests;
+
+#[cfg(test)]
+#[path = "machine/horizontal_zero_irq_tests.rs"]
+mod horizontal_zero_irq_tests;

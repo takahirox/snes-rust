@@ -158,13 +158,13 @@ fn horizontal_irq_one_irregular_and_whole_intervals_cross_natural_boundaries() {
 }
 
 #[test]
-fn horizontal_irq_zero_and_late_controls_retain_only_approximate_scheduling() {
-    // Compatibility controls, NOT claims about hardware H-only zero/late rules.
+fn horizontal_irq_zero_delay_and_approximate_late_controls() {
+    // H-only zero now asserts at 14; late controls remain approximations.
     // Combined zero is covered by the Issue #101 ten-clock regressions.
     for mode in [0x10, 0x30] {
         for field in 1..=2 {
-            for (htime, old_offset) in [
-                (0, 0),
+            for (htime, offset) in [
+                (0, 14),
                 (337, 1348),
                 (338, 1352),
                 (339, 1356),
@@ -180,14 +180,11 @@ fn horizontal_irq_zero_and_late_controls_retain_only_approximate_scheduling() {
                 b.tick(start - 1);
                 timeup(&mut b);
                 b.tick(1);
-                assert_eq!(timeup(&mut b), htime == 0);
-                if htime == 0 {
-                    continue;
-                }
-                b.tick(old_offset.min(length) - 1);
+                assert!(!timeup(&mut b));
+                b.tick(offset.min(length) - 1);
                 assert!(!timeup(&mut b));
                 b.tick(1);
-                assert_eq!(timeup(&mut b), old_offset < length);
+                assert_eq!(timeup(&mut b), offset < length);
             }
         }
     }

@@ -90,6 +90,7 @@ cargo test --locked -p snes-core --test ntsc_timing
 cargo test --locked -p snes-core v_only_irq
 cargo test --locked -p snes-core horizontal_irq
 cargo test --locked -p snes-core combined_zero_irq
+cargo test --locked -p snes-core horizontal_zero_irq
 cargo test --locked -p snes-core --lib machine::ntsc_timing_tests
 cargo test --locked -p snes-core --test ppu_vram_access
 cargo test --locked -p snes-core --test ppu_oam_access
@@ -182,10 +183,17 @@ fields. Issue #101 corrects preconfigured combined HTIME=0 to master H=10
 on matching naturally entered lines in NTSC non-interlaced operation. Its
 [validation record](docs/issue-101-validation.md) covers fresh boundary checks,
 CPU/DMA observations and a guest that self-checks four natural fields. This
-supersedes the combined-zero rollover approximation; initial reset V=0 retains
-an unverified no-event policy. H-only zero/late IRQs, live timer-write races,
-physical CPU sampling and interlaced/overscan/PAL geometry remain unresolved;
-CPU recognition still occurs at instruction boundaries.
+supersedes the combined-zero rollover approximation. Issue #103 corrects
+preconfigured H-only HTIME=0 to master H=14 on every naturally entered line,
+independently of VTIME. Its [validation record](docs/issue-103-validation.md)
+covers both parities, three complete natural fields, CPU/DMA observations and
+an original four-field self-checking guest. Initial reset V=0 retains an
+unverified no-event policy. Late/line-spanning IRQs and VTIME ownership, live
+timer-write races, TIMEUP read/write disputes, physical access/recognition
+phases, reset/refresh alignment, NMI delays and interlaced/overscan/PAL geometry
+remain unresolved; CPU recognition still occurs at instruction boundaries.
+Full device synchronization, including APU advancement before raster processing,
+also remains incomplete.
 
 Issue #67 adds independent manual reads for two standard joypads with a shared
 latch. `Machine::set_buttons` supplies port 1 and `Machine::set_buttons2` supplies

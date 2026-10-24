@@ -1,5 +1,12 @@
 # Issue #97: V-only IRQ assertion at master H=10
 
+> Follow-up: [Issue #103](issue-103-validation.md) supersedes this record's
+> retained H-only HTIME=0 rollover approximation and its unresolved-delay status:
+> preconfigured H-only zero now asserts at master H=14 on naturally entered
+> lines. Combined zero remains at H=10 under #101; late comparisons and all
+> other stated limits remain unchanged. Historical results below describe
+> the implementation at the time of that Issue.
+
 ## Specification and bounded contract
 
 Re-read on 2026-10-24 before completing implementation:

@@ -253,9 +253,9 @@ fn refresh_and_dma_keep_every_access_clock_across_short_line() {
 }
 
 #[test]
-fn irq_nmi_are_once_per_line_or_field_at_retained_event_offsets() {
+fn irq_nmi_are_once_per_line_or_field_at_their_event_offsets() {
     let mut b = bus();
-    b.write_raw(0x4200, 0x90); // H=0 IRQ and VBlank NMI
+    b.write_raw(0x4200, 0x90); // H-only zero IRQ at H=14 and retained VBlank NMI
     let mut nmis = 0;
     for field in 0..4 {
         for v in 0..262 {
@@ -264,11 +264,18 @@ fn irq_nmi_are_once_per_line_or_field_at_retained_event_offsets() {
             } else {
                 1364
             };
-            b.tick(length - 1);
+            b.tick(13);
+            assert_eq!(b.read_raw(0x4211) & 128, 0);
+            b.tick(1);
+            // Initial V=0 is an unverified reset-created no-event policy.
+            let expected = if field == 0 && v == 0 { 0 } else { 128 };
+            assert_eq!(b.read_raw(0x4211) & 128, expected);
+            assert_eq!(b.read_raw(0x4211) & 128, 0);
+            b.tick(length - 15);
             assert_eq!(b.read_raw(0x4211) & 128, 0);
             assert!(!b.nmi_pending);
             b.tick(1);
-            assert_eq!(b.read_raw(0x4211) & 128, 128);
+            assert_eq!(b.read_raw(0x4211) & 128, 0); // no H=0 assertion
             assert_eq!(b.read_raw(0x4211) & 128, 0);
             if v == 224 {
                 assert!(std::mem::take(&mut b.nmi_pending));
