@@ -234,8 +234,9 @@ fn zero_pitch_release_survives_edits_resumes_end_processing_and_rekeys_independe
     dsp.write(0x7c, 0xff);
     // Ordinary KOFF at zero pitch fades by 8 E units per call, then persists.
     dsp.write(0x5c, 1);
-    for tick in 1..=128 {
-        let env = 1024 - tick * 8;
+    for tick in 1..=129 {
+        // Apply preceding E; the 128th call commits zero, 129th applies it.
+        let env = (1024 - (tick - 1) * 8).max(0);
         let out = -16 * env;
         assert_eq!(dsp.sample(&mut ram), ((out >> 2) as i16, 8192));
         assert_eq!(
@@ -442,8 +443,9 @@ fn koff_fades_then_continues_silent_end_processing_without_revival() {
         dsp.sample(&mut ram);
     }
     dsp.write(0x5c, 1);
-    for tick in 1..=128 {
-        let env = 1024 - tick * 8;
+    for tick in 1..=129 {
+        // Apply preceding E; the 128th call commits zero, 129th applies it.
+        let env = (1024 - (tick - 1) * 8).max(0);
         let out = ((4098 * env) >> 11) & !1;
         assert_eq!(
             dsp.sample(&mut ram),

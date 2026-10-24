@@ -131,6 +131,61 @@ impl Dsp {
             + ((GAUSSIAN[256 + index] * samples[2]) >> 10);
         ((partial as i16 as i32) + ((GAUSSIAN[index] * samples[3]) >> 10)).clamp(-32768, 32767) & !1
     }
+    // E is committed state; H is the pre-clamp candidate, including holds.
+    // This advances E_next only after capturing the applied envelope/output.
+    fn update_envelope(v: &mut Voice, adsr: u8, adsr2: u8, gain: u8, counter: u32) {
+        if v.stage == 3 {
+            // Release bypasses the rate gate and leaves the hidden latch alone.
+            v.env = (v.env - 8).max(0);
+        } else {
+            // Anomie/jwdonal revision 1212, VxADSR/VxGAIN; see Issue #75
+            // reconciliation. Evaluate from committed E on EVERY sample.
+            let mut candidate = v.env;
+            let rate;
+            let level_data;
+            if adsr & 128 != 0 {
+                level_data = adsr2;
+                if v.stage == 0 {
+                    rate = (adsr & 15) * 2 + 1;
+                    candidate += if rate == 31 { 1024 } else { 32 };
+                } else {
+                    rate = if v.stage == 1 {
+                        ((adsr >> 4) & 7) * 2 + 16
+                    } else {
+                        adsr2 & 31
+                    };
+                    candidate -= ((candidate - 1) >> 8) + 1;
+                }
+            } else {
+                level_data = gain;
+                rate = if gain & 128 == 0 { 31 } else { gain & 31 };
+                if gain & 128 == 0 {
+                    candidate = (gain as i32) * 16;
+                } else {
+                    match (gain >> 5) & 3 {
+                        0 => candidate -= 32,
+                        1 => candidate -= ((candidate - 1) >> 8) + 1,
+                        2 => candidate += 32,
+                        // Unsigned comparison also takes the small step for
+                        // negative H. Do not mask H to eleven bits.
+                        _ => candidate += if (v.hidden_env as u32) < 0x600 { 32 } else { 8 },
+                    }
+                }
+            }
+            // Phase tracking also runs in GAIN and during rate holds. Decay
+            // matches the candidate's upper bits, not a <= boundary on E.
+            if v.stage == 1 && (candidate >> 8) == (level_data >> 5) as i32 {
+                v.stage = 2;
+            }
+            v.hidden_env = candidate;
+            if candidate as u32 > 0x7ff && v.stage == 0 {
+                v.stage = 1;
+            }
+            if rate_event(counter, rate) {
+                v.env = candidate.clamp(0, 2047);
+            }
+        }
+    }
     pub fn sample(&mut self, ram: &mut [u8]) -> (i16, i16) {
         // One shared phase, including silence, key-on delay and FLG reset/mute.
         // Initialization is C=0; decrement before envelope and noise polls.
@@ -198,63 +253,20 @@ impl Dsp {
                         v.preload_next = 4;
                     }
                 }
+                // KON call five updates E_next while its applied envelope and
+                // published output remain zero. Call six consumes that E_next.
+                if v.key_delay == 0 {
+                    Self::update_envelope(
+                        v,
+                        self.regs[base + 5],
+                        self.regs[base + 6],
+                        self.regs[base + 7],
+                        self.counter,
+                    );
+                }
                 self.regs[base + 8] = 0;
                 self.regs[base + 9] = 0;
                 continue;
-            }
-            let adsr = self.regs[base + 5];
-            let adsr2 = self.regs[base + 6];
-            let gain = self.regs[base + 7];
-            if v.stage == 3 {
-                // Release bypasses the rate gate and leaves the hidden latch alone.
-                v.env = (v.env - 8).max(0);
-            } else {
-                // Anomie/jwdonal revision 1212, VxADSR/VxGAIN; see Issue #75
-                // reconciliation. Evaluate from committed E on EVERY sample.
-                let mut candidate = v.env;
-                let rate;
-                let level_data;
-                if adsr & 128 != 0 {
-                    level_data = adsr2;
-                    if v.stage == 0 {
-                        rate = (adsr & 15) * 2 + 1;
-                        candidate += if rate == 31 { 1024 } else { 32 };
-                    } else {
-                        rate = if v.stage == 1 {
-                            ((adsr >> 4) & 7) * 2 + 16
-                        } else {
-                            adsr2 & 31
-                        };
-                        candidate -= ((candidate - 1) >> 8) + 1;
-                    }
-                } else {
-                    level_data = gain;
-                    rate = if gain & 128 == 0 { 31 } else { gain & 31 };
-                    if gain & 128 == 0 {
-                        candidate = (gain as i32) * 16;
-                    } else {
-                        match (gain >> 5) & 3 {
-                            0 => candidate -= 32,
-                            1 => candidate -= ((candidate - 1) >> 8) + 1,
-                            2 => candidate += 32,
-                            // Unsigned comparison also takes the small step for
-                            // negative H. Do not mask H to eleven bits.
-                            _ => candidate += if (v.hidden_env as u32) < 0x600 { 32 } else { 8 },
-                        }
-                    }
-                }
-                // Phase tracking also runs in GAIN and during rate holds. Decay
-                // matches the candidate's upper bits, not a <= boundary on E.
-                if v.stage == 1 && (candidate >> 8) == (level_data >> 5) as i32 {
-                    v.stage = 2;
-                }
-                v.hidden_env = candidate;
-                if candidate as u32 > 0x7ff && v.stage == 0 {
-                    v.stage = 1;
-                }
-                if rate_event(self.counter, rate) {
-                    v.env = candidate.clamp(0, 2047);
-                }
             }
             // Release at zero remains silent but keeps pitch/BRR work running.
             let pitch = self.regs[base + 2] as u32 | ((self.regs[base + 3] as u32 & 63) << 8);
@@ -291,10 +303,21 @@ impl Dsp {
             } else {
                 Self::interpolate(v.decoded, v.phase & 0xfff)
             };
-            let sample = ((source * v.env) >> 11) & !1;
+            // S3c applies the preceding committed envelope before updating it.
+            // Scalar terminal-header recognition above still forces immediate
+            // zero/release; physical lookahead remains outside this API.
+            let applied_env = v.env;
+            let sample = ((source * applied_env) >> 11) & !1;
             previous_output = sample;
-            self.regs[base + 8] = (v.env >> 4) as u8;
+            self.regs[base + 8] = (applied_env >> 4) as u8;
             self.regs[base + 9] = (sample >> 8) as u8;
+            Self::update_envelope(
+                v,
+                self.regs[base + 5],
+                self.regs[base + 6],
+                self.regs[base + 7],
+                self.counter,
+            );
             for side in 0..2 {
                 let s = (sample * self.regs[base + side] as i8 as i32) >> 7;
                 // Ascending voice order, with independent per-add saturation.
@@ -553,25 +576,25 @@ mod tests {
             dsp.write(r, v);
         }
         let mut previous = 0;
-        for (tick, envelope, stage) in [
-            (5, 0, 0),
-            (6, 1024, 0),
-            (7, 2047, 1),
-            (8, 2039, 1),
-            (9, 2039, 1),
+        for (tick, envelope, applied, stage) in [
+            (5, 1024, 0, 0),
+            (6, 2047, 1024, 1),
+            (7, 2047, 2047, 1),
+            (8, 2039, 2047, 1),
+            (9, 2039, 2039, 1),
             // At tick 69 the held decay candidate 1791 already matches
             // sustain band 6. Tick 70 therefore polls sustain rate 3.
-            (69, 1799, 2),
-            (70, 1799, 2),
-            (71, 1799, 2),
-            (535, 1799, 2),
-            (536, 1791, 2),
-            (537, 1791, 2),
+            (69, 1799, 1799, 2),
+            (70, 1799, 1799, 2),
+            (71, 1799, 1799, 2),
+            (535, 1799, 1799, 2),
+            (536, 1791, 1799, 2),
+            (537, 1791, 1791, 2),
         ] {
             advance(&mut dsp, &mut ram, tick - previous);
             assert_eq!(dsp.voices[0].env, envelope, "tick {tick}");
             assert_eq!(dsp.voices[0].stage, stage, "tick {tick}");
-            assert_eq!(dsp.regs[8], (envelope >> 4) as u8);
+            assert_eq!(dsp.regs[8], (applied >> 4) as u8);
             previous = tick;
         }
     }
@@ -627,7 +650,7 @@ mod tests {
         advance(&mut dsp, &mut ram, 3);
         assert_eq!([dsp.regs[8], dsp.regs[24], dsp.regs[40]], [0, 0, 0]);
         assert_eq!(dsp.sample(&mut ram), (0, 0)); // tick 536
-        assert_eq!([dsp.regs[8], dsp.regs[24], dsp.regs[40]], [2, 2, 0]);
+        assert_eq!([dsp.regs[8], dsp.regs[24], dsp.regs[40]], [0, 0, 0]);
         dsp.write(0x5c, 2); // release bypasses rate clock
         dsp.sample(&mut ram); // tick 537, fifth delay sample for voice 2
         assert_eq!(dsp.voices[1].env, 24);
@@ -669,9 +692,10 @@ mod tests {
         assert_eq!(dsp.regs[8], 0);
         dsp.sample(&mut ram);
         assert_eq!(dsp.voices[0].env, 32);
-        assert_eq!(dsp.regs[8], 2);
+        assert_eq!(dsp.regs[8], 0);
         dsp.sample(&mut ram);
         assert_eq!(dsp.voices[0].env, 32);
+        assert_eq!(dsp.regs[8], 2);
     }
 
     #[test]
@@ -682,7 +706,7 @@ mod tests {
         dsp.write(7, 0xdd);
         dsp.write(0x4c, 1);
         advance(&mut dsp, &mut ram, 5); // five empty key-on samples
-        for expected in [0, 0, 32, 32, 32, 64, 64, 64, 96] {
+        for expected in [32, 32, 64, 64, 64, 96, 96, 96, 128] {
             dsp.sample(&mut ram);
             assert_eq!(dsp.voices[0].env, expected);
         }

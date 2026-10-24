@@ -46,7 +46,12 @@ output.
 
 ## Implemented operation order
 
-For each active voice after its key-on delay:
+**Ordering correction:** [Issue #91](issue-91-validation.md) supersedes the
+same-call application and fifth-call deferral below. The candidate, unsigned
+comparison, phase and rate rules remain in force. The numbered list records the
+historical #75 implementation, not the current output/publication sequence.
+
+For each active voice after its key-on delay (historical #75 order):
 
 1. Release commits `max(E-8,0)` immediately and retains `H`.
 2. Otherwise start candidate `T` from committed `E`, select rate and compute
@@ -66,19 +71,21 @@ The observed distinction does not depend on choosing a particular physical latch
 width beyond retaining the candidate's sign and overflow. `i32`/`u32` implement
 that comparison; they do not assert a 32-bit physical envelope register.
 
-KON replaces the voice with E=H=0 and Attack, and the existing five empty samples
-perform no envelope evaluation. Release reaching zero and FLG soft reset retain H
+At the #75 checkpoint, KON replaced the voice with E=H=0 and Attack, and all
+five empty samples performed no envelope evaluation. #91 now updates the
+envelope on silent call five. Release reaching zero and FLG soft reset retain H
 in the inactive voice; the next KON clears it. Constructing Dsp/Apu, including
 Machine reset's Bus reconstruction, initializes H=0. Inactive-voice early exit
 and deterministic reconstruction are retained sample-API conventions, not claims
 about physical startup/reset retention. No new reset entry point is added.
 
 The Issue #13 counter convention remains C=0 then decrement before each sample's
-poll, modulus 30720; writes/KON/KOFF do not restart it. Audio still consumes the
-newly committed E in the same API sample. Revision 1212's physical SOUND
-GENERATION applies the previous envelope before updating it; implementing that
-subcycle pipeline is outside this Issue. Guest timing and PCM here explicitly
-use the retained sample API, not a claim of physical SPC/DSP race timing.
+poll, modulus 30720; writes/KON/KOFF do not restart it. At the #75 checkpoint,
+audio consumed the newly committed E in the same API sample. Revision 1212's
+physical SOUND GENERATION applies the previous envelope before updating it.
+That correction was outside #75 and is now implemented in the sample API by
+#91; physical subcycle scheduling remains outside it. Historical guest timing
+and PCM here use the earlier sample API, not physical SPC/DSP race timing.
 
 ## Corrected earlier contract
 

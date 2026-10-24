@@ -10,6 +10,7 @@ fn setup() -> (Dsp, Vec<u8>) {
     for i in 0..8 {
         d.voices[i] = Voice {
             active: true,
+            env: 1024, // settled half envelope before this sample
             addr: 0x300,
             loop_addr: 0x300,
             ..Voice::default()
@@ -126,7 +127,10 @@ fn inactive_delay_zero_envelope_release_and_retrigger_supply_correct_output() {
         match state {
             0 => d.voices[1].active = false,
             1 => d.voices[1].key_delay = 1,
-            2 => d.write(0x17, 0),
+            2 => {
+                d.write(0x17, 0);
+                d.voices[1].env = 0;
+            }
             3 => {
                 d.voices[1].env = 1024;
                 d.write(0x5c, 2);
@@ -136,8 +140,8 @@ fn inactive_delay_zero_envelope_release_and_retrigger_supply_correct_output() {
             }
         }
         d.sample(&mut ram);
-        // Release: env1016; window after zero nibble [1024,1024,1024,0],
-        // phase $80 index8 -> source2048, envelope1016 -> step $107C.
+        // Release applies env1024, commits1016; window after zero nibble [1024,1024,1024,0],
+        // phase $80 index8 -> source2046, envelope1024 -> O1022, step $107C.
         assert_eq!(d.voices[2].phase, if state == 3 { 0x107c } else { 0x1000 });
         if state != 3 {
             assert_eq!(d.regs[25], 0);

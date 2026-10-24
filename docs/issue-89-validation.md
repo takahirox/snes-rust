@@ -42,7 +42,9 @@ No external emulator implementation or output was used as code or an oracle.
 
 The hardware account distinguishes preparation, decoding, position updates and
 register publication. This core has one synchronous `Dsp::sample` call per output
-frame, with no DSP subcycle scheduler. The following mapping is deliberate:
+frame, with no DSP subcycle scheduler. The mapping includes the subsequent
+[Issue #91 envelope correction](issue-91-validation.md); the original #89 results
+and baseline evidence below are retained.
 
 | Specification stage | Documented operation | Sample-level mapping |
 | --- | --- | --- |
@@ -51,14 +53,14 @@ frame, with no DSP subcycle scheduler. The following mapping is deliberate:
 | #2 | First four-sample group at S4; position held | Call 2 decodes nibbles 0–3, emits zero. |
 | #3 | Second group; position held | Call 3 decodes nibbles 4–7, emits zero. |
 | #4 | Third group; position held | Call 4 decodes nibbles 8–11, restores selected window 0–3, emits zero. |
-| #5 | Envelope updating begins; previously prepared output remains zero; position zero | Call 5 still publishes PCM/ENVX/OUTX zero; the existing output-aligned envelope evaluation is retained. |
-| #6 | First data output; first position update at S4 afterward | Call 6 evaluates the first ordinary envelope and outputs window 0–3 at phase zero. |
+| #5 | Envelope updating begins; previously prepared output remains zero; position zero | Call 5 publishes PCM/ENVX/OUTX zero and updates the initial envelope for call 6 (#91). |
+| #6 | First data output; first position update at S4 afterward | Call 6 applies the envelope committed on call 5 to window 0–3 at phase zero, then updates the next envelope (#91). |
 | Following frames | Interpolate at updated position | Call 7 and later apply the current pitch increment before output. |
 
-In particular, the #5 envelope operation is folded into the first audible API
-call, as before. This does not implement preceding-envelope application timing
-or separate ENVX/OUTX publication stages. Register writes between calls are
-sample-level operations, not measurements of S3/S4 or the 16 kHz key poll.
+Historically #89 folded the #5 envelope operation into the first audible API
+call. #91 supersedes that deferral and implements preceding-envelope application.
+Separate physical ENVX/OUTX publication stages remain unimplemented. Register
+writes between calls are sample-level operations, not measurements of S3/S4 or the 16 kHz key poll.
 Stable DIR/SRCN/start/loop words and RAM throughout initialization are required.
 Selecting start on call 1 is equivalent under that restriction, not evidence for
 live KON-delay selection. Five zero calls do not claim five physical cycles
@@ -303,8 +305,7 @@ Within `dsp-voices`, this Issue closes stable-entry ordinary startup priming
 and sample-level zero-pitch hold/resume. Remaining voice work includes independent
 filters 1–3 evidence, exhaustive interpolation phases, simultaneous key/mixing
 combinations, live KON-delay selection, physical header/lookahead/publication
-timing, preceding-envelope application timing, register/RAM and SPC/DSP bus
-races, torn writes and reset retention. Other inventory gaps retain their full
+timing, register/RAM and SPC/DSP bus races, torn writes and reset retention. Other inventory gaps retain their full
 inherited scope. The original NON/PMON progression dispute remains separate.
 
 No complete DSP subcycle scheduler, new filter algorithm, firmware, enhancement
