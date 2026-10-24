@@ -90,6 +90,8 @@ cargo test --locked -p snes-core --test ppu_vram_access
 cargo test --locked -p snes-core --test ppu_oam_access
 cargo test --locked -p snes-core --test ppu_oam_reload
 cargo test --locked -p snes-core --test ppu_cgram_access
+cargo test --locked -p snes-core --lib dsp::echo_tests
+cargo test --locked -p snes-core --test dsp_echo
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -551,8 +553,18 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   high increments/saturation, live writes, noise interactions, an original SPC
   guest and APU partition invariance. Pitch remains partial: DSP subcycle register
   sampling, torn pitch writes, SPC bus timing and register/RAM races are outside
-  this implementation. Exhaustive BRR filters/interpolation phases, hidden
-  envelope corrections and reference echo saturation remain unverified.
+  this implementation. The [echo validation](docs/issue-71-validation.md)
+  reconciles fixed-ESA/EDL FIR history order, input/product rounding, intermediate
+  wrap and final saturation, signed feedback/volumes and even RAM writeback.
+  Original numerical vectors and an uploaded SPC700 guest cover these consumers,
+  delay/history/address wraps, mute/write-disable and APU partition invariance.
+  `dsp-echo` and `dsp-timing` remain partial: live ESA/EDL sampling, DSP subcycle
+  register/RAM races, SPC bus synchronization, physical startup/reset retention
+  and comprehensive multi-voice dry/send saturation remain outstanding.
+  Signed endpoint narrowing follows the documented 16-bit arithmetic with
+  research-emulator corroboration; no physical-device verification is claimed.
+  Exhaustive BRR filters/interpolation phases and hidden envelope corrections
+  remain unverified.
   Browser tests bound device-clock drift, queue duration and live sources,
   including main-thread stalls and repeated pause/reset/play.
 - Enhancement chips, ExLoROM/ExHiROM, PAL, save states and broad commercial
