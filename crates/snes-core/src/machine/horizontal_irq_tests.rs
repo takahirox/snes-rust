@@ -159,7 +159,8 @@ fn horizontal_irq_one_irregular_and_whole_intervals_cross_natural_boundaries() {
 
 #[test]
 fn horizontal_irq_zero_and_late_controls_retain_only_approximate_scheduling() {
-    // Compatibility controls, NOT claims about hardware zero/rollover rules.
+    // Compatibility controls, NOT claims about hardware H-only zero/late rules.
+    // Combined zero is covered by the Issue #101 ten-clock regressions.
     for mode in [0x10, 0x30] {
         for field in 1..=2 {
             for (htime, old_offset) in [
@@ -170,9 +171,9 @@ fn horizontal_irq_zero_and_late_controls_retain_only_approximate_scheduling() {
                 (340, 1360),
                 (341, 1364),
             ] {
-                if htime == 337 && field == 2 {
+                if (htime == 0 && mode == 0x30) || (htime == 337 && field == 2) {
                     continue;
-                } // corrected ordinary-line case
+                } // corrected combined-zero or ordinary-line case
                 let start = line_start(field, 240);
                 let length = if field == 1 { 1360 } else { 1364 };
                 let mut b = timer_bus(mode, htime, 240);

@@ -204,7 +204,7 @@ impl SystemBus {
             let line = self.ppu.line_clocks();
             // Fullsnes H/V Events: nonzero H/HV asserts 3.5 CPU timer
             // units after comparison (four master clocks per unit, even near
-            // long PPU dots). Zero and line-spanning cases remain approximate.
+            // long PPU dots). H-only zero and line-spanning cases remain approximate.
             let h_irq = if htime != 0 && htime + 14 < line {
                 htime + 14
             } else {
@@ -247,7 +247,9 @@ impl SystemBus {
             {
                 self.irq = true;
             }
-            if mode == 0x20
+            // Fullsnes gives combined HTIME=0 the same 2.5-unit offset as
+            // V-only, rather than the nonzero horizontal delay. See Issue #101.
+            if (mode == 0x20 || (mode == 0x30 && htime == 0))
                 && self.v == vtime
                 && old_h < V_ONLY_IRQ
                 && self.h >= V_ONLY_IRQ
@@ -270,8 +272,8 @@ impl SystemBus {
             }
             self.ppu.v = self.v;
             self.ppu.oam_scanline_start(self.v);
-            // H-only/HV retain the approximate H=0 comparator convention.
-            if mode & 0x10 != 0 && htime == 0 && (mode & 0x20 == 0 || self.v == vtime) {
+            // H-only zero retains its approximate H=0 comparator convention.
+            if mode == 0x10 && htime == 0 {
                 self.irq = true;
             }
             if self.v == 225 {
@@ -1050,8 +1052,8 @@ mod tests {
     }
 
     #[test]
-    fn combined_zero_timers_retain_approximate_rollover() {
-        check_combined_timer_frames(0, 0);
+    fn combined_zero_irq_timers_assert_at_ten_after_rollover() {
+        check_combined_timer_frames(0, 10);
     }
 
     #[test]
@@ -1112,3 +1114,7 @@ mod v_only_irq_tests;
 #[cfg(test)]
 #[path = "machine/horizontal_irq_tests.rs"]
 mod horizontal_irq_tests;
+
+#[cfg(test)]
+#[path = "machine/combined_zero_irq_tests.rs"]
+mod combined_zero_irq_tests;
