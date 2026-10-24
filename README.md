@@ -97,6 +97,7 @@ cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test --locked -p snes-core --test dsp_directory
 cargo test --locked -p snes-core --test dsp_brr_end
+cargo test --locked -p snes-core --test spc_timers
 cargo test -p snes-core --test ppu_offset --locked
 cargo test --locked -p snes-core --test ppu_hires
 cargo test --locked -p snes-core --test ppu_mode6_offset
@@ -534,6 +535,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
 - SPC700 execution/timers and CPU communication using a firmware-free,
   high-level IPL upload protocol. All licensed SPC semantic tests pass; IPL
   instruction timing and general firmware execution are not emulated.
+  Running timers use eight-bit wrapping counting stages and post-increment
+  equality against live targets, including zero as 256. The
+  [timer validation](docs/issue-83-validation.md) records hardware-source
+  reconciliation, boundary/control vectors for all three timers, an original
+  uploaded SPC700 guest and whole/irregular tick comparisons. `spc` remains
+  partial: disabled-divider phase, physical instruction/access timing,
+  communication races, SLEEP/STOP differences, register readback, reset retention
+  and comprehensive instruction semantics remain unresolved or incompletely
+  tested.
   DSP provides BRR voices, Gaussian interpolation, ADSR/gain, signed stereo
   mixing, five-sample key-on delay and FIR echo. Numerical tests cover the
   selected game's filter-0 BRR, interpolation/overflow, direct gain, pitch,
