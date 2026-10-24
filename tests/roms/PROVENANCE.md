@@ -1045,3 +1045,30 @@ our rebuilt smoke binary are committed. Original/generated artifacts remain
 redistributable under MIT; no commercial ROM or firmware was acquired.
 The [event/evidence record](../../docs/issue-69-validation.md) distinguishes
 logical checks from unverified electrical and subcycle timing behavior.
+
+## Issue #71: original FIR/feedback SPC700 guest and echo vectors
+
+- Source: [`dsp_echo.rs`](../../crates/snes-core/tests/dsp_echo.rs), `guest`,
+  `echo_data` and the host tests; focused unit vectors in
+  [`dsp_echo_tests.rs`](../../crates/snes-core/src/dsp_echo_tests.rs).
+  Authored for this repository by snes-rust contributors, copyright 2026,
+  [MIT](../../LICENSE). Cargo compiles the Rust instruction builder; it encodes
+  original SPC700 instructions directly. No external assembler, executable,
+  firmware, music, BRR asset or commercial ROM is acquired or embedded.
+- The original data are repeated little-endian stereo words 16386/-8194 in
+  `$6000..$67FF`. The host uploads code at `$0200` using the existing firmware-free
+  port protocol and supplies initial echo data only. The guest executes DSP
+  register writes through `$F2/$F3`, enables nonzero FIR7/EFB, and copies four
+  echo RAM bytes per command into `$1000..$100B`. It acknowledges commands 1–4,
+  then executes STOP. No private history, echo offset or expected results are
+  injected. The host observes RAM to anchor the first write, then checks numeric
+  PCM and guest-recorded RAM through delay/history wraps.
+- Upload length is below 256 bytes, ready occurs before 100 samples; each
+  acknowledgement is bounded by 1,000 calls of 21 master clocks. Each advance
+  has a 1,200,000-call bound, completion is before first-write + 1,650 samples,
+  STOP and absence of core errors are asserted. The separate partition test
+  compares all PCM, DSP registers and echo RAM for fixed EDL 0/1.
+- Arithmetic derivation, endpoint attribution and checks are in the
+  [Issue #71 record](../../docs/issue-71-validation.md). Only specification facts
+  were used; no external emulator implementation code was imported. Original
+  source and generated in-memory data are redistributable under MIT.

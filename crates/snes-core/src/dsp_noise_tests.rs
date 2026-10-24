@@ -180,10 +180,11 @@ fn signed_noise_envelope_outx_stereo_and_echo_vectors() {
         }
         assert_eq!(dsp.sample(&mut ram), pcm);
         assert_eq!([dsp.regs[8], dsp.regs[9]], [gain, outx]);
-        // EON input before master volume; zero FIR/feedback, no saturation.
+        // EON before master volume, zero FIR/EFB. Echo RAM drops bit 0.
+        // Fullsnes ESA; Anomie SOUND GENERATION; issue-71-validation.md.
         assert_eq!(
             i16::from_le_bytes([ram[0x6000], ram[0x6001]]),
-            ((sample * 127) >> 7) as i16
+            (((sample * 127) >> 7) & !1) as i16
         );
         assert_eq!(
             i16::from_le_bytes([ram[0x6002], ram[0x6003]]),

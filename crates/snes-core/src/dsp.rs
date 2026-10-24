@@ -257,26 +257,32 @@ impl Dsp {
         self.kon = 0;
         let ea = ((self.regs[0x6d] as usize) << 8) + self.echo_pos;
         self.echo_hist[self.echo_index] = [
-            Self::word(ram, ea as u16) as i16 as i32,
-            Self::word(ram, (ea + 2) as u16) as i16 as i32,
+            (Self::word(ram, ea as u16) as i16 as i32) >> 1,
+            (Self::word(ram, (ea + 2) as u16) as i16 as i32) >> 1,
         ];
         let mut out = [0i16; 2];
         for side in 0..2 {
-            let mut echo = 0;
-            for tap in 0..8 {
-                echo += (self.echo_hist[(self.echo_index + 8 - tap) & 7][side]
+            // FIR0 is age 7; FIR7 is the newly read half-amplitude word.
+            // Seven terms wrap, the separately narrowed final term saturates.
+            // Fullsnes/Anomie reconciliation: docs/issue-71-validation.md.
+            let term = |tap: usize| {
+                (self.echo_hist[(self.echo_index + 1 + tap) & 7][side]
                     * self.regs[tap * 16 + 15] as i8 as i32)
-                    >> 7;
-            }
+                    >> 6
+            };
+            let partial: i32 = (0..7).map(term).sum();
+            let echo =
+                ((partial as i16 as i32) + (term(7) as i16 as i32)).clamp(-32768, 32767) & !1;
             if self.regs[0x6c] & 32 == 0 {
-                let feedback = (echo_in[side] + ((echo * self.regs[0x0d] as i8 as i32) >> 7))
-                    .clamp(-32768, 32767) as i16;
+                let scaled = ((echo * self.regs[0x0d] as i8 as i32) >> 7) as i16 as i32;
+                let feedback = ((echo_in[side] + scaled).clamp(-32768, 32767) & !1) as i16;
                 let bytes = feedback.to_le_bytes();
                 ram[(ea + side * 2) & 65535] = bytes[0];
                 ram[(ea + side * 2 + 1) & 65535] = bytes[1];
             }
-            let value = ((mix[side] * self.regs[0x0c + side * 16] as i8 as i32) >> 7)
-                + ((echo * self.regs[0x2c + side * 16] as i8 as i32) >> 7);
+            let dry = ((mix[side] * self.regs[0x0c + side * 16] as i8 as i32) >> 7) as i16 as i32;
+            let wet = ((echo * self.regs[0x2c + side * 16] as i8 as i32) >> 7) as i16 as i32;
+            let value = dry + wet;
             out[side] = if self.regs[0x6c] & 64 != 0 {
                 0
             } else {
@@ -731,3 +737,7 @@ mod noise_tests;
 #[cfg(test)]
 #[path = "dsp_pitch_tests.rs"]
 mod pitch_tests;
+
+#[cfg(test)]
+#[path = "dsp_echo_tests.rs"]
+mod echo_tests;
