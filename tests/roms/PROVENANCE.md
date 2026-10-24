@@ -1229,3 +1229,32 @@ unchanged.
   require numeric records before partition equality is treated as determinism.
 - Existing #83 records, cleared-game sources/licenses, source/tool pins, hashes,
   gameplay/freeze, note/effect, Web Audio and queue/drift assertions are retained.
+
+## Issue #87: original SPC700 I/O readback vectors and uploaded guest
+
+- [`spc_io_readback.rs`](../../crates/snes-core/tests/spc_io_readback.rs) is
+  original work by the snes-rust contributors, copyright 2026, licensed under
+  the root [MIT license](../../LICENSE). All new Rust vectors, instruction
+  sequences and numeric expectations are original. Cargo compiles an in-memory
+  SPC700 instruction builder; only source is committed, with no assembler or
+  binary fixture needed. Generated code/data are redistributable under MIT.
+- The guest uploads at `$0200` using the existing firmware-free port protocol.
+  Distinct nonzero page-0 backing and page-1 RAM bytes are fixture inputs,
+  never expected-result injection. It records actual reads at `$1200–$1237`,
+  uses SETP/CLRP to distinguish RAM from the register overlay, checks adjacent
+  DSP/communication/storage/RAM routes, writes timer targets and CONTROL, and
+  records all three timer outputs across separated instruction-timed windows.
+  It never writes TEST. Polling, upload and execution have fixed bounds;
+  port 0=`$87` plus STOP is required within 60000 master clocks of host start.
+- [Issue #87 validation](../../docs/issue-87-validation.md) attributes ordinary
+  zero reads to Anomie revision 1126 and distinguishes Fullsnes's write-only
+  labels from an explicit read value. These hardware references were consulted
+  as documentation only. No commercial ROM, Nintendo firmware, music, graphics
+  or captured emulator output is part of these new fixtures. No external
+  emulator implementation was built, incorporated or used as an oracle; the
+  existing pinned SPC tool archive is used only to build the auxiliary assembler.
+  Each whole/irregular run independently requires numeric records before
+  comparing PCM, DSP registers, RAM, ports and public SPC state for determinism.
+- All eleven existing timer tests and their literal guest records, licensed
+  source-built fixtures, source/tool pins, cleared-game hashes/licenses and
+  browser gameplay/audio/freeze/queue assertions remain unchanged.
