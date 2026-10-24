@@ -246,7 +246,7 @@ fn steady(apu: &mut Apu, pcm: (i16, i16), echo: [u8; 4]) {
     apu.tick(32 * 21_477_272 / 1_024_000 * 20);
     assert!(apu.error.is_none());
     // Ignore first ten samples for key-on and command completion, then check all.
-    for pair in apu.samples[start + 20..].chunks_exact(2) {
+    for pair in apu.samples[start + 20..].as_chunks::<2>().0 {
         assert_eq!(pair, &[pcm.0 as f32 / 32768.0, pcm.1 as f32 / 32768.0]);
     }
     assert_eq!(&apu.ram[0x6000..0x6004], &echo);
@@ -343,13 +343,13 @@ fn multi_voice_pcm_registers_and_echo_match_irregular_apu_partitions() {
                 assert_eq!(&whole.ram[0x1000..0x1014], &split.ram[0x1000..0x1014]);
                 assert!(whole.error.is_none() && split.error.is_none());
                 if elapsed >= 511 {
-                    for pair in whole.samples[(start + 10) * 2..].chunks_exact(2) {
+                    for pair in whole.samples[(start + 10) * 2..].as_chunks::<2>().0 {
                         assert_eq!(pair, &[pcm.0 as f32 / 32768.0, pcm.1 as f32 / 32768.0]);
                     }
                 }
             }
             let size = if delay == 0 { 4 } else { 2048 };
-            for pair in whole.ram[0x6000..0x6000 + size].chunks_exact(4) {
+            for pair in whole.ram[0x6000..0x6000 + size].as_chunks::<4>().0 {
                 assert_eq!(pair, &echo);
             }
             if command != 0 {
