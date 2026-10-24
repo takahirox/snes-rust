@@ -87,6 +87,7 @@ cargo test --locked -p snes-core --test hdma_phase
 cargo test --locked -p snes-core --test hdma_ntrl
 cargo test --locked -p snes-core --test ppu_counter_latch
 cargo test --locked -p snes-core --test ntsc_timing
+cargo test --locked -p snes-core v_only_irq
 cargo test --locked -p snes-core --lib machine::ntsc_timing_tests
 cargo test --locked -p snes-core --test ppu_vram_access
 cargo test --locked -p snes-core --test ppu_oam_access
@@ -168,7 +169,12 @@ Issue #95 adds NTSC non-interlaced long-dot counters, alternating short-line
 geometry, STAT78 field reporting and two-field browser cadence. Its
 [validation record](docs/issue-95-validation.md) records specification conflicts,
 independent timing oracles, an original CPU guest and bounded gate results.
-IRQ assertion delays and interlaced/overscan/PAL geometry remain unresolved.
+Issue #97 corrects V-only IRQ assertion to ten elapsed master clocks after the
+matching scanline begins, including natural rollover and DMA. Its
+[validation record](docs/issue-97-validation.md) covers independent clock vectors,
+timed TIMEUP reads and an original self-checking CPU guest. H-only/HV assertion
+delays, live timer-write races, instruction-boundary CPU sampling and
+interlaced/overscan/PAL geometry remain unresolved.
 
 Issue #67 adds independent manual reads for two standard joypads with a shared
 latch. `Machine::set_buttons` supplies port 1 and `Machine::set_buttons2` supplies
