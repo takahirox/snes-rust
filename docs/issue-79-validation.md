@@ -8,6 +8,12 @@ complete Issue #3 or establish physical DSP pipeline timing.
 assumption below: stable initial terminal headers are recognized after the five
 silent KON calls even at zero pitch. The original #79 results remain historical.
 
+Issue [#89](issue-89-validation.md#source-reconciliation) supersedes this
+record's empty startup waveform, initial nibble-demand counts and interpolation
+windows. Its staged KON reconciliation establishes three decoded groups and
+first window 0–3 at phase zero. Earlier executed results below are historical;
+live selection, terminal release and silent processing remain covered.
+
 ## Source reconciliation
 
 The following attributed sources were fetched and inspected on 2026-10-24

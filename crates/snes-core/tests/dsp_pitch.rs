@@ -55,10 +55,12 @@ fn original_brr_pair_pmon_reproduction() {
     }
     // Settled predecessor +16376 => step $17FC. Four steps give $5FF0
     // (five decoded nibbles); at index 255 taps are 0,374,1305,370.
-    // Decoded window [256,512,768,1024] -> source 1534 -> envelope 766.
-    assert_eq!(off.sample(&mut a), (64, -128));
-    assert_eq!(on.sample(&mut b), (191, -383));
-    assert_eq!([off.regs[25], on.regs[25]], [1, 2]);
+    // KON starts at window 0..3. Four steps select window 4..7
+    // without PMON; five steps select [1280,1536,1792,-2048] with
+    // PMON: source 2104 -> envelope 1052 (each shift rounds separately).
+    assert_eq!(off.sample(&mut a), (320, -640));
+    assert_eq!(on.sample(&mut b), (263, -526));
+    assert_eq!([off.regs[25], on.regs[25]], [5, 4]);
 }
 
 fn noise_pair(dsp: &mut Dsp, ram: &mut [u8], pmon: u8) {
@@ -198,21 +200,23 @@ fn apu_pcm_and_all_registers_match_irregular_partitions_with_live_pmon() {
     let mut whole = configured();
     let mut split = configured();
     let mut master = 0;
-    // At step $20, every 128 output samples advance one nibble. Five key-delay
-    // samples precede advancement. Literal phase-zero Gaussian/volume vectors.
+    // At step $20, each 128 updates advances one position from KON's
+    // window 0..3. First data tick 6 is phase zero. At the other checkpoints
+    // the phase bin is 254: taps [0,378,1305,366]/1024, from the documented
+    // table. PMON off after 517/647; on after 519. See Issue #89 evidence.
     for (tick, outx, pcm, end) in [
-        (6, 0, (0, 0), 0),
-        (133, 0, (0, 0), 0),
-        (261, 0, (0, 0), 0),
-        (389, 0, (11, -23), 0),
-        (517, 1, (64, -128), 0),
-        (518, 2, (128, -256), 0),
-        (519, 3, (192, -384), 0),
-        (647, 4, (256, -512), 0),
-        // Resume independent pitch after tick 647: 9 more nibbles to 16,
-        // then the loop raises ENDX at 657, with history [-768,-512,-256,0].
-        (656, 253, (-192, 384), 0),
-        (657, 253, (-129, 257), 2),
+        (6, 1, (64, -128), 0),
+        (133, 1, (127, -255), 0),
+        (261, 2, (191, -383), 0),
+        (389, 3, (255, -511), 0),
+        (517, 4, (319, -639), 0),
+        (518, 5, (383, -767), 0),
+        (519, 4, (264, -529), 0),
+        (647, 250, (-324, 648), 0),
+        (653, 253, (-129, 258), 0),
+        (654, 254, (-65, 129), 2),
+        (656, 0, (63, -127), 2),
+        (657, 1, (127, -255), 2),
     ] {
         let target = (tick * 32u64 * 21_477_272).div_ceil(1_024_000);
         whole.tick(target - master);

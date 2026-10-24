@@ -97,6 +97,7 @@ cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test --locked -p snes-core --test dsp_directory
 cargo test --locked -p snes-core --test dsp_brr_end
+cargo test --locked -p snes-core --test dsp_kon_preload
 cargo test --locked -p snes-core --test spc_timers
 cargo test --locked -p snes-core --test spc_io_readback
 cargo test --locked -p snes-core --lib apu::timing_tests
@@ -612,15 +613,18 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   workspace tests, 37 browser checks and required source-built hardware gates
   passed, with unchanged cleared-game build hashes. Physical header prefetch
   and publication timing are still unresolved.
-  The [zero-pitch initial-header correction](docs/issue-81-validation.md)
-  recognizes stable initial `01` headers by the first ordinary call after the
-  five silent KON calls, independently of pitch or NON. It retains zero envelope
-  and release across register edits and pitch changes, without decoding a nibble
-  or setting ENDX merely to recognize the header. Nonterminal zero-pitch noise
-  stays audible; ordinary zero-pitch waveform preloading remains unimplemented.
-  Original numerical vectors and an uploaded SPC700 guest cover the bounded API;
-  this does not establish physical KON/lookahead or register-publication timing.
-  Live-header sampling, directory/key races and reset retention remain unresolved.
+  The [KON waveform-priming correction](docs/issue-89-validation.md)
+  supersedes the empty startup history retained by Issues #77/#79/#81.
+  Three four-sample groups decode during initialization independently of pitch;
+  after five silent calls, call 6 outputs window 0–3 at phase zero. Pitch zero
+  holds that window; pitch changes resume without decoding preloaded samples
+  twice. Initial `01` still selects zero envelope/release; priming alone never
+  sets ENDX. Original signed filter-0 vectors and an uploaded SPC700 guest
+  cover PCM, ENVX, OUTX, ENDX, holds, resume, retrigger and voice isolation.
+  All five new tests fail behaviorally on the exact evaluation baseline.
+  See the validation record for executed workspace, browser and fixture gates.
+  Physical later-block lookahead, preceding-envelope timing, live KON-delay
+  selection, register/RAM races and reset retention remain unresolved.
   `dsp-voices` remains partial: independent BRR-filter 1–3 evidence, exhaustive
   interpolation phases, simultaneous key/mixing combinations, KON-delay selection
   changes and physical header/directory/key timing remain. Hidden

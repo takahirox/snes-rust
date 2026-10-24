@@ -78,8 +78,8 @@ fn initial_header_flags_at_zero_and_low_pitch_precede_nibble_demand() {
                         dsp.write(6, 0xe0);
                     }
                     delay(&mut dsp, &mut ram);
-                    // At pitch 1 the first nibble is demanded on call 4096;
-                    // pitch 0 never demands one. Check the entire held interval.
+                    // KON supplies window 0..3. Pitch 1 advances its first
+                    // integer position on ordinary call 4097; pitch 0 holds.
                     for tick in 1..=4095 {
                         let env = if flags == 1 {
                             0
@@ -90,7 +90,32 @@ fn initial_header_flags_at_zero_and_low_pitch_precede_nibble_demand() {
                         };
                         // FLG rate 0 holds seed $4000: signed source -32768.
                         // Direct GAIN E=1024; fast attack then holds E=2047.
-                        let out = if noise { -16 * env } else { 0 };
+                        // Fullsnes/Anomie Gaussian coefficients: for constant
+                        // -2048 each product is exact. The four-tap sum is
+                        // 2047, 2048 or 2049, symmetric around phase bin 127.5.
+                        // Literal bin sets derived from the published table,
+                        // independently of the production Gaussian array.
+                        let bin = if pitch == 0 { 0 } else { (tick - 1) / 16 };
+                        let bin = bin.min(255 - bin);
+                        let sum = if [
+                            2, 3, 4, 7, 8, 13, 15, 26, 30, 32, 47, 51, 79, 80, 82, 84, 86, 107,
+                            111, 119, 125,
+                        ]
+                        .contains(&bin)
+                        {
+                            2047
+                        } else if [
+                            0, 1, 9, 16, 18, 20, 28, 36, 39, 40, 41, 48, 58, 67, 71, 76, 78, 88,
+                            90, 101, 113, 118, 121,
+                        ]
+                        .contains(&bin)
+                        {
+                            2049
+                        } else {
+                            2048
+                        };
+                        let source = if noise { -32768 } else { -2 * sum };
+                        let out = ((source * env) >> 11) & !1;
                         assert_eq!(
                             (
                                 dsp.sample(&mut ram),
@@ -163,7 +188,7 @@ fn zero_pitch_release_survives_edits_resumes_end_processing_and_rekeys_independe
             word(&mut ram, 0x2002, D);
         }
         assert_eq!(dsp.sample(&mut ram), (0, 8192));
-        let event = [17, 49, 81, 97].contains(&count);
+        let event = [13, 45, 77, 93].contains(&count);
         assert_eq!(
             [dsp.regs[8], dsp.regs[9], dsp.regs[0x7c]],
             [0, 0, u8::from(event)],
@@ -196,11 +221,11 @@ fn zero_pitch_release_survives_edits_resumes_end_processing_and_rekeys_independe
     dsp.write(3, 0x10);
     let restarted = [vec![3072; 16], vec![1024; 16]].concat();
     for count in 1..=20 {
-        let out = output(&restarted, count, false, 1024);
+        let out = output(&restarted, count + 4, false, 1024);
         assert_eq!(dsp.sample(&mut ram), ((out >> 2) as i16, 8192));
         assert_eq!(
             [dsp.regs[8], dsp.regs[9], dsp.regs[0x7c]],
-            [64, (out >> 8) as u8, u8::from(count > 16)]
+            [64, (out >> 8) as u8, u8::from(count + 4 > 16)]
         );
         assert_eq!([dsp.regs[0x18], dsp.regs[0x19]], [64, 192]);
     }
@@ -281,8 +306,8 @@ fn normal_to_terminal_header_mutes_before_end_with_an_unaffected_voice() {
                     .concat();
                     let one = [1024; 144];
                     for tick in 1..=40usize {
-                        let position = tick * pitch as usize;
-                        let count = position / 4096;
+                        let position = (tick - 1) * pitch as usize;
+                        let count = 4 + position / 4096;
                         let env = if count > 16 {
                             0
                         } else if adsr && tick > 1 {
@@ -329,8 +354,8 @@ fn terminal_at_start_and_all_flag_controls_have_separate_header_and_end_events()
                 delay(&mut dsp, &mut ram);
                 let sequence = [vec![-2048; 16], vec![2048; 128]].concat();
                 for tick in 1..=40usize {
-                    let position = tick * pitch as usize;
-                    let count = position / 4096;
+                    let position = (tick - 1) * pitch as usize;
+                    let count = 4 + position / 4096;
                     let env = if flags == 1 {
                         0
                     } else if adsr && tick > 1 {
@@ -370,7 +395,7 @@ fn silent_end_chain_uses_live_selection_and_only_kon_revives_it() {
         assert_eq!(dsp.sample(&mut ram), (0, 0), "count {count}");
         assert_eq!([dsp.regs[8], dsp.regs[9]], [0, 0]);
         // A -> B/B+9 -> C/C+9 -> D -> D. Clear each event immediately.
-        let event = [17, 49, 81, 97].contains(&count);
+        let event = [14, 46, 78, 94].contains(&count);
         assert_eq!(dsp.regs[0x7c], u8::from(event), "count {count}");
         if event {
             dsp.write(0x7c, 0);
@@ -395,14 +420,14 @@ fn silent_end_chain_uses_live_selection_and_only_kon_revives_it() {
     delay(&mut dsp, &mut ram);
     let restarted = [vec![3072; 16], vec![1024; 16]].concat();
     for count in 1..=20 {
-        let out = output(&restarted, count, false, 1024);
+        let out = output(&restarted, count + 3, false, 1024);
         assert_eq!(
             dsp.sample(&mut ram),
             ((out >> 2) as i16, (-out >> 1) as i16)
         );
         assert_eq!(
             [dsp.regs[8], dsp.regs[9], dsp.regs[0x7c]],
-            [64, (out >> 8) as u8, u8::from(count > 16)]
+            [64, (out >> 8) as u8, u8::from(count + 3 > 16)]
         );
     }
 }

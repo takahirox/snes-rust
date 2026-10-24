@@ -1258,3 +1258,26 @@ unchanged.
 - All eleven existing timer tests and their literal guest records, licensed
   source-built fixtures, source/tool pins, cleared-game hashes/licenses and
   browser gameplay/audio/freeze/queue assertions remain unchanged.
+
+## Issue #89 original KON preload vectors and SPC700 guest
+
+- [`dsp_kon_preload.rs`](../../crates/snes-core/tests/dsp_kon_preload.rs) is
+  original work by the snes-rust contributors, copyright 2026, under the root
+  [MIT license](../../LICENSE). Its signed filter-0 BRR bytes, numeric vectors,
+  SPC700 instruction stream and guest command sequence are authored here.
+  Cargo constructs the guest in memory; only source is committed.
+- The bounded guest uploads at $0200 through the existing firmware-free port
+  protocol, configures/reads DSP registers through $F2/$F3, records six
+  ENVX/OUTX/ENDX triples at $1100–$1111 and then STOPs. Original RAM data have
+  distinct start/loop words. Startup, hold, resume, clear and retrigger have
+  independent PCM/register anchors; whole and irregular APU tick partitions
+  compare every PCM sample, all registers, all RAM and all output ports.
+- [Issue #89 validation](../../docs/issue-89-validation.md) attributes the
+  hardware facts to Anomie/jwdonal revision 1212 and Fullsnes and derives
+  expectations from the staged sequence, explicit signed samples and published
+  Gaussian coefficients. No external implementation, emulator output, ROM,
+  firmware, music, graphics or other assets were incorporated or used as an
+  oracle. Generated guest/data remain redistributable under MIT. Licensed
+  auxiliary fixtures, tool/game pins, sources, hashes and browser assertions
+  are unchanged. These bounded diagnostics do not establish full hardware
+  accuracy or commercial compatibility.
