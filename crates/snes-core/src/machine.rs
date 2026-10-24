@@ -27,6 +27,13 @@ const DMA_PATTERN: [&[u8]; 8] = [
     &[0, 0],
     &[0, 0, 1, 1],
 ];
+// Logical automatic phases; exact electrical edges remain unverified.
+// See docs/issue-69-validation.md for sources and event conventions.
+struct AutoJoypad {
+    next: u64,
+    step: u8, // 0: release latch; 1..=16: sample/clock both ports.
+}
+
 pub struct Machine {
     pub cpu: Cpu,
     pub bus: SystemBus,
@@ -49,11 +56,12 @@ pub struct SystemBus {
     irq: bool,
     pub buttons: u16,
     buttons2: u16,
-    joy: u16,
+    joy: [u16; 4],
     serial: [u16; 2],
     strobe: bool,
-    auto_until: u64,
-    auto_buttons: u16,
+    auto_start: Option<u64>,
+    auto_poll: Option<AutoJoypad>,
+    auto_latch: bool,
     dma_pending: u8,
     hdma_active: u8,
     hdma_line: [u8; 8],
@@ -117,7 +125,6 @@ impl Machine {
         self.bus.buttons = buttons & 0xfff0;
     }
     /// Set port 2 independently, using the same format as `set_buttons`.
-    /// This supplies manual serial input; automatic port 2 polling is not modeled.
     pub fn set_buttons2(&mut self, buttons: u16) {
         self.bus.buttons2 = buttons & 0xfff0;
     }
@@ -165,11 +172,12 @@ impl SystemBus {
             irq: false,
             buttons: 0,
             buttons2: 0,
-            joy: 0,
+            joy: [0; 4],
             serial: [0; 2],
             strobe: false,
-            auto_until: 0,
-            auto_buttons: 0,
+            auto_start: None,
+            auto_poll: None,
+            auto_latch: false,
             dma_pending: 0,
             hdma_active: 0,
             hdma_line: [0; 8],
@@ -188,10 +196,17 @@ impl SystemBus {
         while n > 0 {
             // Compare within one scanline, then handle H=0 on the new line.
             let old_h = self.h;
-            let elapsed = n.min(LINE - self.h);
+            let mut elapsed = n.min(LINE - self.h);
+            if let Some(next) = self.auto_start {
+                elapsed = elapsed.min(next - self.clocks);
+            }
+            if let Some(poll) = &self.auto_poll {
+                elapsed = elapsed.min(poll.next - self.clocks);
+            }
             self.clocks += elapsed;
             self.h += elapsed;
             n -= elapsed;
+            self.auto_joypad_event();
             if self.v == 225 && old_h < OAM_RELOAD && self.h >= OAM_RELOAD {
                 self.ppu.oam_vblank_reload();
             }
@@ -213,7 +228,7 @@ impl SystemBus {
                 self.irq = true;
             }
             if self.h < LINE {
-                break;
+                continue;
             }
             self.h = 0;
             self.v += 1;
@@ -235,18 +250,65 @@ impl SystemBus {
                 if self.io[0] & 128 != 0 {
                     self.nmi_pending = true;
                 }
-                if self.io[0] & 1 != 0 {
-                    self.auto_buttons = self.buttons;
-                    self.auto_until = self.clocks + 4224;
-                }
+                // Fullsnes: first H=74.5 dots; later starts on the same
+                // 256-clock lattice within H=32.5..95.5. Fixed NTSC raster.
+                let earliest = self.clocks + 130;
+                self.auto_start = Some(earliest + (254 + 256 - earliest % 256) % 256);
             }
-        }
-        if self.auto_until != 0 && self.clocks >= self.auto_until {
-            self.joy = self.auto_buttons;
-            self.auto_until = 0;
         }
         self.ppu.h = self.h as u16;
         self.ppu.v = self.v;
+    }
+    fn joypad_latch(&mut self, manual: bool, automatic: bool) {
+        if manual || automatic || self.strobe || self.auto_latch {
+            self.serial = [self.buttons & 0xfff0, self.buttons2 & 0xfff0];
+        }
+        self.strobe = manual;
+        self.auto_latch = automatic;
+    }
+    fn joypad_read(&mut self, port: usize) -> u8 {
+        if self.strobe || self.auto_latch {
+            ([self.buttons, self.buttons2][port] >> 15) as u8
+        } else {
+            let bit = (self.serial[port] >> 15) as u8;
+            self.serial[port] = (self.serial[port] << 1) | 1;
+            bit
+        }
+    }
+    fn auto_joypad_event(&mut self) {
+        if self.auto_start == Some(self.clocks) {
+            self.auto_start = None;
+            if self.io[0] & 1 != 0 {
+                self.joy = [0; 4];
+                self.joypad_latch(self.strobe, true);
+                self.auto_poll = Some(AutoJoypad {
+                    next: self.clocks + 256,
+                    step: 0,
+                });
+            }
+        }
+        if self
+            .auto_poll
+            .as_ref()
+            .is_some_and(|p| p.next == self.clocks)
+        {
+            let mut poll = self.auto_poll.take().unwrap();
+            if poll.step == 0 {
+                self.joypad_latch(self.strobe, false);
+                poll.next += 128;
+            } else {
+                for port in 0..2 {
+                    let bit = self.joypad_read(port);
+                    self.joy[port] = (self.joy[port] << 1) | u16::from(bit);
+                    self.joy[port + 2] <<= 1; // Standard-pad Data2 is zero.
+                }
+                poll.next += 256;
+            }
+            if poll.step < 16 {
+                poll.step += 1;
+                self.auto_poll = Some(poll);
+            }
+        }
     }
     fn cpu_cycle(&mut self) {
         if let Some((remaining, quotient, product)) = self.math {
@@ -310,14 +372,7 @@ impl SystemBus {
                 }
                 0x4016 | 0x4017 => {
                     let port = lo - 0x4016;
-                    let v = if self.strobe {
-                        let buttons = [self.buttons, self.buttons2];
-                        (buttons[port] >> 15) as u8
-                    } else {
-                        let v = (self.serial[port] >> 15) as u8;
-                        self.serial[port] = (self.serial[port] << 1) | 1;
-                        v
-                    };
+                    let v = self.joypad_read(port);
                     // Standard pads leave Data2 unconnected (CPU bit 1 = 0).
                     // JOYSER1 additionally drives its grounded inputs high.
                     let unused = if port == 0 {
@@ -340,14 +395,12 @@ impl SystemBus {
                 0x4212 => {
                     return if self.v >= 225 { 128 } else { 0 }
                         | if self.h >= HBLANK { 64 } else { 0 }
-                        | u8::from(self.clocks < self.auto_until)
+                        | u8::from(self.auto_poll.is_some())
                         | (self.open & 0x3e)
                 }
                 0x4213 => return self.io[1],
                 0x4214..=0x4217 => return self.io[lo - 0x4200],
-                0x4218 => return self.joy as u8,
-                0x4219 => return (self.joy >> 8) as u8,
-                0x421a..=0x421f => return 0,
+                0x4218..=0x421f => return (self.joy[(lo - 0x4218) / 2] >> (8 * (lo & 1))) as u8,
                 0x4300..=0x437f => return self.dma[(lo >> 4) & 7][lo & 15],
                 _ => {}
             }
@@ -394,11 +447,7 @@ impl SystemBus {
                     return;
                 }
                 0x4016 => {
-                    let next = v & 1 != 0;
-                    if next || self.strobe {
-                        self.serial = [self.buttons & 0xfff0, self.buttons2 & 0xfff0];
-                    }
-                    self.strobe = next;
+                    self.joypad_latch(v & 1 != 0, self.auto_latch);
                     return;
                 }
                 0x4200..=0x420d => {
@@ -831,6 +880,8 @@ mod tests {
         bus.tick(LINE * 225);
         assert!(bus.nmi_flag);
         assert!(!bus.nmi_pending);
+        assert_eq!(bus.read_raw(0x4212) & 1, 0);
+        bus.tick(298);
         assert_ne!(bus.read_raw(0x4212) & 1, 0);
         bus.write_raw(0x4200, 0x81);
         assert!(std::mem::take(&mut bus.nmi_pending));
@@ -996,3 +1047,6 @@ mod ppu_oam_tests;
 #[cfg(test)]
 #[path = "machine/ppu_cgram_tests.rs"]
 mod ppu_cgram_tests;
+
+#[cfg(test)]
+mod joypad_auto_tests;

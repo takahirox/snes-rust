@@ -76,6 +76,8 @@ RUSTC="$(rustup which rustc)" npm --prefix web run build
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo test --locked -p snes-core --test joypad_auto
+cargo test --locked -p snes-core --lib machine::joypad_auto_tests
 cargo test --locked -p snes-core --test joypad_serial
 cargo test --locked -p snes-core --lib machine::dma_tests
 cargo test --locked -p snes-core --test dma_access
@@ -153,8 +155,13 @@ Issue #67 adds independent manual reads for two standard joypads with a shared
 latch. `Machine::set_buttons` supplies port 1 and `Machine::set_buttons2` supplies
 port 2; both accept B through R in bits 15–4 and ignore bits 3–0. The
 [manual-serial validation](docs/issue-67-validation.md) records protocol references,
-CPU guest coverage, baseline evidence and gates. Automatic port 2 results and
-manual/automatic interference remain unimplemented; controllers remain partial.
+CPU guest coverage, baseline evidence and gates. Issue #69 extends the same
+serial state to clocked automatic polling on both ports, including manual
+interference and intermediate results. Its [validation record](docs/issue-69-validation.md)
+documents the source-backed event table and unverified fine-phase conventions.
+On 2026-10-24, all 14 new automatic tests, 372 workspace tests, 37 browser checks,
+and the pinned CPU/SPC/HDMA hardware gates passed. Both cleared games rebuilt
+twice with unchanged hashes; controllers remain partial.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP
@@ -330,10 +337,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   latency and a 40-master-clock scanline refresh hold are implemented. This is
   not a claim of every instruction/interrupt edge on every CPU revision.
 - A master-clock scheduler, NTSC scanlines, VBlank/HBlank, NMI, timer IRQs,
-  serial/automatic joypad reads with busy/completion behavior, general DMA and
+  serial/automatic reads of two standard joypads through shared latch/serial
+  state, with clocked busy/result phases, general DMA and
   direct/indirect HDMA. HDMA preempts DMA between bytes; all devices advance
-  during transfers. Tests check DMA writes across the VBlank access boundary,
-  deferred NMI, IRQ comparisons and guest-generated HDMA raster bands.
+  during transfers. Automatic/manual interference, intermediate result shifts,
+  phase boundaries and two original CPU polling cycles are covered by the
+  [automatic controller validation](docs/issue-69-validation.md). Exact latch/sample
+  edges, electrical behavior and mid-cycle enable cancellation remain unverified;
+  controllers remain partial. Tests check DMA writes across the VBlank access
+  boundary, deferred NMI, IRQ comparisons and guest-generated HDMA raster bands.
   DMA/HDMA A-bus reads of `$4210–$421F` in system-I/O banks reach the existing
   status/result handlers, including read-clear NMI/IRQ acknowledgement for
   payloads, HDMA descriptors and indirect pointers. Writes remain excluded.

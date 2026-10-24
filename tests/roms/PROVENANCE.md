@@ -22,7 +22,11 @@ are not release acceptance evidence.
 
 - Source: `tools/make-fixture.py` in this repository; no upstream input.
 - Artifact: `tests/roms/smoke.bin`, 32,768 bytes, ordinary NTSC LoROM with SRAM.
-- SHA-256: `73c0bad128a030ced5ef160a4e8e3df46de545c3e1c166a44e9d5968798b82fb`.
+- SHA-256: `6e5518b3959883cc22e914621fc5b5d9f5c0fe4eb96ee61000769afdbb68d6e5`.
+  Issue #69 adds a busy-assertion wait before completion in the NMI handler.
+  The original `73c0bad128a030ced5ef160a4e8e3df46de545c3e1c166a44e9d5968798b82fb`
+  was reproduced byte for byte before correction; original input/video/DMA/audio
+  assertions remain. See [the correction record](../../docs/issue-69-validation.md).
 - Copyright: 2026 snes-rust contributors; [MIT](../../LICENSE).
 - CPU/SPC machine code, checker pixels, BRR samples and headers are original.
   No fonts, graphics libraries, firmware, submodules or compiler runtime.
@@ -998,3 +1002,46 @@ while also retaining the full composition checks on framebuffer row 222.
   retain the documented zero approximation; no new electrical-value claim.
 - Decision: source and generated cartridges are redistributable under MIT.
   No commercial ROM or firmware was acquired.
+
+## Issue #69: original automatic two-pad guests and polling corrections
+
+- Source: [`joypad_auto.rs`](../../crates/snes-core/tests/joypad_auto.rs),
+  `cartridge`, `cycle`, `guest`, and its two host tests. Original copyright
+  2026 snes-rust contributors, [MIT](../../LICENSE). Cargo builds the original
+  Rust builder; it encodes the original 65C816 instructions and 32 KiB LoROM
+  header directly in memory. No external assembler, runtime, graphics, font,
+  sound, firmware, test ROM, or emulator implementation is used.
+- The guest executes SEI, forced blank, OUT0 low and automatic enable. It
+  explicitly observes busy set and then clear, saves all eight result bytes
+  using system-bank-mirrored long loads into $1800–$1807, and saves masked
+  start/completion status at $1808/9. The two-cycle guest marks $18F0=1,
+  waits for the next automatic cycle, records $1810–$1819, and compares
+  all eight second-cycle result bytes with the swapped input expectations.
+  $18F1=$EE plus STP reports failure; $18F0=$A5 plus STP reports completion.
+- The host supplies only ROM and buttons ($A59F/$5A6F, then $5A60/$A590 after
+  observing the first marker); normal CPU/scheduler execution advances time.
+  It observes WRAM and post-poll CPU-bus serial reads, without private raster,
+  latch, serial or result injection. Deadlines: 150000 instructions, fewer
+  than three frames; CPU/APU failures are rejected. Reproduce with
+  `cargo test --locked -p snes-core --test joypad_auto`.
+- Existing original guests in `dma_access.rs`, `common/hires.rs`,
+  `common/pseudo_hires.rs`, and `tools/make-fixture.py` previously assumed busy
+  was asserted at VBlank/NMI. They now wait for busy assertion before clearing;
+  all numeric, pixel, video, audio and input assertions remain. The smoke
+  binary is rebuilt with its Python source, checksum and recorded hash. Static
+  hires/pseudo-hires cartridges and both cleared game sources/hashes are unchanged.
+- Current interactive fixture SHA-256 values (the historical Issue #49/#53
+  validation hashes describe the earlier versions):
+
+| Cartridge | SHA-256 |
+| --- | --- |
+| hires-1-switch.sfc | `069a7e75c05870413b50d1197e6c370d83ea157e1057138ca1a56ccfe7a665ad` |
+| hires-5-switch.sfc | `652b773ff4e4b05ecc5337dab9e2ab51c01fea662467e0b6dc81d0ced468d3b2` |
+| hires-6-switch.sfc | `a5f85db717214c4e69766c1a6cc1bdbf91915c6c0f514c193f8a31a384024501` |
+| pseudo-hires-switch.sfc | `24f879c0e583474636df8844efb547f86cde708477643b661e30fe1027b8f52f` |
+
+Rebuild using the existing README example commands. Only original source and
+our rebuilt smoke binary are committed. Original/generated artifacts remain
+redistributable under MIT; no commercial ROM or firmware was acquired.
+The [event/evidence record](../../docs/issue-69-validation.md) distinguishes
+logical checks from unverified electrical and subcycle timing behavior.

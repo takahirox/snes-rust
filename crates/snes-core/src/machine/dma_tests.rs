@@ -454,12 +454,15 @@ fn register_bus() -> SystemBus {
     }
     b.buttons = 0xa590;
     b.write_raw(0x4200, 1);
-    b.tick(225 * LINE + 4224); // Real automatic first-controller completion.
-    assert_eq!(b.joy, 0xa590);
+    b.tick(225 * LINE + 298 + 4224); // Real automatic first-controller completion.
+    assert_eq!(b.joy, [0xa590, 0, 0, 0]);
     b.hdma_pending = false;
     b.v = 230;
     b.h = 1200; // Stable V/H blank, away from comparisons and refresh.
-    b.auto_until = b.clocks + 1000;
+    b.auto_poll = Some(super::AutoJoypad {
+        next: b.clocks + 1000,
+        step: 1,
+    });
     b.nmi_flag = true;
     b.irq = true;
     b
@@ -550,7 +553,10 @@ fn dma_hvbjoy_uses_driven_bits_at_stable_states() {
         let mut b = bus();
         b.v = v;
         b.h = h;
-        b.auto_until = if busy { 1000 } else { 0 };
+        b.auto_poll = busy.then_some(super::AutoJoypad {
+            next: 1000,
+            step: 1,
+        });
         b.open = 0x3e; // Floating bits must not enter the expectation.
         general(&mut b, 8, 6, 0x4212, 2);
         assert_eq!(b.ppu.regs[6] & 0xc1, expected);
@@ -721,7 +727,7 @@ fn hdma_accessible_indirect_pointer_bytes_keep_values_and_side_effects() {
             let mut b = register_bus();
             b.h = 0;
             b.v = 100;
-            b.auto_until = 0;
+            b.auto_poll = None;
             b.open = 0;
             b.io[1] = 1; // RDIO descriptor = one row.
             b.wram[usize::from(pointer)] = payload;
@@ -1004,6 +1010,8 @@ fn hdma_wram_conflict_uses_payload_bank_not_table_bank() {
         let bytes = [0x82, 0, 0x82, 0];
         b.wram[0x100..0x104].copy_from_slice(&bytes);
         b.cart.rom[0x100..0x104].copy_from_slice(&bytes);
+        // Explicit terminating indirect high byte; independent of smoke code.
+        b.cart.rom[0x104] = 0xa9;
         b.cart.rom[0x200..0x202].copy_from_slice(&[0x5a, 0x37]);
         b.wram[0x18200..0x18202].copy_from_slice(&[0x5a, 0x37]);
         b.waddr = 0x11000;
@@ -1302,6 +1310,10 @@ fn hdma_wram_address_complete_tables_and_payload_bank_controls() {
             };
             b.wram[0x100..0x100 + bytes.len()].copy_from_slice(bytes);
             b.cart.rom[0x100..0x100 + bytes.len()].copy_from_slice(bytes);
+            if indirect {
+                // Explicit terminating high byte; independent of smoke code.
+                b.cart.rom[0x107] = 0x22;
+            }
             b.wram[0x8200..0x8203].copy_from_slice(&[0x5a, 0x37, 0xfe]);
             b.wram[0x18200..0x18203].copy_from_slice(&[0x5a, 0x37, 0xfe]);
             b.cart.rom[0x200..0x203].copy_from_slice(&[0x5a, 0x37, 0xfe]);
@@ -1525,6 +1537,10 @@ fn hdma_reverse_wmdata_complete_direct_and_indirect_tables() {
             };
             b.wram[0x100..0x100 + bytes.len()].copy_from_slice(bytes);
             b.cart.rom[0x100..0x100 + bytes.len()].copy_from_slice(bytes);
+            if indirect {
+                // Explicit terminating high byte; independent of smoke code.
+                b.cart.rom[0x107] = 0x22;
+            }
             b.apu.output[3] = 0x44;
             b.wram[0x11000] = 0xa6;
             b.waddr = 0x11000;
@@ -1605,6 +1621,8 @@ fn hdma_reverse_wmdata_indirect_payload_bank_controls() {
         let bytes = [0x82, 0, high, 2, 2, high, 0];
         b.wram[0x100..0x107].copy_from_slice(&bytes);
         b.cart.rom[0x100..0x107].copy_from_slice(&bytes);
+        // Explicit terminating indirect high byte; independent of smoke code.
+        b.cart.rom[0x107] = 0x22;
         let rom = b.cart.rom.clone();
         b.cart.sram = vec![0x5a; 0x8000];
         b.wram[0x11000..0x11004].copy_from_slice(&[0xa6, 0x37, 0xc9, 0xd8]);
