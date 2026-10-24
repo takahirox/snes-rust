@@ -16,19 +16,32 @@ fn keyed(gain: u8) -> (Dsp, Vec<u8>) {
     ] {
         dsp.write(r, v);
     }
-    for _ in 0..5 {
+    for _ in 0..4 {
         assert_eq!(dsp.sample(&mut ram), (0, 0));
         assert_eq!((dsp.voices[0].env, dsp.voices[0].hidden_env), (0, 0));
     }
+    assert_eq!(dsp.sample(&mut ram), (0, 0));
+    assert_eq!(
+        (dsp.voices[0].env, dsp.voices[0].hidden_env),
+        (gain as i32 * 16, gain as i32 * 16)
+    );
     dsp.sample(&mut ram);
     (dsp, ram)
 }
 
-fn check(dsp: &mut Dsp, ram: &mut [u8], env: i32, hidden: i32, pcm: i16, outx: u8) {
-    assert_eq!(dsp.sample(ram), (pcm, pcm));
+fn check(dsp: &mut Dsp, ram: &mut [u8], applied: i32, env: i32, hidden: i32, pcm: i16, outx: u8) {
+    // E_apply, E_next and H are independently specified by each vector.
+    // The held noise source gives PCM=-4*E_apply and O=-16*E_apply.
+    // Retain the original next-envelope PCM/OUTX literals as well.
+    assert_eq!(
+        dsp.sample(ram),
+        ((-4 * applied) as i16, (-4 * applied) as i16)
+    );
+    assert_eq!(pcm, (-4 * env) as i16); // original next-envelope discriminator
+    assert_eq!(outx, ((-16 * env) >> 8) as u8);
     assert_eq!((dsp.voices[0].env, dsp.voices[0].hidden_env), (env, hidden));
-    assert_eq!(dsp.regs[8], (env >> 4) as u8);
-    assert_eq!(dsp.regs[9], outx);
+    assert_eq!(dsp.regs[8], (applied >> 4) as u8);
+    assert_eq!(dsp.regs[9], ((-16 * applied) >> 8) as u8);
 }
 
 #[test]
@@ -53,7 +66,7 @@ fn direct_to_bent_threshold_and_consecutive_holds_are_numerical() {
                 assert_eq!(dsp.voices[0].hidden_env, hidden);
             }
             dsp.write(7, 0xff);
-            check(&mut dsp, &mut ram, env, env, pcm, outx);
+            check(&mut dsp, &mut ram, direct as i32 * 16, env, env, pcm, outx);
         }
     }
 }
@@ -76,6 +89,7 @@ fn preclamp_negative_and_overflow_candidates_feed_bent_gain() {
         check(
             &mut dsp,
             &mut ram,
+            env,
             bent,
             if bent == 2047 { 2055 } else { bent },
             pcm,
@@ -88,63 +102,65 @@ fn preclamp_negative_and_overflow_candidates_feed_bent_gain() {
 fn adsr_candidates_and_phases_update_before_rate_commitment() {
     let (mut dsp, mut ram) = keyed(94);
     dsp.write(5, 0x80); // slow attack holds E=1504, prepares H=1536
-    check(&mut dsp, &mut ram, 1504, 1536, -6016, 162);
+    check(&mut dsp, &mut ram, 1504, 1504, 1536, -6016, 162);
     dsp.write(5, 0);
     dsp.write(7, 0xff);
-    check(&mut dsp, &mut ram, 1512, 1512, -6048, 161);
+    check(&mut dsp, &mut ram, 1504, 1512, 1512, -6048, 161);
 
     let (mut dsp, mut ram) = keyed(127);
     dsp.write(5, 0x80);
-    check(&mut dsp, &mut ram, 2032, 2064, -8128, 129);
+    check(&mut dsp, &mut ram, 2032, 2032, 2064, -8128, 129);
     assert_eq!(dsp.voices[0].stage, 1); // attack overflow despite held E
     dsp.write(6, 0xe0); // decay candidate 2024 is in sustain band 7
-    check(&mut dsp, &mut ram, 2032, 2024, -8128, 129);
+    check(&mut dsp, &mut ram, 2032, 2032, 2024, -8128, 129);
     assert_eq!(dsp.voices[0].stage, 2);
     dsp.write(5, 0);
     dsp.write(7, 0xff);
-    check(&mut dsp, &mut ram, 2040, 2040, -8160, 128);
+    check(&mut dsp, &mut ram, 2032, 2040, 2040, -8160, 128);
 
     let (mut dsp, mut ram) = keyed(1);
     dsp.write(7, 0x80); // negative candidate changes Attack -> Decay even in GAIN
-    check(&mut dsp, &mut ram, 16, -16, -64, 255);
+    check(&mut dsp, &mut ram, 16, 16, -16, -64, 255);
     assert_eq!(dsp.voices[0].stage, 1);
     dsp.write(7, 0); // direct GAIN supplies sustain level too
-    check(&mut dsp, &mut ram, 0, 0, 0, 0);
+    check(&mut dsp, &mut ram, 16, 0, 0, 0, 0);
     assert_eq!(dsp.voices[0].stage, 2);
     dsp.write(5, 0x8f); // returning to ADSR resumes sustain, not fast attack
-    check(&mut dsp, &mut ram, 0, 0, 0, 0);
+    check(&mut dsp, &mut ram, 0, 0, 0, 0, 0);
 }
 
 #[test]
 fn release_retrigger_soft_reset_and_reconstruction_isolate_hidden_state() {
     let (mut dsp, mut ram) = keyed(94);
     dsp.write(7, 0xe0);
-    check(&mut dsp, &mut ram, 1504, 1536, -6016, 162);
+    check(&mut dsp, &mut ram, 1504, 1504, 1536, -6016, 162);
     dsp.write(0x5c, 1);
-    check(&mut dsp, &mut ram, 1496, 1536, -5984, 162);
+    check(&mut dsp, &mut ram, 1504, 1496, 1536, -5984, 162);
     dsp.write(7, 127); // release overrides direct GAIN and retains H
-    check(&mut dsp, &mut ram, 1488, 1536, -5952, 163);
+    check(&mut dsp, &mut ram, 1496, 1488, 1536, -5952, 163);
     dsp.write(0x5c, 0);
     dsp.write(7, 0xff);
     dsp.write(0x4c, 1);
-    for _ in 0..5 {
-        check(&mut dsp, &mut ram, 0, 0, 0, 0);
+    for _ in 0..4 {
+        check(&mut dsp, &mut ram, 0, 0, 0, 0, 0);
     }
-    check(&mut dsp, &mut ram, 32, 32, -128, 254);
+    check(&mut dsp, &mut ram, 0, 32, 32, -128, 254);
+    check(&mut dsp, &mut ram, 32, 64, 64, -256, 252);
     dsp.write(0x6c, 0xe0);
-    check(&mut dsp, &mut ram, 0, 32, 0, 0);
+    check(&mut dsp, &mut ram, 0, 0, 64, 0, 0);
     dsp.write(0x6c, 0x20);
-    check(&mut dsp, &mut ram, 0, 32, 0, 0); // inactive until KON
+    check(&mut dsp, &mut ram, 0, 0, 64, 0, 0); // inactive until KON
     dsp.write(0x4c, 1);
-    for _ in 0..5 {
-        check(&mut dsp, &mut ram, 0, 0, 0, 0);
+    for _ in 0..4 {
+        check(&mut dsp, &mut ram, 0, 0, 0, 0, 0);
     }
-    check(&mut dsp, &mut ram, 32, 32, -128, 254);
+    check(&mut dsp, &mut ram, 0, 32, 32, -128, 254);
+    check(&mut dsp, &mut ram, 32, 64, 64, -256, 252);
     dsp.write(0x5c, 1);
-    for env in [24, 16, 8, 0] {
+    for env in [56, 48, 40, 32, 24, 16, 8, 0] {
         dsp.sample(&mut ram);
         assert_eq!(dsp.voices[0].env, env);
-        assert_eq!(dsp.voices[0].hidden_env, 32);
+        assert_eq!(dsp.voices[0].hidden_env, 64);
     }
     assert!(dsp.voices[0].active); // release silence does not stop BRR processing
     assert_eq!(dsp.voices[0].stage, 3);
@@ -165,14 +181,14 @@ fn bent_nonzero_rate_commits_the_candidate_after_many_holds() {
             if tick % 2 == 1 { 1536 } else { 1512 }
         );
     }
-    check(&mut dsp, &mut ram, 1512, 1512, -6048, 161); // rate-3 event 536
-    check(&mut dsp, &mut ram, 1512, 1544, -6048, 161); // hold, from E not H
+    check(&mut dsp, &mut ram, 1504, 1512, 1512, -6048, 161); // rate-3 event 536
+    check(&mut dsp, &mut ram, 1512, 1512, 1544, -6048, 161); // hold, from E not H
 }
 
 #[test]
 fn attack_phase_uses_overflow_rather_than_fullsnes_7e0_threshold() {
     let (mut dsp, mut ram) = keyed(124); // E=1984
     dsp.write(5, 0x80);
-    check(&mut dsp, &mut ram, 1984, 2016, -7936, 132);
+    check(&mut dsp, &mut ram, 1984, 1984, 2016, -7936, 132);
     assert_eq!(dsp.voices[0].stage, 0); // candidate $7e0 is not overflow
 }

@@ -165,6 +165,7 @@ fn signed_noise_envelope_outx_stereo_and_echo_vectors() {
         dsp.noise = state;
         assert_eq!((state << 1) as i16 as i32, source);
         dsp.voices[0].active = true;
+        dsp.voices[0].env = gain as i32 * 16; // settled direct GAIN
         for (r, v) in [
             (0x6c, 0),
             (0x3d, 1),
@@ -207,6 +208,7 @@ fn every_non_bit_selects_only_its_voice_and_all_selected_share_one_sample() {
         dsp.write(0x1c, 64);
         for i in 0..8 {
             dsp.voices[i].active = true;
+            dsp.voices[i].env = 1024; // settled half envelope
             dsp.voices[i].decoded = [1024; 4];
             dsp.write(i as u8 * 16 + 7, 64);
         }
@@ -323,9 +325,16 @@ fn silence_non_mute_key_delay_release_and_voice_reset_do_not_reseed() {
         }
         let pcm = dsp.sample(&mut ram);
         assert_eq!(dsp.noise, expected, "tick {tick}");
-        if (1..=5).contains(&tick) || (269..=280).contains(&tick) || (285..=294).contains(&tick) {
+        if (1..=5).contains(&tick) || (270..=280).contains(&tick) || (285..=294).contains(&tick) {
             assert_eq!([dsp.regs[8], dsp.regs[9]], [0, 0], "tick {tick}");
             assert_eq!(pcm, (0, 0));
+        }
+        if tick == 269 {
+            // Independent bit-stream recurrence gives state $5801, signed
+            // source -20478. E_apply=8 -> O=-80, half/half volumes -> -20.
+            assert_eq!(expected, 0x5801);
+            assert_eq!([dsp.regs[8], dsp.regs[9]], [0, 255]);
+            assert_eq!(pcm, (-20, -20));
         }
         if tick == 12 || tick == 13 {
             assert_eq!(pcm, (0, 0));

@@ -159,6 +159,8 @@ fn positive_and_negative_feedback_recur_with_even_writeback() {
 // voice volumes -128/64 -> bounded dry/send 16384/-8192.
 fn voice(dsp: &mut Dsp) {
     dsp.voices[0].active = true;
+    dsp.voices[0].env = 1024; // settled E_apply, independent of this call
+
     for (r, v) in [
         (0x3d, 1),
         (7, 64),

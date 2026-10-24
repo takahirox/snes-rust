@@ -1281,3 +1281,26 @@ unchanged.
   auxiliary fixtures, tool/game pins, sources, hashes and browser assertions
   are unchanged. These bounded diagnostics do not establish full hardware
   accuracy or commercial compatibility.
+
+## Issue #91 original envelope ordering vectors and SPC700 guest
+
+- [`dsp_envelope_order.rs`](../../crates/snes-core/tests/dsp_envelope_order.rs)
+  is original work by the snes-rust contributors, copyright 2026, under the root
+  [MIT license](../../LICENSE). All instruction bytes, command sequences, signed
+  filter-0 BRR data and numerical expectations were authored for this diagnostic.
+  The in-memory guest is uploaded at $0200 through the existing firmware-free
+  protocol; no generated binary is committed. It writes/reads DSP registers at
+  $F2/$F3, records eight ENVX/OUTX pairs at $1100–$110F and STOPs.
+- [Issue #91 validation](../../docs/issue-91-validation.md) derives the literal
+  expectations from Anomie/jwdonal revision 1212 and Fullsnes. Shay Green's
+  `SPC_DSP.cpp` at immutable snes9x revision
+  `1bcc369e89f08243e0a462882fb1f3e42e51de3a` was read solely as research
+  corroboration of operation order. Its LGPL implementation was neither copied
+  nor imported, built, executed or used as an output oracle. No external trace,
+  commercial ROM, Nintendo firmware, music, graphics or other asset was used.
+- Guest timing follows this core's whole-instruction effects, not physical SPC
+  bus edges. Whole/irregular ticks compare every PCM sample, all DSP registers,
+  all RAM (including guest records) and output ports across writes, retrigger and
+  shared-counter wrap; equality establishes determinism only. The original
+  fixture/tool/game sources, pins, licenses, allowlists, hashes and browser
+  gameplay/audio assertions are preserved.

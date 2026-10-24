@@ -98,6 +98,7 @@ cargo test -p snes-core --test dsp_pitch --locked
 cargo test --locked -p snes-core --test dsp_directory
 cargo test --locked -p snes-core --test dsp_brr_end
 cargo test --locked -p snes-core --test dsp_kon_preload
+cargo test --locked -p snes-core --test dsp_envelope_order
 cargo test --locked -p snes-core --test spc_timers
 cargo test --locked -p snes-core --test spc_io_readback
 cargo test --locked -p snes-core --lib apu::timing_tests
@@ -623,8 +624,13 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   cover PCM, ENVX, OUTX, ENDX, holds, resume, retrigger and voice isolation.
   All five new tests fail behaviorally on the exact evaluation baseline.
   See the validation record for executed workspace, browser and fixture gates.
-  Physical later-block lookahead, preceding-envelope timing, live KON-delay
-  selection, register/RAM races and reset retention remain unresolved.
+  [Preceding-envelope application](docs/issue-91-validation.md) now captures
+  voice output and ENVX before advancing the envelope. Dry mix, OUTX, adjacent
+  PMON and EON sends share that output. Call five initializes the envelope while
+  staying silent; call six consumes it. Original public vectors, an uploaded
+  SPC700 guest and partition checks cover live GAIN, ADSR events/holds, release,
+  retrigger and counter wrap. Physical later-block lookahead, subcycle publication,
+  live KON-delay selection, register/RAM races and reset retention remain unresolved.
   `dsp-voices` remains partial: independent BRR-filter 1–3 evidence, exhaustive
   interpolation phases, simultaneous key/mixing combinations, KON-delay selection
   changes and physical header/directory/key timing remain. Hidden

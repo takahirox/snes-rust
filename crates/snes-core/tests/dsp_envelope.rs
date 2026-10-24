@@ -170,12 +170,16 @@ fn uploaded_spc_records_first_bent_commit_from_a_held_linear_candidate() {
             "command {command}"
         );
     }
-    // First bent commitment after command 3: E=1504+8=1512, noise=-32768,
-    // voice/master scales each 1/2 -> -6048. Also assert the preceding holds.
+    // First bent call commits 1512 but applies 1504 -> -6016.
+    // The following call applies 1512 -> -6048; retain both discriminators.
     assert!(apu.samples[80 * 2..100 * 2]
         .iter()
         .all(|&s| s == -6016.0 / 32768.0));
-    assert_eq!(&apu.samples[100 * 2..101 * 2], &[-6048.0 / 32768.0; 2]);
+    assert_eq!(&apu.samples[100 * 2..101 * 2], &[-6016.0 / 32768.0; 2]);
+    while apu.samples.len() / 2 < 102 {
+        apu.tick(21);
+    }
+    assert_eq!(&apu.samples[101 * 2..102 * 2], &[-6048.0 / 32768.0; 2]);
     for _ in 0..10 {
         apu.tick(21);
     }
