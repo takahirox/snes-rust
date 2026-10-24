@@ -92,6 +92,7 @@ cargo test --locked -p snes-core --test ppu_oam_reload
 cargo test --locked -p snes-core --test ppu_cgram_access
 cargo test --locked -p snes-core --lib dsp::echo_tests
 cargo test --locked -p snes-core --test dsp_echo
+cargo test --locked -p snes-core --test dsp_mixing
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test -p snes-core --test ppu_offset --locked
@@ -558,13 +559,20 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   wrap and final saturation, signed feedback/volumes and even RAM writeback.
   Original numerical vectors and an uploaded SPC700 guest cover these consumers,
   delay/history/address wraps, mute/write-disable and APU partition invariance.
-  `dsp-echo` and `dsp-timing` remain partial: live ESA/EDL sampling, DSP subcycle
-  register/RAM races, SPC bus synchronization, physical startup/reset retention
-  and comprehensive multi-voice dry/send saturation remain outstanding.
+  Dry and EON-selected send accumulators saturate independently after each voice
+  in ascending order, before master scaling and feedback. The
+  [mixing validation](docs/issue-73-validation.md) records independent positive/negative
+  overflow and cancellation vectors, stereo/echo controls, an original uploaded
+  SPC700 guest and multi-voice APU partition checks. All 24 supplied inventory
+  scopes remain: 22 partial, `ppu-raster` and `pal` unimplemented, none verified.
+  `dsp-echo` and `dsp-timing` remain partial: live echo-register sampling, DSP
+  subcycle register/RAM interactions, SPC bus synchronization and physical
+  startup/reset behavior remain outstanding.
   Signed endpoint narrowing follows the documented 16-bit arithmetic with
   research-emulator corroboration; no physical-device verification is claimed.
-  Exhaustive BRR filters/interpolation phases and hidden envelope corrections
-  remain unverified.
+  `dsp-voices` remains partial: independent BRR-filter 1–3 evidence, exhaustive
+  interpolation phases and simultaneous key/mixing combinations remain. Hidden
+  envelope corrections also remain unverified.
   Browser tests bound device-clock drift, queue duration and live sources,
   including main-thread stalls and repeated pause/reset/play.
 - Enhancement chips, ExLoROM/ExHiROM, PAL, save states and broad commercial

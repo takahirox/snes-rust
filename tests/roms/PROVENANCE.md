@@ -1072,3 +1072,31 @@ logical checks from unverified electrical and subcycle timing behavior.
   [Issue #71 record](../../docs/issue-71-validation.md). Only specification facts
   were used; no external emulator implementation code was imported. Original
   source and generated in-memory data are redistributable under MIT.
+
+## Issue #73: original ordered-mixing SPC700 guest and vectors
+
+- Source: [`dsp_mixing.rs`](../../crates/snes-core/tests/dsp_mixing.rs), authored
+  for this repository by snes-rust contributors, copyright 2026,
+  [MIT](../../LICENSE). Cargo builds the Rust instruction builder, which encodes
+  original SPC700 instructions directly. Guest generation uses no external
+  assembler, firmware, commercial ROM, emulator implementation, music or BRR asset.
+- The host uploads original code at $0200 through the existing firmware-free
+  protocol. The guest writes $F2/$F3 to configure held noise, direct GAIN and
+  four voices (0,1,2,7), keys them on, produces signed stereo overflow, enables
+  late-voice cancellation, then changes EON to select the overflowing subset
+  and the cancelling voice independently. It reads echo RAM and EON into four
+  five-byte records at $1000..$1013, acknowledges commands 1–5, and executes
+  STOP. No expected data, private voices, accumulators or DSP history are injected.
+- Source -32768, GAIN=64 and signed volumes -128/+127/+64/-64 are original
+  numerical fixtures. Echo starts as zero RAM and is written by the guest's DSP
+  configuration. Literal PCM and little-endian expectations are derived in the
+  [validation record](../../docs/issue-73-validation.md), including independent
+  rounding, saturation and feedback calculations. These data are MIT as well.
+- Upload is below 512 bytes with byte-counter wrap; each acknowledgement is
+  bounded by 1000 advances of 21 master clocks, readiness before 200 samples and
+  standalone completion before 350 samples. STOP, observable ENVX/OUTX, recorded
+  EON/echo bytes, steady PCM and no core error are asserted. A second test runs
+  the same guest through all mixing phases for fixed EDL=0/1, checking exact
+  cadence and every PCM sample, all DSP registers and relevant echo RAM across
+  whole and irregular APU tick partitions. Reproduce with
+  `cargo test --locked -p snes-core --test dsp_mixing`.

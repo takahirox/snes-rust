@@ -248,9 +248,11 @@ impl Dsp {
             self.regs[base + 9] = (sample >> 8) as u8;
             for side in 0..2 {
                 let s = (sample * self.regs[base + side] as i8 as i32) >> 7;
-                mix[side] += s;
+                // Ascending voice order, with independent per-add saturation.
+                // Anomie/jwdonal SOUND GENERATION; docs/issue-73-validation.md.
+                mix[side] = (mix[side] + s).clamp(-32768, 32767);
                 if self.regs[0x4d] & (1 << i) != 0 {
-                    echo_in[side] += s;
+                    echo_in[side] = (echo_in[side] + s).clamp(-32768, 32767);
                 }
             }
         }
