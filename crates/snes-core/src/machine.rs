@@ -202,6 +202,14 @@ impl SystemBus {
             // Compare crossings within one scanline, then handle rollover.
             let old_h = self.h;
             let line = self.ppu.line_clocks();
+            // Fullsnes H/V Events: nonzero H/HV asserts 3.5 CPU timer
+            // units after comparison (four master clocks per unit, even near
+            // long PPU dots). Zero and line-spanning cases remain approximate.
+            let h_irq = if htime != 0 && htime + 14 < line {
+                htime + 14
+            } else {
+                htime
+            };
             let mut elapsed = n.min(line - self.h);
             if let Some(next) = self.auto_start {
                 elapsed = elapsed.min(next - self.clocks);
@@ -232,9 +240,9 @@ impl SystemBus {
                 self.hdma_pending = true;
             }
             if mode & 0x10 != 0
-                && old_h < htime
-                && self.h >= htime
-                && htime < line
+                && old_h < h_irq
+                && self.h >= h_irq
+                && h_irq < line
                 && (mode & 0x20 == 0 || self.v == vtime)
             {
                 self.irq = true;
@@ -1022,25 +1030,33 @@ mod tests {
         }
     }
 
-    #[test]
-    fn combined_timers_match_zero_and_nonzero_coordinates() {
-        // Approximate HV control; this does not establish the hardware delay.
-        for (htime, vtime) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+    fn check_combined_timer_frames(htime: u16, assertion: u64) {
+        for vtime in [0, 1] {
             let mut bus = timer_bus(0x30, htime, vtime);
             // Start after the initial frame's comparison, then verify three
             // complete frames, including the lines that must not trigger.
-            bus.tick(LINE * vtime as u64 + 4 * htime as u64 + 1);
+            bus.tick(LINE * vtime as u64 + assertion + 1);
             timeup(&mut bus);
             for frame in 1..=3 {
                 bus.tick(if frame % 2 == 1 { 357368 } else { 357364 } - 2);
                 assert!(!timeup(&mut bus), "early IRQ at ({htime}, {vtime})");
                 bus.tick(1);
                 assert!(timeup(&mut bus), "missing IRQ at ({htime}, {vtime})");
-                assert_eq!((bus.frames, bus.v, bus.h), (frame, vtime, 4 * htime as u64));
+                assert_eq!((bus.frames, bus.v, bus.h), (frame, vtime, assertion));
                 bus.tick(1);
                 assert!(!timeup(&mut bus), "duplicate IRQ at ({htime}, {vtime})");
             }
         }
+    }
+
+    #[test]
+    fn combined_zero_timers_retain_approximate_rollover() {
+        check_combined_timer_frames(0, 0);
+    }
+
+    #[test]
+    fn combined_nonzero_timers_assert_after_fourteen_clock_delay() {
+        check_combined_timer_frames(1, 18);
     }
 
     #[test]
@@ -1049,8 +1065,8 @@ mod tests {
             let mut bus = timer_bus(0x30, 1, vtime);
             bus.v = 261;
             bus.h = LINE - 2;
-            bus.tick(8); // Cross H=1 on V=0 in a single bus access.
-            assert_eq!((bus.frames, bus.v, bus.h), (1, 0, 6));
+            bus.tick(20); // Cross delayed H=18 on V=0 in a single bus access.
+            assert_eq!((bus.frames, bus.v, bus.h), (1, 0, 18));
             assert_eq!(timeup(&mut bus), vtime == 0, "VTIME={vtime}");
         }
         let mut bus = timer_bus(0x10, 341, 0);
@@ -1092,3 +1108,7 @@ mod ntsc_timing_tests;
 #[cfg(test)]
 #[path = "machine/v_only_irq_tests.rs"]
 mod v_only_irq_tests;
+
+#[cfg(test)]
+#[path = "machine/horizontal_irq_tests.rs"]
+mod horizontal_irq_tests;

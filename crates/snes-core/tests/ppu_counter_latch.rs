@@ -34,7 +34,7 @@ fn guest() -> Vec<u8> {
         (0x420a, 1),
         (0x4200, 0x30),
     ] {
-        write(&mut code, a, v); // V=256, H=256, both ninth bits exercised.
+        write(&mut code, a, v); // VTIME=256, HTIME=256, both ninth bits exercised.
     }
     code.push(0xcb);
     save(&mut code, 0x2137, 0x1801, 255); // Enabled capture A; CPU open bus $21.
@@ -83,14 +83,15 @@ fn cpu_guest_captures_gates_acknowledges_and_preserves_selectors() {
         if m.cpu.stopped {
             assert_eq!(m.bus.peek(0x18f0), 0xa5);
             let result: Vec<_> = (0x1800..=0x1821).map(|a| m.bus.peek(a)).collect();
-            // Model arithmetic: WAI wakes at (256,1028), SLHV completes
-            // 30 clocks later (H=264). The edge completes at H=315;
-            // re-enabled SLHV completes at (258,312), or dot 78.
+            // Model arithmetic: assertion is 256*4+14=1038; six-clock WAI
+            // polling wakes at (256,1040), SLHV completes at 1070 (dot 267).
+            // The edge completes at 1272 (dot 318); re-enabled SLHV
+            // completes at (258,324), or dot 81.
             assert_eq!(
                 result,
                 [
-                    0, 0x21, 8, 0, 1, 1, 59, 1, 0, 1, 0x21, 59, 1, 0, 1, 59, 0, 0x40, 59, 0, 0x40,
-                    59, 1, 0, 1, 0x40, 0, 0x21, 78, 0, 2, 1, 0x40, 0,
+                    0, 0x21, 11, 0, 1, 1, 62, 1, 0, 1, 0x21, 62, 1, 0, 1, 62, 0, 0x40, 62, 0, 0x40,
+                    62, 1, 0, 1, 0x40, 0, 0x21, 81, 0, 2, 1, 0x40, 0,
                 ]
             );
             return;

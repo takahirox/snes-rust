@@ -19,7 +19,9 @@ its H and nonzero-HV rule is HTIME+3.5. Anomie describes V-only IRQ shortly
 following V equality. Early dots have four master clocks, hence 2.5*4=10
 elapsed clocks. This establishes the bounded V-only runtime offset. The same
 Fullsnes list also mentions HV with HTIME=0; that mode is outside #97's scope
-and remains an explicitly approximate control along with H-only/HV generally.
+and remains an explicitly approximate control. [Issue #99](issue-99-validation.md)
+subsequently corrects nonzero same-line H-only/HV assertions; zero/late cases
+remain approximate.
 The terse equality descriptions are not evidence for immediate H=0 assertion.
 
 Both references describe read acknowledgement; Fullsnes qualifies coincident

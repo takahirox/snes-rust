@@ -577,6 +577,10 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   MIT. Existing fixture pins, notices, hashes, licensing decisions and replay
   inputs remain unchanged. The [validation record](../../docs/issue-39-validation.md)
   separates register evidence from retained timing and reset conventions.
+  #99 updates only timing-derived captures: HTIME=256 asserts at 1038;
+  WAI wakes at 1040, SLHV at 1070 gives A=(267,256), WRIO edge at 1272
+  gives B=(318,256), and re-enabled SLHV at V=258/H=324 gives C=(81,258).
+  All gating, selector, latch and acknowledgement assertions remain.
 
 ## Original VRAM read-access CPU guests: approved
 
@@ -646,6 +650,9 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   windows under the retained scheduler/IRQ conventions and separates those
   assumptions from source-backed address reload and pair behavior. Existing
   fixture/game pins, hashes, notices, licensing decisions and replay inputs remain.
+  #99 retimes HTIME from 330 to 327: assertion 1322, WAI wake 1322..1326,
+  address write V=225/H=4..8, first read H=34..38, second H=96..100.
+  Original results $12,$12,$34,$56 still prove both sides of the H=40 reload.
 
 ## Original CGRAM access CPU guest: approved
 
@@ -1350,19 +1357,22 @@ unchanged.
   result state. Machine reset and cartridge loading are the only host setup.
 - Expected values derive from the reconciled references in
   [Issue #95 validation](../../docs/issue-95-validation.md), combined with the
-  retained CPU access/comparator conventions. Reset-vector reads consume 16
-  clocks, SEI 14, seven LDA-immediate/STA-I/O pairs 7*46; WAI takes 20, giving
+  retained CPU access conventions and #99's documented assertion offset.
+  Reset-vector reads consume 16 clocks, SEI 14, seven LDA-immediate/STA-I/O pairs 7*46; WAI takes 20, giving
   its first waiting boundary at clock 372. Six-clock idle steps cross each
-  comparator, with 40-clock refresh holds. The first comparator is at 328644;
-  subtract 372 and 241*40, then round up to a six-clock step: wake=328648.
+  assertion, with 40-clock refresh holds. The first assertion is
+  `327360+321*4+14=328658`; subtract 372 and 241*40, then round up
+  to a six-clock step: wake=328660.
   Each six-save block plus TIMEUP read and next WAI is 6*78+30+20=518
   clocks. Between subsequent V=240 opportunities there are 262 refresh holds.
-  Ordinary/short field lengths are 357368/357364, yielding wakes at 686014,
-  1043380, 1400746. SLHV's LDA-absolute completes 30 clocks after each wake:
-  within-line clocks 1318,1316,1318,1316. Ordinary [1316,1320) is H=328;
-  short [1316,1320) is H=329. H high=1, V=240/high=0, CPU open bus from the
+  Ordinary/short field lengths are 357368/357364, yielding wakes at 686026,
+  1043392, 1400758. SLHV's LDA-absolute completes 30 clocks after each wake:
+  within-line clocks 1330,1328,1330,1328. Ordinary [1328,1332) is H=331;
+  short [1328,1332) is H=332. H high=1, V=240/high=0, CPU open bus from the
   address operand=$21, STAT78 masked to bits 7/6=$40,$C0,$40,$C0.
-  These are explicit model timing deductions, not measured IRQ assertion delays.
+  The timer delay is source-derived; WAI/access phases are model deductions,
+  not measured CPU sampling/handler-entry timing. #99 preserves four natural
+  fields and all counter geometry assertions while updating the capture literals.
 - The independent unit vectors are original MIT code too. They use literal
   half-open counter boundaries, line/field totals and polling phases; no
   production geometry helper is used as an expected-value oracle.
@@ -1415,3 +1425,61 @@ unchanged.
   hash, replay, gameplay, audio or drift assertion is changed. These bounded
   original diagnostics do not establish full hardware accuracy or commercial
   compatibility.
+
+## Original horizontal IRQ delay diagnostic (Issue #99)
+
+- Sources: [`horizontal_irq.rs`](../../crates/snes-core/tests/horizontal_irq.rs)
+  and [`horizontal_irq_tests.rs`](../../crates/snes-core/src/machine/horizontal_irq_tests.rs).
+  Original work, copyright (c) 2026 snes-rust contributors; [MIT](../../LICENSE).
+  Rust builds the hand-encoded 65C816 instructions, literal records, LoROM
+  header/vector and zero-filled 32 KiB cartridge entirely in memory. No external
+  assembler, ROM, firmware, runtime, asset or emulator implementation is used.
+  Generated cartridges are neither committed nor downloaded.
+- The guest executes SEI, forced blank and SETINI=0. In each of four naturally
+  reached fields it gates at V=239/HTIME=256, acknowledges and disables that IRQ,
+  and programs HTIME=321/VTIME=240/HV before entering V=240. It records eight
+  bytes: SLHV open bus, independent H/V low/high bytes, masked STAT78, TIMEUP
+  pending and TIMEUP acknowledged. It then programs HTIME=64/H-only during
+  V=241, after that line's comparison has passed but before entering V=242.
+  VTIME remains 240: the H-only record must instead have V=242. It disables
+  the IRQ before the following comparison and waits for the next field gate.
+  Both modes therefore run in both parities, including the natural short line.
+- All 64 expected bytes are literal. Executed guest comparisons publish
+  `$18F1=$EE` and STP on failure; success publishes `$18F0=$A5` and STP.
+  Host code loads the cartridge, calls `Machine::step` and observes results,
+  with deadlines of 300,000 steps and 1,500,000 master clocks. It injects no
+  CPU, raster, parity, IRQ, memory or result state. The host also checks that
+  the fourth field was reached. Failure/success markers are written by guest
+  instructions only.
+- Independent construction arithmetic uses ordinary lines of 1364 clocks,
+  field-1 V=240 of 1360, and field starts 0/357368/714732/1072100. Assertions
+  are gate `4*256+14=1038`, HV `4*321+14=1298`, H-only `4*64+14=270`.
+  Existing model conventions: reset-vector reads 16, SEI 14, LDA immediate
+  plus STA I/O 46, LDA I/O 30, AND immediate 16, STA WRAM 32, WAI setup 20,
+  idle polling six, refresh hold 40 at H=538. Two setup writes and five gate
+  writes put the first waiting boundary at `16+14+7*46+20=372`.
+  Round the remaining wait up to six after excluding intervening refresh holds.
+  Gate acknowledge + four writes + WAI takes `30+4*46+20=234` clocks.
+  Eight saves take `8*(30+16+32)=624`, plus any crossed refresh hold;
+  four H-only configuration writes and WAI add 204. A final disable costs 46.
+  These costs independently give:
+
+| Field | Gate wake | HV wait starts | HV wake | HV SLHV master H / PPU H | H-only wait starts | H-only wake | H-only SLHV master H / PPU H |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 327036 | 327270 | 328660 | 1330 / 331 | 329528 | 330362 | 304 / 76 |
+| 1 | 684402 | 684636 | 686026 | 1328 / 332 | 686894 | 687722 | 300 / 75 |
+| 2 | 1041768 | 1042002 | 1043392 | 1330 / 331 | 1044260 | 1045094 | 304 / 76 |
+| 3 | 1399134 | 1399368 | 1400758 | 1328 / 332 | 1401626 | 1402454 | 300 / 75 |
+
+  SLHV completes 30 clocks after wake. The HV captures use the independent
+  long-dot ordinary [1328,1332) versus short [1328,1332) intervals from #95;
+  the H-only captures divide ordinary early clocks by four. H high is 1/0,
+  V high is zero, open bus $21, STAT78 $40/$C0/$40/$C0, and TIMEUP $80/$00.
+  Assertion offsets are documented source facts; CPU access/poll phases are
+  emulator conventions, not measured physical sampling or handler-entry timing.
+- Existing #35 HDMA phase guests are retimed from HTIME=270 to 267:
+  `267*4+14=1082`; even WAI wake is 1082..1086, so the first data access
+  starts 1106..1110 and ends 1112..1116. It still begins before HDMA eligibility
+  at 1112. Original pre-service table, later pointer/reload and HBlank bytes
+  are unchanged. All fixture/tool/game pins, licenses, hashes, replay inputs,
+  gameplay/progression/music assertions and tolerances remain unchanged.

@@ -28,9 +28,9 @@ fn guest() -> Vec<u8> {
     ] {
         write(&mut c, a, v);
     }
-    // H/V IRQ at V=224, H=330 dots (1320 master clocks).
+    // H/V IRQ at V=224, HTIME=327: 327*4+14=1322 master clocks.
     for (a, v) in [
-        (0x4207, 0x4a),
+        (0x4207, 0x47),
         (0x4208, 1),
         (0x4209, 224),
         (0x420a, 0),
@@ -39,10 +39,10 @@ fn guest() -> Vec<u8> {
         write(&mut c, a, v);
     }
     c.push(0xcb);
-    // WAI idles in six-clock steps, waking at H=1320..1324. LDA immediate
-    // costs 16, STA $2102 costs 30: address reload completes V=225/H=2..6.
-    // Next LDA $2138 completes H=32..36, then STA WRAM crosses H=40.
-    // Later LDA completes H=94..98 and must read the restored even byte again.
+    // WAI idles in six-clock steps, waking at H=1322..1326. LDA immediate
+    // costs 16, STA $2102 costs 30: address reload completes V=225/H=4..8.
+    // Next LDA $2138 completes H=34..38, then STA WRAM crosses H=40.
+    // Later LDA completes H=96..100 and must read the restored even byte again.
     // This uses software-set cursors in VBlank, independent of rendering bytes.
     write(&mut c, 0x2102, 4);
     save(&mut c, 0x2138, 0x1800);

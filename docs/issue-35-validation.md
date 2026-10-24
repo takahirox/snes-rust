@@ -114,15 +114,17 @@ The two CPU guests in `tests/hdma_phase.rs` independently fail on baseline:
 | Indirect | `06 06 10 82 00 13 40` | `03 06 10 82 00 13 40` |
 
 Guests configure during VBlank and execute WAI with masked H/V IRQ at V=0,
-H=270. In this model, six-clock WAI polling wakes at 1080..1084. An eight-bit
-slow-ROM `LDA abs` takes three eight-clock instruction fetches plus a six-clock
-register read. Its data access starts at 1104..1108 and ends at 1110..1114.
-The corrected phase cannot service before that read; baseline services during
-its operand fetches and exposes already-reloaded metadata. Later accesses see
-the row-end result and HBlank status. This derivation is relative to the existing
-CPU/IRQ scheduler; Fullsnes's hardware IRQ offsets and complete CPU alignment
-are outside the claim. The guest numerically distinguishes the phases without
-a broad wait past both. Host code supplies only the cartridge and observes WRAM,
+HTIME=267 after [Issue #99](issue-99-validation.md): `267*4+14=1082`
+assertion clocks. In this model, six-clock WAI polling wakes at 1082..1086.
+An eight-bit slow-ROM `LDA abs` takes three eight-clock instruction fetches plus a six-clock
+register read. Its data access starts at 1106..1110 and ends at 1112..1116.
+The corrected phase cannot service before that read. The historical baseline
+results above used the original HTIME=270 guest and immediate-comparison
+convention; its old HDMA phase serviced during operand fetches and exposed
+already-reloaded metadata. Later accesses still see row-end state and HBlank.
+The IRQ assertion offset is now source-derived; WAI polling, service boundaries
+and complete CPU alignment remain model conventions. The guest numerically
+distinguishes the phases without a broad wait past both. Host code supplies only the cartridge and observes WRAM,
 terminal state and bounded deadlines. [Provenance](../tests/roms/PROVENANCE.md#original-hdma-phase-cpu-guests-approved)
 records the original MIT code/data; no firmware or commercial ROM is used.
 

@@ -18,7 +18,7 @@ fn save(code: &mut Vec<u8>, address: u16, result: u16, mask: u8) {
     ]);
 }
 const EXPECTED: [u8; 24] = [
-    0x21, 72, 1, 240, 0, 0x40, 0x21, 73, 1, 240, 0, 0xc0, 0x21, 72, 1, 240, 0, 0x40, 0x21, 73, 1,
+    0x21, 75, 1, 240, 0, 0x40, 0x21, 76, 1, 240, 0, 0xc0, 0x21, 75, 1, 240, 0, 0x40, 0x21, 76, 1,
     240, 0, 0xc0,
 ];
 
@@ -35,12 +35,12 @@ fn guest() -> Vec<u8> {
     ] {
         write(&mut code, a, v);
     }
-    // H/V timer uses the retained CPU comparator at 321*4=1284 clocks.
-    // Its physical assertion delay is deliberately outside this guest's claim.
-    // SLHV completes at clocks 1318,1316,1318,1316 within V=240.
-    // Ordinary [1316,1320) is H=328; short [1316,1320) is H=329.
+    // H/V assertion: 321*4+14=1298 CPU timer clocks, independent of
+    // PPU long dots. Six-clock WAI polling and 30-clock SLHV access give
+    // captures at 1330,1328,1330,1328. Ordinary [1328,1332) represents
+    // PPU H=331; short [1328,1332) represents H=332. See Issue #99 validation.
     for field in 0..4 {
-        code.push(0xcb); // Naturally wait for V=240/H=321 in the next field.
+        code.push(0xcb); // Naturally wait for V=240 with HTIME=321 in the next field.
         let dest = 0x1800 + field * 6;
         save(&mut code, 0x2137, dest, 0xff);
         save(&mut code, 0x213c, dest + 1, 0xff);
