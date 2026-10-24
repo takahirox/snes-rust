@@ -448,14 +448,14 @@ fn different_channel_dma_spans_row_reload_and_termination_without_losing_payload
 #[test]
 fn subsequent_metadata_keeps_a_bus_exclusions_and_read_side_effect_controls() {
     for reverse in [false, true] {
-        for table in [0x2180u16, 0x4016, 0x4300] {
+        for table in [0x2180u16, 0x4016, 0x4017, 0x4300] {
             let mut b = bus();
             channel(&mut b, 0, if reverse { 0xc0 } else { 0x40 }, 0x000100, 0x40);
             b.wram[0x100..0x103].copy_from_slice(&[0x81, 0, 2]);
             b.wram[0x10200] = 0x11;
             b.apu.output[0] = 0x66;
             b.waddr = 0x12345;
-            b.serial = 0x9180;
+            b.serial = [0x9180, 0x5a60];
             b.write_raw(0x420c, 1);
             until(&mut b, 0, 200);
             b.write_raw(0x4308, table as u8);
@@ -466,7 +466,7 @@ fn subsequent_metadata_keeps_a_bus_exclusions_and_read_side_effect_controls() {
                 (0, table + 2, 0)
             );
             assert_eq!((b.hdma_active, b.io[12]), (0, 1));
-            assert_eq!((b.waddr, b.serial), (0x12345, 0x9180));
+            assert_eq!((b.waddr, b.serial), (0x12345, [0x9180, 0x5a60]));
             if reverse {
                 assert_eq!(b.wram[0x10200], 0x66);
             } else {

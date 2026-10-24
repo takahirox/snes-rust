@@ -76,6 +76,7 @@ RUSTC="$(rustup which rustc)" npm --prefix web run build
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo test --locked -p snes-core --test joypad_serial
 cargo test --locked -p snes-core --lib machine::dma_tests
 cargo test --locked -p snes-core --test dma_access
 cargo test --locked -p snes-core --test hdma_init
@@ -147,6 +148,13 @@ live zero/repeat behavior and records boundary vectors and two original CPU gues
 Issue #39 connects WRIO bit 7 to PPU counter capture and STAT78 acknowledgement;
 its [counter-latch validation](docs/issue-39-validation.md) records source qualifications,
 64 edge/mirror vectors, scanline-crossing accesses, B-bus controls and an original CPU guest.
+
+Issue #67 adds independent manual reads for two standard joypads with a shared
+latch. `Machine::set_buttons` supplies port 1 and `Machine::set_buttons2` supplies
+port 2; both accept B through R in bits 15–4 and ignore bits 3–0. The
+[manual-serial validation](docs/issue-67-validation.md) records protocol references,
+CPU guest coverage, baseline evidence and gates. Automatic port 2 results and
+manual/automatic interference remain unimplemented; controllers remain partial.
 
 The checked-in diagnostic ROM is original MIT code, pixels and sample data,
 reproducible without an assembler. It tests actual CPU/PPU/DMA/joypad/SPC/DSP

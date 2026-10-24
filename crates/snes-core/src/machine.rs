@@ -48,8 +48,9 @@ pub struct SystemBus {
     nmi_pending: bool,
     irq: bool,
     pub buttons: u16,
+    buttons2: u16,
     joy: u16,
-    serial: u16,
+    serial: [u16; 2],
     strobe: bool,
     auto_until: u64,
     auto_buttons: u16,
@@ -110,8 +111,15 @@ impl Machine {
         }
         Ok(())
     }
+    /// Set port 1: bits 15–4 are B, Y, Select, Start, Up, Down, Left,
+    /// Right, A, X, L, R. Bits 3–0 are ignored.
     pub fn set_buttons(&mut self, buttons: u16) {
         self.bus.buttons = buttons & 0xfff0;
+    }
+    /// Set port 2 independently, using the same format as `set_buttons`.
+    /// This supplies manual serial input; automatic port 2 polling is not modeled.
+    pub fn set_buttons2(&mut self, buttons: u16) {
+        self.bus.buttons2 = buttons & 0xfff0;
     }
     pub fn framebuffer_width(&self) -> usize {
         self.bus.ppu.framebuffer_width()
@@ -156,8 +164,9 @@ impl SystemBus {
             nmi_pending: false,
             irq: false,
             buttons: 0,
+            buttons2: 0,
             joy: 0,
-            serial: 0,
+            serial: [0; 2],
             strobe: false,
             auto_until: 0,
             auto_buttons: 0,
@@ -299,18 +308,25 @@ impl SystemBus {
                     self.waddr = (self.waddr + 1) & 0x1ffff;
                     return v;
                 }
-                0x4016 => {
+                0x4016 | 0x4017 => {
+                    let port = lo - 0x4016;
                     let v = if self.strobe {
-                        (self.buttons >> 15) as u8
+                        let buttons = [self.buttons, self.buttons2];
+                        (buttons[port] >> 15) as u8
                     } else {
-                        (self.serial >> 15) as u8
+                        let v = (self.serial[port] >> 15) as u8;
+                        self.serial[port] = (self.serial[port] << 1) | 1;
+                        v
                     };
-                    if !self.strobe {
-                        self.serial = (self.serial << 1) | 1;
-                    }
-                    return (self.open & 0xfc) | (v & 1);
+                    // Standard pads leave Data2 unconnected (CPU bit 1 = 0).
+                    // JOYSER1 additionally drives its grounded inputs high.
+                    let unused = if port == 0 {
+                        self.open & 0xfc
+                    } else {
+                        (self.open & 0xe0) | 0x1c
+                    };
+                    return unused | (v & 1);
                 }
-                0x4017 => return (self.open & 0xe0) | 0x1c,
                 0x4210 => {
                     let v = if self.nmi_flag { 128 } else { 0 } | (self.open & 0x70) | 2;
                     self.nmi_flag = false;
@@ -380,7 +396,7 @@ impl SystemBus {
                 0x4016 => {
                     let next = v & 1 != 0;
                     if next || self.strobe {
-                        self.serial = self.buttons;
+                        self.serial = [self.buttons & 0xfff0, self.buttons2 & 0xfff0];
                     }
                     self.strobe = next;
                     return;

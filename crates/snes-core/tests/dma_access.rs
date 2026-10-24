@@ -1,4 +1,4 @@
-//! Original MIT 65C816 guests for Issues #21/#23/#25/#27/#29; no external code/data/firmware.
+//! Original MIT 65C816 guests for Issues #21/#23/#25/#27/#29/#67; no external code/data/firmware.
 //! Copyright (c) 2026 snes-rust contributors.
 use snes_core::Machine;
 
@@ -75,6 +75,26 @@ fn guest(reverse: bool) -> Vec<u8> {
         transfer(&mut code, 8, 6, 0x4016, 2);
         code.extend([0xad, 0x16, 0x40, 0x29, 1, 0x8d, 0x09, 0x18]);
     }
+    if !reverse {
+        // Both prohibited ports must leave both independent sequences intact.
+        write(&mut code, 0x4016, 1);
+        write(&mut code, 0x4016, 0);
+        for address in [0x4016, 0x4017] {
+            transfer(&mut code, 8, 6, address, 3);
+        }
+        for (offset, address) in [0x4016_u16, 0x4017, 0x4017, 0x4016].into_iter().enumerate() {
+            code.extend([
+                0xad,
+                address as u8,
+                (address >> 8) as u8,
+                0x29,
+                1,
+                0x8d,
+                0x11 + offset as u8,
+                0x18,
+            ]);
+        }
+    }
     write(&mut code, 0x1810, 0xa5);
     code.push(0xdb); // STP is a bounded diagnostic success terminator.
     cartridge(&code)
@@ -95,6 +115,7 @@ fn cartridge(code: &[u8]) -> Vec<u8> {
 fn run(reverse: bool) -> Machine {
     let mut m = Machine::new(&guest(reverse)).unwrap();
     m.set_buttons(0x8000);
+    m.set_buttons2(0x4000);
     for _ in 0..10_000 {
         m.step();
         assert!(m.bus.frames < 2, "guest frame deadline");
@@ -115,6 +136,8 @@ fn guest_forward_prohibited_wram_port_reproduction() {
     assert_eq!(results, [0x5a, 0x12, 0, 0, 0x80, 0x21, 0, 0, 0, 1]);
     assert_eq!(&m.bus.ppu.cgram[..4], &[0, 0, 0x67, 0x23]);
     assert_eq!(m.bus.ppu.regs[6], 0);
+    let pads: Vec<_> = (0x1811..=0x1814).map(|a| m.bus.peek(a)).collect();
+    assert_eq!(pads, [1, 0, 1, 0]);
 }
 
 #[test]

@@ -117,16 +117,16 @@ fn init_channel_order_disabled_controls_and_a_bus_effects() {
     assert!(!b.irq && b.nmi_flag);
     assert_eq!(&b.dma[1][8..11], &[0, 0, 0]);
     assert_eq!(b.waddr, 0); // No reverse WMDATA payload reads.
-    for table in [0x002180, 0x004016, 0x004300] {
+    for table in [0x002180, 0x004016, 0x004017, 0x004300] {
         let mut b = bus();
         channel(&mut b, 0, 0x40, table, 0x80);
         b.waddr = 0x12345;
-        b.serial = 0x9180;
+        b.serial = [0x9180, 0x5a60];
         b.write_raw(0x420c, 1);
         until(&mut b, 0, 0, 200);
         assert_eq!(b.dma[0][10], 0);
         assert_eq!(b.hdma_active, 0);
-        assert_eq!((b.waddr, b.serial), (0x12345, 0x9180));
+        assert_eq!((b.waddr, b.serial), (0x12345, [0x9180, 0x5a60]));
     }
 }
 #[test]
