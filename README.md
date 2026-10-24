@@ -96,12 +96,14 @@ cargo test --locked -p snes-core --test ppu_pseudo_hires
 cargo test --locked -p snes-core --test ppu_obj_sizes
 cargo test --locked -p snes-core --test ppu_obj_limits
 cargo test --locked -p snes-core --test ppu_mode7_scroll
+cargo test --locked -p snes-core --test ppu_mode7_extbg
 # Original CPU-built browser/runner fixtures (also built by browser tests).
 cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
 cargo run --locked -p snes-core --example pseudo-hires-fixture -- .cache/pseudo-hires
 cargo run --locked -p snes-core --example obj-sizes-fixture -- .cache/obj-sizes
 cargo run --locked -p snes-core --example obj-limits-fixture -- .cache/obj-limits
 cargo run --locked -p snes-core --example mode7-scroll-fixture -- .cache/mode7-scroll
+cargo run --locked -p snes-core --example mode7-extbg-fixture -- .cache/mode7-extbg
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -375,7 +377,7 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   the [phase record](docs/issue-35-validation.md) separates these from source facts.
 - Planar BG modes, tilemaps, scroll/mosaic, sprites, priorities, windows and
   color math, plus a basic Mode 7 transform. BG1 direct color is supported in
-  Modes 3/4 and Mode 7 with EXTBG disabled, including tile palette contributions
+  Modes 3/4 and Mode 7 (including EXTBG), with tile palette contributions
   in Modes 3/4, transparency and the existing composition pipeline. See the
   [direct-color validation](docs/issue-11-validation.md) for numerical, rendering
   and original CPU-executed guest coverage. Non-mosaic Modes 2/4 support BG3
@@ -427,15 +429,24 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   update ordinary planar scroll through its separate latch. The
   [Mode 7 scroll validation](docs/issue-59-validation.md) records interleaved
   writes, multiplication, identity pixel vectors and an original CPU guest
-  observed natively and through actual Wasm/canvas output. `ppu-mode7` remains
-  partial: EXTBG, nonidentity arithmetic/truncation, signed-coordinate and
-  screen-over edges, mosaic, and fetch/raster interactions remain outstanding.
+  observed natively and through actual Wasm/canvas output. Static, non-mosaic,
+  non-interlaced 256-pixel Mode 7 EXTBG also supports BG2's seven-bit palette
+  index, raw-index-zero transparency, per-pixel priority against all OBJ priorities,
+  independent screen/window routing and bounded layer-selected color math.
+  BG1 retains eight-bit direct color with EXTBG; BG2 remains paletted. The
+  [EXTBG validation](docs/issue-61-validation.md) reconciles the specifications,
+  corrects the old BG1 assertion and records original CPU-built native/browser
+  evidence and exact-baseline failures. `ppu-mode7` remains partial:
+  nonidentity arithmetic/truncation, signed-coordinate and screen-over edges,
+  mosaic, interlace/overscan, pseudo-hires composition, multiplication timing/
+  interference, physical reset retention and fetch/raster interactions remain.
   Rendering snapshots registers per scanline. Math-enabled pseudo-hires,
   color-window clipping/prevention interactions, ordinary-hires composition,
   hires mosaic/color-math/window/OBJ accuracy,
   mosaic/offset interactions, timed mosaic state, mid-scanline raster effects,
   interlace/overscan/PAL, physical object overflow timing/rotation oddities and
-  Mode 7 EXTBG/transform edge behavior are outside the tested targets.
+  Mode 7 transform edge behavior and EXTBG interactions beyond the static scope
+  above are outside the tested targets.
   `ppu-color` remains partial:
   comprehensive window logic, clipping/prevention interactions, subtraction/
   saturation, halving and brightness coverage still need work. VRAM writes obey
