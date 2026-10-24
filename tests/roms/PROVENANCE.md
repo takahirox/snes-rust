@@ -867,3 +867,55 @@ and [nocash's hardware specifications](https://problemkaputt.de/fullsnes.htm).
   derived literal expectations, exact-baseline failures, mandatory checks and
   the specific remaining Mode 7 limitations. This bounded evidence neither
   verifies a whole inventory category nor completes Issue #3.
+
+## Original Mode 7 fixed-point transform guests (approved)
+
+- Sources: [`mode7_transform.rs`](../../crates/snes-core/tests/common/mode7_transform.rs),
+  [`ppu_mode7_transform.rs`](../../crates/snes-core/tests/ppu_mode7_transform.rs),
+  [`mode7-transform-fixture.rs`](../../crates/snes-core/examples/mode7-transform-fixture.rs)
+  and [`mode7-transform.spec.js`](../../web/tests/mode7-transform.spec.js).
+- Authorship/license: original code, map, packed character artwork and CGRAM
+  palette by snes-rust contributors, copyright 2026, under this repository's
+  MIT license. No external artwork, commercial ROM, firmware, assembler or
+  emulator implementation is an input. The Rust builder emits original 65C816
+  instructions into a 32 KiB LoROM; only source is committed.
+- All PPU initialization is performed by executed CPU writes under forced blank.
+  A full 128x128 map selects green character 1 except cell (0,0), which selects
+  character 2. Character 2's first pixel is red and its other pixels green.
+  Red/green palettes are initialized independently at indices 1/2 and 129/130.
+  This asymmetric sparse map distinguishes source columns 0, 1 and 512;
+  distant map entries do not repeat a short strip. D=B=C=0 makes every output
+  row sample source row 0, independent of physical row origin.
+- Fractional variants set A=$0020, H=1: display x=7 must sample source X=0
+  (raw $81, red), while the old transform samples X=1 (raw $82, green).
+  Clipped variants set A=$0080,H=1024: display x=0 must sample X=0 rather
+  than 512. Each has BG1-only and EXTBG BG2-only variants. Completion at
+  $30=$63 means the CPU reached the end of setup, not a host-injected pass.
+- Native tests load these exact builder bytes, bound startup, reject CPU/APU
+  errors, discard setup output and check three complete stable frames per
+  variant. Chromium loads the same generated files through the ordinary ROM
+  picker and checks completion, 256x224 geometry, real Wasm framebuffer bytes
+  and canvas ImageData under the mandatory browser filter.
+
+Reproduction (both builds were performed and compared byte for byte):
+
+```sh
+cargo run --locked -p snes-core --example mode7-transform-fixture -- .cache/mode7-transform
+cargo run --locked -p snes-core --example mode7-transform-fixture -- .cache/issue-63/rebuilt
+for name in fractional-bg1 fractional-bg2 clipped-bg1 clipped-bg2; do
+  cmp ".cache/mode7-transform/$name.sfc" ".cache/issue-63/rebuilt/$name.sfc"
+done
+shasum -a 256 .cache/mode7-transform/*.sfc
+```
+
+| Generated file (32768 bytes each) | SHA-256 |
+| --- | --- |
+| fractional-bg1.sfc | `bf3c6b6a946c644f7ffdcc1284c66bf8810909b7d903f5a6e33f749f6a60413b` |
+| fractional-bg2.sfc | `c6da270403f6de845081273f750b4ba3a520ece11c53ce3a607f8cbf50f66434` |
+| clipped-bg1.sfc | `099b9eb111833c85d9bb113539aedeecee9b5bc1119d7fbf2a687e74a00e256c` |
+| clipped-bg2.sfc | `cfb1acc787a5e73f2ba0560812d47b24b9ef24aafa701abe7398e78f258b6cb7` |
+
+See the [Issue #63 validation record](../../docs/issue-63-validation.md) for
+specification reconciliation, literal coordinate derivations, exact-baseline
+counterexamples and remaining uncertainty. These software checks do not
+establish physical hardware accuracy, commercial compatibility or Issue #3 completion.

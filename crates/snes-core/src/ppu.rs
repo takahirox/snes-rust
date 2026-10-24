@@ -547,10 +547,18 @@ impl Ppu {
         let sy = ((self.m7_scroll[1] as i32) << 19) >> 19;
         let cx = ((self.m7[4] as i32) << 19) >> 19;
         let cy = ((self.m7[5] as i32) << 19) >> 19;
-        let px =
-            ((self.m7[0] as i32 * (x + sx - cx) + self.m7[1] as i32 * (y + sy - cy)) >> 8) + cx;
-        let py =
-            ((self.m7[2] as i32 * (x + sx - cx) + self.m7[3] as i32 * (y + sy - cy)) >> 8) + cy;
+        // Anomie $211F/$2120 and Fullsnes Rotation/Scaling: select the
+        // displacement's low ten bits and bit-13 sign, then discard six
+        // fractional bits from each origin product separately. Horizontal
+        // per-pixel A/C products retain all eight fractional bits.
+        let clip = |d: i32| (d & 1023) - if d & 8192 != 0 { 1024 } else { 0 };
+        let dh = clip(sx - cx);
+        let dv = clip(sy - cy);
+        let [a, b, c, d] = [self.m7[0], self.m7[1], self.m7[2], self.m7[3]].map(i32::from);
+        let x0 = ((a * dh) & !63) + ((b * dv) & !63) + ((b * y) & !63) + cx * 256;
+        let y0 = ((c * dh) & !63) + ((d * dv) & !63) + ((d * y) & !63) + cy * 256;
+        let px = (x0 + a * x) >> 8;
+        let py = (y0 + c * x) >> 8;
         let outside = !(0..1024).contains(&px) || !(0..1024).contains(&py);
         if outside && sel & 0xc0 == 0x80 {
             return None;
