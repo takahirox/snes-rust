@@ -98,6 +98,8 @@ cargo test -p snes-core --test dsp_pitch --locked
 cargo test --locked -p snes-core --test dsp_directory
 cargo test --locked -p snes-core --test dsp_brr_end
 cargo test --locked -p snes-core --test spc_timers
+cargo test --locked -p snes-core --test spc_io_readback
+cargo test --locked -p snes-core --lib apu::timing_tests
 cargo test -p snes-core --test ppu_offset --locked
 cargo test --locked -p snes-core --test ppu_hires
 cargo test --locked -p snes-core --test ppu_mode6_offset
@@ -543,10 +545,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   prescalers run continuously while disabled; rising enable clears counting
   and output without changing phase, and repeated enable retains both. The
   [prescaler validation](docs/issue-85-validation.md) adds all-timer phase and
-  transition vectors and an instruction-timed uploaded guest. Initial phase
-  zero is an emulator convention, not physical power-on alignment. `spc` remains
-  partial: TEST clock controls, physical instruction/access timing,
-  communication races, SLEEP/STOP differences, register readback, reset retention
+  transition vectors and an instruction-timed uploaded guest. Ordinary reads
+  of TEST `$00F0`, CONTROL `$00F1` and timer targets `$00FA–$00FC` return zero
+  independently of backing RAM, while supported writes and timer state are
+  preserved. The [readback validation](docs/issue-87-validation.md) attributes
+  these values and records original API tests and an uploaded SPC700 guest,
+  including page-1 direct-page controls. Initial phase zero is an emulator
+  convention, not physical power-on alignment. `spc` remains partial:
+  TEST clock controls, physical instruction/access timing, communication races,
+  SLEEP/STOP differences, remaining register semantics, reset retention
   and comprehensive instruction semantics remain unresolved or incompletely
   tested.
   DSP provides BRR voices, Gaussian interpolation, ADSR/gain, signed stereo

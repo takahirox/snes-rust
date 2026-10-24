@@ -160,6 +160,9 @@ impl Apu {
     }
     pub fn read(&mut self, a: u16) -> u8 {
         match a {
+            // Write-only register overlay (Anomie SPC700 Doc, rev. 1126).
+            // Keep backing bytes for writes/live targets; reads have no effects.
+            0xf0 | 0xf1 | 0xfa..=0xfc => 0,
             0xf3 => self.dsp.regs[(self.ram[0xf2] & 127) as usize],
             0xf4..=0xf7 => self.input[(a - 0xf4) as usize],
             0xfd..=0xff => {
