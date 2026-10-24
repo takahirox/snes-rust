@@ -1533,3 +1533,59 @@ unchanged.
   assertions, deadlines and tolerances remain intact. No commercial ROM or
   firmware is acquired. This diagnostic does not establish full hardware
   accuracy, commercial compatibility or completion of Issue #3.
+
+## Original horizontal-zero IRQ diagnostic (Issue #103)
+
+- Sources: [`horizontal_zero_irq.rs`](../../crates/snes-core/tests/horizontal_zero_irq.rs)
+  and [`horizontal_zero_irq_tests.rs`](../../crates/snes-core/src/machine/horizontal_zero_irq_tests.rs).
+  Original repository-authored work, copyright (c) 2026 snes-rust contributors,
+  under [MIT](../../LICENSE). Rust builds a zero-filled 32 KiB LoROM in memory
+  with hand-encoded 65C816 instructions, header, reset vector and literal
+  expectations, following the original #99/#101 construction patterns. No
+  external assembler, firmware, cartridge, asset or emulator code is included,
+  fetched or needed for this diagnostic. No generated ROM is committed.
+- Executed guest instructions select SEI, forced blank and SETINI=0. In each
+  of four natural fields, a nonzero combined gate at V=239/HTIME=256 wakes WAI.
+  The guest acknowledges the gate, disables IRQ, writes both HTIME bytes zero,
+  then enables H-only mode before naturally entering V=240. VTIME stays 239,
+  deliberately nonmatching. H-only is disabled after recording, before the
+  next line. This avoids depending on live timer-write edge behavior.
+- Each field records SLHV open bus, H low/high, V low/high, masked STAT78,
+  TIMEUP pending and TIMEUP acknowledged, at $1800..$181F. Executed guest
+  comparisons check every one of the 32 literal bytes. Failure writes
+  $18F1=$EE and STPs; success writes $18F0=$A5 and STPs. Host code only loads,
+  steps and observes. It injects no beam, IRQ, CPU state, RAM or result.
+  Deadlines are 300,000 steps and 1,500,000 master clocks; completion must be
+  in field 3, after observing both ordinary and short V=240 line parities.
+- Independent geometry: 262*1364=357368, with odd-field V=240 four clocks
+  shorter. Field starts are 0/357368/714732/1072100, V=240 starts are
+  327360/684728/1042092/1399460. Fullsnes H-only `(HTIME+3.5)*4` at zero
+  yields assertion clocks 327374/684742/1042106/1399474. The preceding gate
+  is `4*256+14=1038` into V=239: 327034/684402/1041766/1399134.
+- CPU/refresh arithmetic below describes existing model conventions, not
+  physical recognition or bus phases. Reset-vector reads cost 16, SEI 14,
+  two initial write pairs 92, five gate write pairs 230, WAI setup 20:
+  waiting begins at 372. Each write pair costs LDA immediate 16 + STA I/O 30.
+  There are 240 refresh holds of 40 clocks before the first gate. First wake:
+  `372+9600+6*ceil((327034-372-9600)/6)=327036`.
+  Acknowledge (30), four write pairs (184) and WAI (20) add 234, so waiting
+  for H-only begins at 327270, before V=240 entry. Six-clock idle rounding
+  gives wake `327270+6*ceil((327374-327270)/6)=327378`.
+- Each of eight saves costs LDA I/O 30 + AND immediate 16 + STA WRAM 32 = 78.
+  One refresh hold during the saves adds 40. Disable (46), five gate pairs
+  (230) and WAI (20) give next gate wait `wake+8*78+40+46+230+20=wake+960`.
+  There are 261 further refresh holds (10440) until the next gate; round the
+  remaining wait up to six. Gate wakes are 327036/684402/1041768/1399134;
+  H-only wakes are 327378/684744/1042110/1399476. Thus SLHV at wake+30
+  captures master H=48/46/48/46, independently giving PPU H=12/11/12/11,
+  high=0, V=240/high=0. SLHV open bus is $21 and masked STAT78 alternates
+  $40/$C0/$40/$C0. TIMEUP reads at wake+498 and wake+576+40 return $80/0.
+  Baseline rollover instead captures PPU H=7/8/7/8, with all other bytes equal.
+- Unit tests independently use literal events 1378, 357382/714746,
+  327374/684742 and 328738/686102. Stereo sample counts are
+  `2*floor(master_clocks*32000/21477272)`; PCM equality across tick partitions
+  establishes determinism only. Access-end TIMEUP acknowledgement, coincident
+  read results, DMA phases, instruction-boundary service and reset-created
+  V=0 no-event policy remain emulator conventions. The
+  [validation record](../../docs/issue-103-validation.md) records baseline
+  behavioral failures, corrected passes and all executed acceptance gates.
