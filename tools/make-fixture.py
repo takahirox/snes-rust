@@ -113,6 +113,10 @@ emit(0xcb)  # WAI
 jump('main')
 label('nmi')
 emit(0x48, 0xda, 0x5a, 0xad, 0x10, 0x42)  # save regs; acknowledge
+# Polling begins after NMI/VBlank: wait for busy SET before waiting for CLEAR.
+label('joy_start')
+emit(0xad, 0x12, 0x42, 0x29, 1)
+branch(0xf0, 'joy_start')
 label('joy_wait')
 emit(0xad, 0x12, 0x42, 0x29, 1)
 branch(0xd0, 'joy_wait')

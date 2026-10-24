@@ -165,9 +165,11 @@ fn status_guest() -> Vec<u8> {
     ] {
         write(&mut code, a, v);
     }
-    // Wait for VBlank, then auto-read completion. No CPU status read acknowledges
+    // Wait for VBlank, then busy assertion and completion (start is later than
+    // VBlank). No CPU status read acknowledges
     // RDNMI/TIMEUP before DMA. Host enforces instruction and frame deadlines.
     code.extend([0xad, 0x12, 0x42, 0x29, 0x80, 0xf0, 0xf9]);
+    code.extend([0xad, 0x12, 0x42, 0x29, 1, 0xf0, 0xf9]);
     code.extend([0xad, 0x12, 0x42, 0x29, 1, 0xd0, 0xf9]);
     transfer(&mut code, 8, 0x80, 0x4210, 2); // $1900/1: NMI set then clear
     transfer(&mut code, 8, 0x80, 0x4211, 2); // $1902/3: IRQ set then clear
