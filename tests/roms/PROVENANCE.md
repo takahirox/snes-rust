@@ -149,8 +149,16 @@ are not release acceptance evidence.
 - Execution has explicit per-acknowledgement and per-checkpoint bounds. Checkpoint
   expectations are literal numerical vectors, independent of production helpers.
   No generated binary is committed or downloaded; no external assembler is needed.
+- Issue #75 adds the original 133-byte `hidden_guest` builder in the same file.
+  It configures a held NON voice and direct GAIN, selects rate-zero linear GAIN,
+  then bent rate 31 through `$F2/$F3`, recording ENVX at `$1010..$1012`.
+  Its twelve NOPs and bounded host acknowledgements select the first bent sample;
+  exact guest checkpoints and PCM are derived in the
+  [hidden-envelope validation](../../docs/issue-75-validation.md).
+  The noise seed, register values, instructions and expected data are original;
+  pitch remains zero and no firmware, BRR or external executable is acquired.
 - Decision: original source and generated guest/data may be redistributed under
-  MIT. This is a bounded envelope diagnostic, not full DSP or game acceptance.
+  MIT. These are bounded envelope diagnostics, not full DSP or game acceptance.
 
 ## Original noise SPC700 guest and BRR data: approved
 
