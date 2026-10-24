@@ -1,5 +1,9 @@
 //! 32 kHz BRR voice mixer, authored from S-DSP register documentation.
 use crate::gaussian::GAUSSIAN;
+
+#[cfg(test)]
+#[path = "dsp_brr_tests.rs"]
+mod brr_tests;
 #[derive(Default, Clone, Copy)]
 struct Voice {
     addr: u16,
