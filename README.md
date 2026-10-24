@@ -539,8 +539,13 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   equality against live targets, including zero as 256. The
   [timer validation](docs/issue-83-validation.md) records hardware-source
   reconciliation, boundary/control vectors for all three timers, an original
-  uploaded SPC700 guest and whole/irregular tick comparisons. `spc` remains
-  partial: disabled-divider phase, physical instruction/access timing,
+  uploaded SPC700 guest and whole/irregular tick comparisons. Ordinary timer
+  prescalers run continuously while disabled; rising enable clears counting
+  and output without changing phase, and repeated enable retains both. The
+  [prescaler validation](docs/issue-85-validation.md) adds all-timer phase and
+  transition vectors and an instruction-timed uploaded guest. Initial phase
+  zero is an emulator convention, not physical power-on alignment. `spc` remains
+  partial: TEST clock controls, physical instruction/access timing,
   communication races, SLEEP/STOP differences, register readback, reset retention
   and comprehensive instruction semantics remain unresolved or incompletely
   tested.

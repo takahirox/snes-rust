@@ -1206,3 +1206,26 @@ imported as a fixture or oracle.
 Fullsnes and Anomie's attributed hardware research were consulted as
 documentation only. Existing source/tool pins, fixtures and game hashes are
 unchanged.
+
+## Issue #85: original timer-phase vectors and uploaded SPC700 guest
+
+- Additions to [`spc_timers.rs`](../../crates/snes-core/tests/spc_timers.rs) are
+  original work by the snes-rust contributors, copyright 2026, under the root
+  [MIT license](../../LICENSE). Cargo compiles the Rust instruction builder;
+  only source is committed. The guest encodes original SPC700 instructions
+  directly in memory, with no external assembler, executable fixture, firmware,
+  commercial ROM, music, graphics or emulator output.
+- Public-API matrices reach selected phases and counting/output states on each
+  timer through ordinary elapsed time and register operations. `phase_guest` uploads at $0200
+  via the existing firmware-free port protocol, writes targets and CONTROL,
+  uses bounded instruction-count delays, records 20 output bytes at
+  $1100–$1113, and reports port 0=$85 plus STOP. No private timer state or
+  expected output is injected. Generated code/data are redistributable as MIT.
+- [Issue #85 validation](../../docs/issue-85-validation.md) derives the timer
+  expectations from freshly inspected Anomie revision 1126 and Fullsnes
+  passages, distinguishes reset stages and documents unresolved physical
+  edges. Documentation was consulted for hardware facts only; no external
+  implementation was imported or run as an oracle. Whole/irregular runs each
+  require numeric records before partition equality is treated as determinism.
+- Existing #83 records, cleared-game sources/licenses, source/tool pins, hashes,
+  gameplay/freeze, note/effect, Web Audio and queue/drift assertions are retained.

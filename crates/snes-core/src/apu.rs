@@ -134,12 +134,13 @@ impl Apu {
                     }
                 }
                 for i in 0..3 {
-                    if self.control & (1 << i) == 0 {
-                        continue;
-                    }
+                    // The first scaler runs even while counting is disabled.
                     self.timer_div[i] += 1;
                     if self.timer_div[i] == if i == 2 { 16 } else { 128 } {
                         self.timer_div[i] = 0;
+                        if self.control & (1 << i) == 0 {
+                            continue;
+                        }
                         // Eight-bit post-increment equality: a live lowered
                         // target is reached after wrap; zero matches on wrap.
                         self.timer_stage[i] = self.timer_stage[i].wrapping_add(1);
@@ -182,7 +183,7 @@ impl Apu {
                 }
                 for i in 0..3 {
                     if v & (1 << i) != 0 && self.control & (1 << i) == 0 {
-                        self.timer_div[i] = 0;
+                        // Rising enable clears stages 2/3, not scaler phase.
                         self.timer_stage[i] = 0;
                         self.timer_out[i] = 0;
                     }
