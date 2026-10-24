@@ -19,6 +19,7 @@ pub struct Ppu {
     scroll_latch: u8,
     scroll: [[u16; 2]; 4],
     m7: [i16; 6],
+    m7_scroll: [u16; 2],
     m7_latch: u8,
     fixed: [u8; 3],
     pub h: u16,
@@ -55,6 +56,7 @@ impl Default for Ppu {
             scroll_latch: 0,
             scroll: [[0; 2]; 4],
             m7: [0; 6],
+            m7_scroll: [0; 2],
             m7_latch: 0,
             fixed: [0; 3],
             h: 0,
@@ -229,6 +231,12 @@ impl Ppu {
                     ((v as u16) << 8) | self.scroll_latch as u16
                 };
                 self.scroll_latch = v;
+                if bg == 0 {
+                    // Both BG1 ports also capture independent Mode 7 offsets,
+                    // sharing the matrix/center previous byte in every BGMODE.
+                    self.m7_scroll[axis] = u16::from_le_bytes([self.m7_latch, v]);
+                    self.m7_latch = v;
+                }
             }
             0x16 | 0x17 => {
                 let mut address = self.vaddr.to_le_bytes();
@@ -531,8 +539,8 @@ impl Ppu {
         let sel = self.regs[0x1a];
         let x = if sel & 1 != 0 { 255 - x } else { x } as i32;
         let y = if sel & 2 != 0 { 255 - y } else { y } as i32;
-        let sx = ((self.scroll[0][0] as i32) << 19) >> 19;
-        let sy = ((self.scroll[0][1] as i32) << 19) >> 19;
+        let sx = ((self.m7_scroll[0] as i32) << 19) >> 19;
+        let sy = ((self.m7_scroll[1] as i32) << 19) >> 19;
         let cx = ((self.m7[4] as i32) << 19) >> 19;
         let cy = ((self.m7[5] as i32) << 19) >> 19;
         let px =
@@ -1009,3 +1017,7 @@ mod oam_tests;
 #[cfg(test)]
 #[path = "ppu_cgram_tests.rs"]
 mod cgram_tests;
+
+#[cfg(test)]
+#[path = "ppu_mode7_tests.rs"]
+mod mode7_tests;

@@ -95,11 +95,13 @@ cargo test --locked -p snes-core --test ppu_mode6_offset
 cargo test --locked -p snes-core --test ppu_pseudo_hires
 cargo test --locked -p snes-core --test ppu_obj_sizes
 cargo test --locked -p snes-core --test ppu_obj_limits
+cargo test --locked -p snes-core --test ppu_mode7_scroll
 # Original CPU-built browser/runner fixtures (also built by browser tests).
 cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
 cargo run --locked -p snes-core --example pseudo-hires-fixture -- .cache/pseudo-hires
 cargo run --locked -p snes-core --example obj-sizes-fixture -- .cache/obj-sizes
 cargo run --locked -p snes-core --example obj-limits-fixture -- .cache/obj-limits
+cargo run --locked -p snes-core --example mode7-scroll-fixture -- .cache/mode7-scroll
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -420,6 +422,14 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   contract, independent survivor vectors, CPU status/lifetime guests and actual
   Wasm/canvas checks. `ppu-objects` remains partial: physical evaluation/fetch
   timing, rotation oddities, interlace and hires interactions remain outstanding.
+  Mode 7 captures independent signed 13-bit H/V offsets through the same
+  previous-byte latch as its matrix/center registers, while the BG1 ports also
+  update ordinary planar scroll through its separate latch. The
+  [Mode 7 scroll validation](docs/issue-59-validation.md) records interleaved
+  writes, multiplication, identity pixel vectors and an original CPU guest
+  observed natively and through actual Wasm/canvas output. `ppu-mode7` remains
+  partial: EXTBG, nonidentity arithmetic/truncation, signed-coordinate and
+  screen-over edges, mosaic, and fetch/raster interactions remain outstanding.
   Rendering snapshots registers per scanline. Math-enabled pseudo-hires,
   color-window clipping/prevention interactions, ordinary-hires composition,
   hires mosaic/color-math/window/OBJ accuracy,
