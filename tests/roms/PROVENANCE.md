@@ -1483,3 +1483,53 @@ unchanged.
   at 1112. Original pre-service table, later pointer/reload and HBlank bytes
   are unchanged. All fixture/tool/game pins, licenses, hashes, replay inputs,
   gameplay/progression/music assertions and tolerances remain unchanged.
+
+## Original combined-zero IRQ diagnostic (Issue #101)
+
+- Sources: [`combined_zero_irq.rs`](../../crates/snes-core/tests/combined_zero_irq.rs)
+  and [`combined_zero_irq_tests.rs`](../../crates/snes-core/src/machine/combined_zero_irq_tests.rs).
+  Original repository-authored work, copyright (c) 2026 snes-rust contributors,
+  under [MIT](../../LICENSE). It follows the repository's #97/#99 hand-encoded
+  guest construction patterns. Rust constructs a zero-filled 32 KiB LoROM with
+  65C816 instructions, header, reset vector and literal expectations in memory;
+  no external assembler, cartridge, firmware, asset or emulator code is used.
+  No generated cartridge is committed or downloaded.
+- Guest instructions execute SEI, forced blank, SETINI=0, HTIMEL=HTIMEH=0,
+  VTIME=240 and NMITIMEN=$30 before entering the selected line. Masked IRQ
+  wakes WAI without vectoring. Four natural fields record eight bytes each:
+  SLHV open bus, H low/high, V low/high, masked STAT78, TIMEUP pending and
+  TIMEUP acknowledged. Every one of the 32 literal bytes is compared in
+  executed guest code. Failure writes $18F1=$EE and STPs; success writes
+  $18F0=$A5 and STPs. Host code only loads, steps and observes, with bounded
+  deadlines of 300,000 steps and 1,500,000 master clocks and a fourth-field
+  check. It injects no CPU, beam, parity, IRQ, memory or result state.
+- Independent geometry arithmetic: 262*1364=357368, with four fewer clocks
+  in odd fields after V=240. Field starts are 0,357368,714732,1072100;
+  V=240 starts at 327360,684728,1042092,1399460. Fullsnes's combined-zero
+  2.5*4 offset gives assertion clocks 327370,684738,1042102,1399470.
+  These facts establish assertion timing; the following CPU/refresh arithmetic
+  uses existing emulator conventions, not measured physical access phases.
+- Reset-vector reads cost 16 clocks, SEI 14, seven LDA-immediate/STA-I/O
+  pairs 7*46, and WAI setup 20: waiting starts at 372. Before the first
+  event there are 240 refresh holds of 40 clocks. Rounding the remaining idle
+  wait up to six gives
+  `372+9600+6*ceil((327370-372-9600)/6)=327372`.
+  Each save is LDA I/O 30 + AND immediate 16 + STA WRAM 32 = 78 clocks.
+  Eight saves plus next WAI cost 644 access clocks; 262 refresh holds between
+  successive wakes add 10480. The recurrence is
+  `wake_next=wake+644+10480+6*ceil((event_next-wake-644-10480)/6)`.
+  Wakes are 327372,684738,1042104,1399470. SLHV ends 30 clocks later:
+  within-line H=42,40,42,40, all PPU H=10 (high=0), V=240 (high=0).
+  SLHV open bus is $21; masked STAT78 is $40,$C0,$40,$C0. The first TIMEUP
+  read ends at wake+498, before refresh, and returns $80. The second ends
+  at wake+576+40 (crossing refresh) and returns zero. Baseline H=0 delivery
+  instead latches PPU H=7,8,7,8, distinguishing the defect behaviorally.
+- Unit expectations also use literal absolute events 1374 (initial V=1),
+  357378/714742 (natural V=0), 327370/684738 (V=240), and
+  328734/686098 (V=241). Expected stereo sample counts are twice the floor
+  of elapsed clocks times 32000/21477272. PCM partition equality proves
+  deterministic advancement only. All source/tool/game pins, licensed
+  fixture alterations, cleared-game hashes, replay inputs, gameplay/music
+  assertions, deadlines and tolerances remain intact. No commercial ROM or
+  firmware is acquired. This diagnostic does not establish full hardware
+  accuracy, commercial compatibility or completion of Issue #3.
