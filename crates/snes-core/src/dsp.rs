@@ -8,6 +8,11 @@ struct Voice {
     nibble: u8,
     history: [i32; 2],
     decoded: [i32; 4],
+    // KON's three decoded groups. Keep the eight samples beyond the initial
+    // interpolation window until consumed, without decoding them a second time.
+    preload: [i32; 12],
+    preload_next: u8,
+    first_output: bool,
     key_delay: u8,
     // Bounded interpolation position, including the four-sample group bits.
     // Decoded history already includes the integer steps represented here.
@@ -76,8 +81,8 @@ impl Dsp {
             // Terminal headers silence the envelope, not the decoder. Both
             // end flags redirect at completion, retaining BRR/phase history.
             // Later headers retain the eager first-nibble scalar mapping.
-            // The initial stable header is also checked after KON delay.
-            // See docs/issue-81-validation.md.
+            // KON preload recognizes the initial stable header too.
+            // See docs/issue-89-validation.md.
             if v.header & 3 == 1 {
                 v.env = 0;
                 v.stage = 3;
@@ -153,6 +158,7 @@ impl Dsp {
                     addr: start,
                     active: true,
                     key_delay: 5,
+                    first_output: true,
                     ..Voice::default()
                 };
                 self.regs[0x7c] &= !(1 << i);
@@ -178,13 +184,19 @@ impl Dsp {
             }
             if v.key_delay > 0 {
                 v.key_delay -= 1;
-                // Recognize the stable initial terminal header independently of
-                // pitch/NON. This ends the five silent KON calls without
-                // consuming a nibble, advancing phase or publishing ENDX.
-                // Physical prefetch and live header races remain unmodeled.
-                if v.key_delay == 0 && ram[v.addr as usize] & 3 == 1 {
-                    v.env = 0;
-                    v.stage = 3;
+                // Anomie/jwdonal BRR DECODING #1..#6: three groups on
+                // silent calls 2..4, with interpolation position held at zero.
+                // Stable selection only; no subcycle directory/header races.
+                if (1..=3).contains(&v.key_delay) {
+                    let group = (3 - v.key_delay) as usize;
+                    for _ in 0..4 {
+                        Self::decode(v, ram);
+                    }
+                    v.preload[group * 4..group * 4 + 4].copy_from_slice(&v.decoded);
+                    if v.key_delay == 1 {
+                        v.decoded.copy_from_slice(&v.preload[..4]);
+                        v.preload_next = 4;
+                    }
                 }
                 self.regs[base + 8] = 0;
                 self.regs[base + 9] = 0;
@@ -256,9 +268,21 @@ impl Dsp {
             // decoder eagerly consumes the difference in integer positions;
             // masking the group bits next sample must not consume them twice.
             let position = v.phase & 0x3fff;
-            v.phase = (position + increment).min(0x7fff);
+            // S3's first data output precedes S4's first pitch update. The
+            // sample-level API advances before later outputs, so defer that
+            // first update to the next call. No programmed pitch is changed.
+            v.phase = if v.first_output {
+                v.first_output = false;
+                position
+            } else {
+                (position + increment).min(0x7fff)
+            };
             for _ in (position >> 12)..(v.phase >> 12) {
-                if Self::decode(v, ram) {
+                if (4..12).contains(&v.preload_next) {
+                    v.decoded.rotate_left(1);
+                    v.decoded[3] = v.preload[v.preload_next as usize];
+                    v.preload_next += 1;
+                } else if Self::decode(v, ram) {
                     self.regs[0x7c] |= 1 << i;
                 }
             }
@@ -805,24 +829,41 @@ mod terminal_tests {
         for count in 1usize..=50 {
             assert_eq!(dsp.sample(&mut ram), (0, 0));
             let voice = dsp.voices[0];
-            let at = |back| count.checked_sub(back).map_or(0, |index| sequence[index]);
-            assert_eq!(voice.history, [at(1), at(2)], "history count {count}");
+            let window_end = count + 3;
+            let decoded_end = window_end.max(12);
+            let at = |back| sequence[window_end - back];
+            let history = |back| sequence[decoded_end - back];
+            assert_eq!(
+                voice.history,
+                [history(1), history(2)],
+                "history count {count}"
+            );
             assert_eq!(
                 voice.decoded,
                 [at(4), at(3), at(2), at(1)],
                 "buffer count {count}"
             );
-            assert_eq!(voice.nibble as usize, (count - 1) % 16 + 1);
-            assert_eq!(voice.phase as usize, ((count - 1) % 4 + 1) * 4096);
+            assert_eq!(voice.nibble as usize, (decoded_end - 1) % 16 + 1);
+            assert_eq!(
+                voice.phase as usize,
+                if count == 1 {
+                    0
+                } else {
+                    ((count - 2) % 4 + 1) * 4096
+                }
+            );
             assert_eq!((voice.env, voice.stage, voice.active), (0, 3, true));
-            let start = if count <= 16 {
+            let start = if decoded_end <= 16 {
                 0x3000
-            } else if count <= 32 {
+            } else if decoded_end <= 32 {
                 0x3100
             } else {
                 0x3200
             };
-            assert_eq!(voice.addr, start + if count % 16 == 0 { 9 } else { 1 });
+            assert_eq!(
+                voice.addr,
+                start + if decoded_end % 16 == 0 { 9 } else { 1 }
+            );
             if count == 24 {
                 ram[0x2003] = 0x32;
             }

@@ -52,6 +52,8 @@ fn configure(dsp: &mut Dsp, pitch: u16) {
 // Independent arithmetic on an explicitly specified decoded-nibble sequence.
 // Only phase-zero coefficients are needed: 370,1305,374,0 (Fullsnes table).
 // Tests specify the sequence; this helper has no directory/BRR/loop logic.
+// Issue #89: count is the exclusive right edge of the selected window,
+// starting at 4 after KON (not the number of pitch-demanded nibbles).
 fn expected(sequence: &[i32], count: usize) -> (i16, i16, u8) {
     let at = |back| count.checked_sub(back).map_or(0, |i| sequence[i]);
     let source = (((at(4) * 370) >> 10) + ((at(3) * 1305) >> 10) + ((at(2) * 374) >> 10)) & !1;
@@ -102,13 +104,13 @@ fn live_changes(kind: Change, pitch: u16) {
     } else {
         1024
     };
-    let sequence = [vec![2048; 16], vec![first; 16], vec![second; 32]].concat();
+    let sequence = [vec![2048; 16], vec![first; 16], vec![second; 40]].concat();
     let step = pitch as usize / 0x1000;
     for tick in 1..=48 / step {
-        let count = tick * step;
+        let count = 4 + (tick - 1) * step;
         check(&mut dsp, &mut ram, &sequence, count, u8::from(count > 16));
         if tick == 2 {
-            // after KON, at least ten nibbles before the first loop
+            // After KON, well before the first scalar block-end event.
             change(&mut dsp, &mut ram, kind, false);
         }
         if count >= 20 && count - step < 20 {
@@ -126,7 +128,7 @@ fn live_changes(kind: Change, pitch: u16) {
     }
     let start = [3072; 16];
     for tick in 1..=4 {
-        check(&mut dsp, &mut ram, &start, tick * step, 0);
+        check(&mut dsp, &mut ram, &start, 4 + (tick - 1) * step, 0);
     }
 }
 #[test]
@@ -158,8 +160,9 @@ fn start_word_alone_does_not_restart_or_change_loop() {
         dsp.sample(&mut ram);
     }
     word(&mut ram, 0x2000, START);
-    for count in 6..=48 {
-        check(&mut dsp, &mut ram, &[2048; 48], count, u8::from(count > 16));
+    for tick in 6..=48 {
+        let count = tick + 3;
+        check(&mut dsp, &mut ram, &[2048; 56], count, u8::from(count > 16));
     }
 }
 
@@ -176,8 +179,9 @@ fn aligned_directory_carry_wrap_and_last_loop_word() {
         for _ in 0..5 {
             dsp.sample(&mut ram);
         }
-        let sequence = [vec![2048; 16], vec![-2048; 16]].concat();
-        for count in 1..=32 {
+        let sequence = [vec![2048; 16], vec![-2048; 24]].concat();
+        for tick in 1..=32 {
+            let count = tick + 3;
             check(&mut dsp, &mut ram, &sequence, count, u8::from(count > 16));
             if count == 4 {
                 // also exercise a live word at $fffe/$ffff
@@ -198,8 +202,9 @@ fn brr_payload_wraps_ffff_without_redirecting_until_end() {
     for _ in 0..5 {
         dsp.sample(&mut ram);
     }
-    let sequence = [vec![2048; 16], vec![-2048; 16]].concat();
-    for count in 1..=32 {
+    let sequence = [vec![2048; 16], vec![-2048; 24]].concat();
+    for tick in 1..=32 {
+        let count = tick + 3;
         check(&mut dsp, &mut ram, &sequence, count, u8::from(count > 16));
         if count == 4 {
             word(&mut ram, 0x2002, B);
@@ -230,11 +235,12 @@ fn simultaneous_voices_keep_independent_entries_and_share_dir() {
         vec![2048; 16],
         vec![-2048; 16],
         vec![512; 16],
-        vec![2048; 16],
+        vec![2048; 24],
     ]
     .concat();
-    let one = [vec![1024; 32], vec![-2048; 32]].concat();
-    for count in 1..=64 {
+    let one = [vec![1024; 32], vec![-2048; 40]].concat();
+    for tick in 1..=64 {
+        let count = tick + 3;
         assert_eq!(
             dsp.sample(&mut ram),
             (expected(&zero, count).0, expected(&one, count).1)
@@ -258,7 +264,9 @@ fn simultaneous_voices_keep_independent_entries_and_share_dir() {
     }
     dsp.write(0x7c, 0xff);
     assert_eq!(dsp.regs[0x7c], 0);
-    dsp.sample(&mut ram); // both voices loop again; sticky reporting resumes
+    for _ in 0..14 {
+        dsp.sample(&mut ram);
+    } // next scalar end at window 77..80
     assert_eq!(dsp.regs[0x7c], 3);
     dsp.write(0x4c, 1);
     dsp.sample(&mut ram);
@@ -277,8 +285,8 @@ fn normal_blocks_ignore_loop_bit_and_end_without_loop_stays_silent() {
         for _ in 0..5 {
             dsp.sample(&mut ram);
         }
-        let sequence = [vec![2048; 16], vec![1024; 16]].concat();
-        for count in 1..=16 {
+        let sequence = [vec![2048; 16], vec![1024; 24]].concat();
+        for count in 4..=16 {
             check(&mut dsp, &mut ram, &sequence, count, 0);
             if count == 4 {
                 dsp.write(0x5d, 0x21);
@@ -489,11 +497,11 @@ fn fractional_pitch_and_running_envelope_continue_across_live_loops() {
     for _ in 0..5 {
         assert_eq!(dsp.sample(&mut ram), (0, 0));
     }
-    let sequence = [vec![2048; 16], vec![-2048; 16], vec![1024; 16]].concat();
+    let sequence = [vec![2048; 16], vec![-2048; 16], vec![1024; 24]].concat();
     for tick in 1usize..=32 {
-        // 1.5 nibbles per output; phase alternates $800/$000, including loops.
-        let count = tick * 3 / 2;
-        let taps = if tick % 2 == 0 {
+        // After the initial phase zero, alternate $800/$000 across live loops.
+        let count = 4 + (tick - 1) * 3 / 2;
+        let taps = if tick % 2 == 1 {
             [370, 1305, 374, 0]
         } else {
             [56, 965, 969, 58]

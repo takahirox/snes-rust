@@ -6,6 +6,12 @@ pitch and NON. This closes the pitch-gated omission left by Issue #79 while
 retaining its later silent decoding and live-directory behavior. It does not
 complete Issue #3 or establish physical DSP timing.
 
+Issue [#89](issue-89-validation.md#source-reconciliation) supersedes this
+record's empty startup waveform, initial nibble-demand counts and interpolation
+windows. Its staged KON reconciliation establishes three decoded groups and
+first window 0–3 at phase zero. Earlier executed results below are historical;
+live selection, terminal release and silent processing remain covered.
+
 ## Source reconciliation
 
 The [Issue #79 reconciliation](issue-79-validation.md#source-reconciliation)

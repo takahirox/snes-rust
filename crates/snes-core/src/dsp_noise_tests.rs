@@ -271,18 +271,18 @@ fn noise_pitch_is_independent_but_brr_decoding_loops_and_endx_continue() {
         );
         assert_eq!(a.decoded, b.decoded);
         assert_eq!(low.regs[0x7c], brr.regs[0x7c]);
-        if tick == 21 {
+        if tick == 18 {
             assert_eq!(low.regs[0x7c], 0);
             assert_eq!(a.nibble, 16);
         }
-        if tick == 22 {
+        if tick == 19 {
             assert_eq!(low.regs[0x7c], 1);
             assert_eq!(a.addr, 0x301);
             assert_eq!(a.nibble, 1);
         }
     }
     let (mut end, mut ram) = keyed(false, 0x1000, true);
-    for _ in 0..21 {
+    for _ in 0..18 {
         assert_eq!(end.sample(&mut ram), (0, 0));
         assert_eq!([end.regs[8], end.regs[9], end.regs[0x7c]], [0; 3]);
     }

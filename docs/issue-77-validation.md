@@ -6,6 +6,12 @@ Production changes are confined to directory selection in `Dsp::sample`.
 The existing scalar BRR decoder, interpolation, envelope, mixing and public API
 are preserved. `dsp-voices` remains partial; no inventory scope becomes verified.
 
+Issue [#89](issue-89-validation.md#source-reconciliation) supersedes this
+record's empty startup waveform, initial nibble-demand counts and interpolation
+windows. Its staged KON reconciliation establishes three decoded groups and
+first window 0–3 at phase zero. Earlier executed results below are historical;
+live selection, terminal release and silent processing remain covered.
+
 ## Specification reconciliation
 
 Consulted on 2026-10-24:

@@ -1170,13 +1170,14 @@ fn dsp_endx_reports_brr_ends_independently_of_looping() {
             ] {
                 dsp.write(register, value);
             }
-            // Five silent key-on samples precede 16 decoded BRR samples.
-            for _ in 0..21 {
+            // KON preloads samples 0..11; first window is 0..3 on call 6.
+            // Scalar completion occurs at window 13..16, on call 19.
+            for _ in 0..18 {
                 dsp.sample(&mut ram);
                 assert_eq!(dsp.regs[0x7c], 0);
             }
             let expected = if header & 1 != 0 { 1 << voice } else { 0 };
-            for _ in 21..100 {
+            for _ in 18..100 {
                 dsp.sample(&mut ram);
                 assert_eq!(
                     dsp.regs[0x7c], expected,
