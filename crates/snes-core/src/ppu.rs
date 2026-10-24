@@ -542,6 +542,9 @@ impl Ppu {
     fn mode7(&self, bg: usize, x: usize, y: usize) -> Option<Pixel> {
         let sel = self.regs[0x1a];
         let x = if sel & 1 != 0 { 255 - x } else { x } as i32;
+        // The scheduler maps visible scanlines 1..=224 to framebuffer rows
+        // 0..=223. Fullsnes SCREEN.Y uses the scanline, including before VFLIP.
+        let y = y + 1;
         let y = if sel & 2 != 0 { 255 - y } else { y } as i32;
         let sx = ((self.m7_scroll[0] as i32) << 19) >> 19;
         let sy = ((self.m7_scroll[1] as i32) << 19) >> 19;

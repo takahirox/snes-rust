@@ -919,3 +919,55 @@ See the [Issue #63 validation record](../../docs/issue-63-validation.md) for
 specification reconciliation, literal coordinate derivations, exact-baseline
 counterexamples and remaining uncertainty. These software checks do not
 establish physical hardware accuracy, commercial compatibility or Issue #3 completion.
+
+
+## Original Mode 7 screen-row guests (approved)
+
+- Sources: [`mode7_row.rs`](../../crates/snes-core/tests/common/mode7_row.rs),
+  [`ppu_mode7_row.rs`](../../crates/snes-core/tests/ppu_mode7_row.rs),
+  [`mode7-row-fixture.rs`](../../crates/snes-core/examples/mode7-row-fixture.rs),
+  [`ppu_mode7_transform.rs`](../../crates/snes-core/tests/ppu_mode7_transform.rs)
+  and [`mode7-row.spec.js`](../../web/tests/mode7-row.spec.js).
+- Original authorship: copyright 2026 snes-rust contributors, [MIT](../../LICENSE).
+  All 65C816 instructions, sparse asymmetric artwork, palette, map and header
+  are original source. There is no external program, asset, font, firmware,
+  assembler or compiler runtime input. Only source is committed.
+- Four 32768-byte NTSC LoROMs vary BG1/BG2-only routing and normal/V-flipped
+  sampling. Executed CPU instructions initialize the complete map and characters
+  during forced blank, set A=B=D=256/C=0 with zero offsets/centers, leave blank,
+  publish $30=$65 and loop. Six distinct map cells contain one red/blue/yellow
+  marker each; all adjacent pixels/rows and the rest of the map are green.
+  The same bytes run through native Machine, native runner and ordinary browser
+  ROM picker. Hosts never inject registers or raster state.
+- Tests bound startup by 300000 instructions/eight frames, reject CPU/APU errors,
+  discard setup and inspect three complete stable frames. The browser repeats
+  actual Wasm and canvas observations, checks completion/geometry/errors and is
+  included by the existing mandatory filter. See [validation](../../docs/issue-65-validation.md).
+- Decision: original source and generated ROMs may be redistributed under MIT;
+  generated cartridges stay ignored. No commercial ROM or firmware is acquired.
+
+Build twice, compare all four byte streams, and hash:
+
+```sh
+cargo run --locked -p snes-core --example mode7-row-fixture -- .cache/mode7-row
+cargo run --locked -p snes-core --example mode7-row-fixture -- .cache/issue-65/rebuilt
+for name in normal-bg1 normal-bg2 flipped-bg1 flipped-bg2; do
+  cmp ".cache/mode7-row/$name.sfc" ".cache/issue-65/rebuilt/$name.sfc"
+done
+shasum -a 256 .cache/mode7-row/*.sfc
+```
+
+Both builds compared byte for byte on 2026-10-24:
+
+| Cartridge | SHA-256 |
+| --- | --- |
+| `normal-bg1.sfc` | `d81e1b3824bb89358aec8f035ecb5fcf9c693d8ba36f35e9e66b8f4c2c16a8c3` |
+| `normal-bg2.sfc` | `78575505f180f37862df4c3c929dd151293838c99f33c4d3a09e9646479a3f7c` |
+| `flipped-bg1.sfc` | `a4fd758dbb5993e5705e4aa811d1b058989a45817f7611c9b6b53c3c6c77bed1` |
+| `flipped-bg2.sfc` | `12df473a6ec05bffc8efccb5cc25c55bad5f6a2917be8e782c0a9ed8276328cb` |
+
+The #59 scroll, #61 EXTBG and #63 fractional/clipped guest builders and their
+hashes remain unchanged. #61's source map ends at row 223: the corrected first
+screen row is 1, so framebuffer row 223 samples the uninitialized map row 28
+and shows its gray backdrop. Native/browser expectations now assert this,
+while also retaining the full composition checks on framebuffer row 222.

@@ -154,14 +154,14 @@ fn hv_interleaving_changes_vertical_capture_without_planar_interference() {
     p.write(0x0d, 0); // restore H to zero, V is already independently captured
     p.write(5, 7);
     for (y, color) in [
-        (0, RED),
-        (1, BLUE),
-        (2, WHITE),
-        (3, YELLOW),
-        (48, GREEN),
-        (49, YELLOW),
-        (50, CYAN),
-        (51, MAGENTA),
+        (0, BLUE),
+        (1, WHITE),
+        (2, YELLOW),
+        (3, BLACK),
+        (48, YELLOW),
+        (49, CYAN),
+        (50, MAGENTA),
+        (51, BLACK),
         (223, BLACK),
     ] {
         p.render_line(y);
@@ -221,8 +221,48 @@ fn positive_negative_offsets_fine_tile_boundaries_and_ignored_upper_bits() {
                 let mut p = scene(vertical);
                 pair(&mut p, if vertical { 0x0e } else { 0x0d }, offset | upper);
                 p.write(5, 7);
-                p.write(0x1a, 0x80); // transparent outside map, avoids wrap masking sign bugs
-                for &(position, color) in &samples {
+                // Transparent outside map, avoiding wrap masking sign bugs.
+                p.write(0x1a, 0x80);
+                // Vertical source = row + 1 + offset; horizontal is unchanged.
+                let vertical_samples = match offset {
+                    1 => vec![
+                        (0, BLUE),
+                        (4, WHITE),
+                        (5, YELLOW),
+                        (6, CYAN),
+                        (12, MAGENTA),
+                        (13, RED),
+                        (14, GREEN),
+                    ],
+                    7 => vec![(0, CYAN), (6, MAGENTA), (7, RED), (8, GREEN), (16, YELLOW)],
+                    8 => vec![(0, BLACK), (5, MAGENTA), (6, RED), (7, GREEN), (15, YELLOW)],
+                    0x1fff => vec![
+                        (0, RED),
+                        (1, GREEN),
+                        (2, BLUE),
+                        (7, YELLOW),
+                        (8, CYAN),
+                        (15, RED),
+                        (16, GREEN),
+                    ],
+                    0x1ff8 => vec![
+                        (0, BLACK),
+                        (6, BLACK),
+                        (7, RED),
+                        (8, GREEN),
+                        (14, YELLOW),
+                        (15, CYAN),
+                        (22, RED),
+                        (23, GREEN),
+                    ],
+                    _ => unreachable!(),
+                };
+                let points = if vertical {
+                    &vertical_samples
+                } else {
+                    &samples
+                };
+                for &(position, color) in points {
                     let (x, y) = if vertical {
                         (24, position)
                     } else {
@@ -231,7 +271,7 @@ fn positive_negative_offsets_fine_tile_boundaries_and_ignored_upper_bits() {
                     p.render_line(y);
                     at(&p, x, y, color);
                 }
-                if offset == 0x1fff || offset == 0x1ff8 {
+                if (!vertical && offset == 0x1fff) || offset == 0x1ff8 {
                     let (x, y) = if vertical { (24, 0) } else { (0, 24) };
                     p.render_line(y);
                     at(&p, x, y, BLACK);

@@ -1,4 +1,4 @@
-//! Original MIT public-API static coordinate/pixel vectors for Issue #63.
+//! Original MIT public-API static coordinate/pixel vectors for Issues #63/#65.
 //! All source coordinates are literal, independently derived in the validation record.
 use snes_core::{ppu::Ppu, Machine};
 #[path = "common/mode7_transform.rs"]
@@ -75,7 +75,7 @@ fn sample(regs: [i16; 8], input: (usize, usize), source: (i32, i32), sel: u8) {
 }
 #[test]
 fn identity_controls() {
-    for (input, source) in [((0, 0), (0, 0)), ((7, 8), (7, 8)), ((255, 223), (255, 223))] {
+    for (input, source) in [((0, 0), (0, 1)), ((7, 8), (7, 9)), ((255, 223), (255, 224))] {
         sample([256, 0, 0, 256, 0, 0, 0, 0], input, source, 0);
     }
 }
@@ -92,17 +92,18 @@ fn fractional_y_origin_and_signed_rounding() {
 }
 #[test]
 fn vertical_origin_products_and_row_products_are_separately_truncated() {
-    // T(32)+T(7*32)=192, not 256. Negative counterpart is -64-256=-320.
+    // Framebuffer row 6 is screen Y=7. T(32)+T(7*32)=192, not 256.
+    // Negative counterpart is -64-256=-320.
     for (b, d, source) in [
         (32, 0, (0, 0)),
         (0, 32, (0, 0)),
         (-32, 0, (-2, 0)),
         (0, -32, (0, -2)),
     ] {
-        sample([0, b, 0, d, 0, 1, 0, 0], (0, 7), source, 0);
+        sample([0, b, 0, d, 0, 1, 0, 0], (0, 6), source, 0);
     }
     // Row product alone: 48 + T(224) = 240, not 272.
-    sample([16, 32, 16, 32, 0, 0, 0, 0], (3, 7), (0, 0), 0);
+    sample([16, 32, 16, 32, 0, 0, 0, 0], (3, 6), (0, 0), 0);
 }
 #[test]
 fn fractional_horizontal_steps_and_cross_terms_with_signed_centers() {
@@ -115,8 +116,8 @@ fn fractional_horizontal_steps_and_cross_terms_with_signed_centers() {
     ] {
         sample([32, 0, 32, 0, 0, 0, 0, 0], (x, 0), source, 0);
     }
-    sample([128, 64, -64, 128, 5, -3, 2, -2], (7, 9), (9, -1), 0);
-    sample([-96, 160, 192, -48, -4, 7, -3, 4], (5, 3), (-2, 5), 0);
+    sample([128, 64, -64, 128, 5, -3, 2, -2], (7, 9), (9, 0), 0);
+    sample([-96, 160, 192, -48, -4, 7, -3, 4], (5, 3), (-1, 5), 0);
 }
 #[test]
 fn clipped_displacement_x_counterexamples() {
@@ -138,21 +139,21 @@ fn negative_clipped_displacement_y_counterexample() {
 fn displacement_boundaries_on_both_inputs_and_both_outputs() {
     // H-CX or V-CY; center contribution is included literally below.
     // Difference extremes are +/-8191, using representable input endpoints.
-    for (offset, center, expected) in [
-        (1023, 0, 511),
-        (1024, 0, 0),
-        (1025, 0, 0),
-        (-1023, 0, -512),
-        (-1024, 0, -512),
-        (-1025, 0, -1),
-        (4095, -4096, -3585),
-        (-4096, 4095, 3583),
-        (0, -1023, -512),
-        (0, -1024, -1024),
-        (0, -1025, -1025),
-        (0, 1023, 511),
-        (0, 1024, 512),
-        (0, 1025, 1024),
+    for (offset, center, expected, vertical_expected) in [
+        (1023, 0, 511, 512),
+        (1024, 0, 0, 0),
+        (1025, 0, 0, 1),
+        (-1023, 0, -512, -511),
+        (-1024, 0, -512, -512),
+        (-1025, 0, -1, 0),
+        (4095, -4096, -3585, -3584),
+        (-4096, 4095, 3583, 3584),
+        (0, -1023, -512, -511),
+        (0, -1024, -1024, -1024),
+        (0, -1025, -1025, -1024),
+        (0, 1023, 511, 512),
+        (0, 1024, 512, 512),
+        (0, 1025, 1024, 1025),
     ] {
         // A,C consume clipped H; B,D consume clipped V. Keeping the other
         // center equal to the first makes both output equations observable.
@@ -164,7 +165,12 @@ fn displacement_boundaries_on_both_inputs_and_both_outputs() {
             r[6] = center;
             r[7] = center;
             // Unused displacement terms are multiplied by zero.
-            sample(r, (0, 0), (expected, expected), 0);
+            let source = if vertical {
+                vertical_expected
+            } else {
+                expected
+            };
+            sample(r, (0, 0), (source, source), 0);
         }
     }
 }
@@ -175,17 +181,12 @@ fn upper_offset_and_center_bits_are_ignored() {
         for value in &mut r[4..] {
             *value = ((*value as u16 & 0x1fff) | upper) as i16;
         }
-        sample(r, (7, 9), (9, -1), 0);
+        sample(r, (7, 9), (9, 0), 0);
     }
 }
 #[test]
 fn all_flips_nonidentity_asymmetric_source_and_nonzero_centers() {
-    for (sel, source) in [
-        (0, (9, -1)),
-        (1, (129, -61)),
-        (2, (68, 118)),
-        (3, (188, 57)),
-    ] {
+    for (sel, source) in [(0, (9, 0)), (1, (129, -61)), (2, (68, 117)), (3, (188, 57))] {
         sample([128, 64, -64, 128, 5, -3, 2, -2], (7, 9), source, sel);
     }
 }
@@ -290,4 +291,78 @@ fn cpu_built_fractional_and_clipping_variants_three_complete_stable_frames() {
             }
         }
     }
+}
+
+// Issue #65: screen Y is framebuffer row + 1, before M7SEL mirroring.
+// Sparse markers distinguish both adjacent rows and distant map cells.
+#[test]
+fn row_origin_d_only_endpoints() {
+    for (r, sy) in [(0, 1), (9, 10), (223, 224)] {
+        sample([256, 0, 0, 256, 0, 0, 0, 0], (7, r), (7, sy), 0);
+    }
+}
+#[test]
+fn row_origin_d_only_flipped_endpoints() {
+    for (r, sy) in [(0, 254), (9, 245), (223, 31)] {
+        sample([256, 0, 0, 256, 0, 0, 0, 0], (7, r), (7, sy), 2);
+    }
+}
+#[test]
+fn row_origin_b_only_endpoints() {
+    for (r, sx) in [(0, 1), (9, 15), (223, 336)] {
+        sample([0, 384, 0, 0, 0, 0, 0, 0], (7, r), (sx, 0), 0);
+    }
+}
+#[test]
+fn row_origin_b_only_flipped_endpoints() {
+    for (r, sx) in [(0, 381), (9, 367), (223, 46)] {
+        sample([0, 384, 0, 0, 0, 0, 0, 0], (7, r), (sx, 0), 2);
+    }
+}
+#[test]
+fn row_origin_negative_fractional_b_and_d() {
+    for (sel, points) in [
+        (0, [(0, -2), (9, -15), (223, -336)]),
+        (2, [(0, -381), (9, -368), (223, -47)]),
+    ] {
+        for (r, source) in points {
+            sample([0, -384, 0, 0, 0, 0, 0, 0], (7, r), (source, 0), sel);
+            sample([0, 0, 0, -384, 0, 0, 0, 0], (7, r), (0, source), sel);
+        }
+    }
+}
+#[test]
+fn row_origin_positive_fractional_d() {
+    for (sel, points) in [
+        (0, [(0, 1), (9, 15), (223, 336)]),
+        (2, [(0, 381), (9, 367), (223, 46)]),
+    ] {
+        for (r, sy) in points {
+            sample([0, 0, 0, 384, 0, 0, 0, 0], (7, r), (0, sy), sel);
+        }
+    }
+}
+#[test]
+fn row_origin_signed_centers_and_all_flips() {
+    for (sel, source) in [(0, (9, 0)), (1, (129, -61)), (2, (68, 117)), (3, (188, 57))] {
+        sample([128, 64, -64, 128, 5, -3, 2, -2], (7, 9), source, sel);
+    }
+    sample([-96, 160, 192, -48, -4, 7, -3, 4], (5, 3), (-1, 5), 0);
+}
+
+#[test]
+fn row_origin_last_d_normal() {
+    sample([256, 0, 0, 256, 0, 0, 0, 0], (7, 223), (7, 224), 0);
+}
+#[test]
+fn row_origin_last_d_flipped() {
+    sample([256, 0, 0, 256, 0, 0, 0, 0], (7, 223), (7, 31), 2);
+}
+#[test]
+fn row_origin_last_b_normal() {
+    sample([0, 384, 0, 0, 0, 0, 0, 0], (7, 223), (336, 0), 0);
+}
+#[test]
+fn row_origin_last_b_flipped() {
+    sample([0, 384, 0, 0, 0, 0, 0, 0], (7, 223), (46, 0), 2);
 }

@@ -294,9 +294,9 @@ fn bg1_direct_color_with_extbg_is_independent_of_cgram_and_bg2_display() {
 fn shared_source_with_small_offset_ignores_bg2_planar_settings() {
     let mut p = scene(0);
     // Interior identity source: at x=24..27, H=3 selects columns 27..30.
-    // Only tile row 2 contains these bytes: V=2 selects row 26, also row 2.
+    // Only character row 3 contains these bytes: screen Y=25 plus V=2 is 27.
     for (x, v) in [(3, 0x80), (4, 0x81), (5, 0xff), (6, 0x7f)] {
-        p.vram[129 + 2 * 16 + x * 2] = v;
+        p.vram[129 + 3 * 16 + x * 2] = v;
     }
     pair(&mut p, 0x0d, 3);
     pair(&mut p, 0x0e, 2);
@@ -357,7 +357,7 @@ fn original_cpu_guest_completes_and_renders_stable_extbg_scene() {
             ),
             (256, 224, 229376)
         );
-        for y in [24, 80, 160, 223] {
+        for y in [24, 80, 160, 222, 223] {
             for (x, c) in [
                 (0, GRAY),
                 (1, RED),
@@ -369,7 +369,10 @@ fn original_cpu_guest_completes_and_renders_stable_extbg_scene() {
                 (7, [230, 230, 197, 255]),
             ] {
                 let a = (y * 256 + x) * 4;
-                assert_eq!(&m.framebuffer()[a..a + 4], c, "guest ({x},{y})");
+                // The original guest initializes map rows 0..27 only.
+                // Framebuffer row 223 now samples source row 224 (map row 28).
+                let expected = if y == 223 { GRAY } else { c };
+                assert_eq!(&m.framebuffer()[a..a + 4], expected, "guest ({x},{y})");
             }
         }
         assert_eq!(m.bus.peek(0x30), 0x61);

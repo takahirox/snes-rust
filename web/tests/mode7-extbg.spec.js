@@ -33,7 +33,7 @@ test('Mode 7 EXTBG: CPU-built BG2, priority, transparency and BG1 direct color i
       const bytes = new Uint8Array(c.memory.buffer, c.framebuffer(), c.framebuffer_len());
       const ctx = canvas.getContext('2d');
       const pixels = [], drawn = [];
-      for (const y of [24,80,160,223]) for (const [x] of points) {
+      for (const y of [24,80,160,222,223]) for (const [x] of points) {
         pixels.push([...bytes.slice((y*256+x)*4,(y*256+x+1)*4)]);
         drawn.push([...ctx.getImageData(x,y,1,1).data]);
       }
@@ -43,8 +43,8 @@ test('Mode 7 EXTBG: CPU-built BG2, priority, transparency and BG1 direct color i
       };
     }, vectors), { timeout:5000 }).toEqual({
       marker:0x61, geometry:[256,224,229376,256,224],
-      pixels:[...vectors,...vectors,...vectors,...vectors].map(([,color]) => color),
-      canvas:[...vectors,...vectors,...vectors,...vectors].map(([,color]) => color),
+      pixels:[...vectors,...vectors,...vectors,...vectors].map(([,color]) => color).concat(vectors.map(() => [131,131,131,255])),
+      canvas:[...vectors,...vectors,...vectors,...vectors].map(([,color]) => color).concat(vectors.map(() => [131,131,131,255])),
     });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   }
