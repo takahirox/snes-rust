@@ -24,6 +24,8 @@ pub struct Ppu {
     fixed: [u8; 3],
     pub h: u16,
     pub v: u16,
+    // Initial/reset field zero is an emulator convention; see Issue #95.
+    pub(crate) field: bool,
     hflip: bool,
     vflip: bool,
     counters: [u16; 2],
@@ -61,6 +63,7 @@ impl Default for Ppu {
             fixed: [0; 3],
             h: 0,
             v: 0,
+            field: false,
             hflip: false,
             vflip: false,
             counters: [0; 2],
@@ -287,9 +290,30 @@ impl Ppu {
         }
         self.latch_enabled = enabled;
     }
+    // NTSC non-interlaced geometry, also during forced blank. SETINI interlace,
+    // overscan and PAL timing remain unsupported.
+    pub(crate) fn line_clocks(&self) -> u64 {
+        if self.field && self.v == 240 {
+            1360
+        } else {
+            1364
+        }
+    }
     pub fn latch_counters(&mut self) {
-        // Retained scheduler model: four master clocks per dot (not long-dot accurate).
-        self.counters = [self.h / 4, self.v];
+        // Fullsnes counter-latch quantities: H=323 and H=327 last six clocks.
+        // Remove their extra clocks before converting to the latched dot index.
+        let h = if self.line_clocks() == 1360 {
+            self.h / 4
+        } else {
+            match self.h {
+                0..=1291 => self.h / 4,
+                1292..=1297 => 323,
+                1298..=1309 => (self.h - 2) / 4,
+                1310..=1315 => 327,
+                _ => (self.h - 4) / 4,
+            }
+        };
+        self.counters = [h, self.v];
         self.counter_latched = true;
     }
     pub fn read(&mut self, r: u8, open: u8) -> u8 {
@@ -352,7 +376,8 @@ impl Ppu {
             0x3f => {
                 self.hflip = false;
                 self.vflip = false;
-                let status = (self.open2 & 0x20)
+                let status = (u8::from(self.field) << 7)
+                    | (self.open2 & 0x20)
                     | if self.counter_latched || !self.latch_enabled {
                         0x40
                     } else {

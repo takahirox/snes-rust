@@ -76,7 +76,7 @@ export async function castleProgression(page, route) {
     const image = new ImageData(new Uint8ClampedArray(core.memory.buffer,
       core.framebuffer(), 256 * 224 * 4).slice(), 256, 224);
     document.querySelector('canvas').getContext('2d').putImageData(image, 0, 0);
-    return { frames: frame, emulatedSeconds: frame * 1364 * 262 / 21477272,
+    return { frames: frame, emulatedSeconds: (frame * 357368 - Math.floor(frame / 2) * 4) / 21477272,
       transitions, checkpoints: verified, credits: { state: core.peek(0x1421), scroll: word(0x106), hash: hash() },
       maps: maps.map((m) => ({ ...m, hashes: m.hashes.size })) };
   }, route);

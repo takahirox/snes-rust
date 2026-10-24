@@ -4,6 +4,7 @@ use crate::{
     cpu::{Bus, Cpu},
     ppu::Ppu,
 };
+#[cfg(test)]
 const LINE: u64 = 1364;
 const HBLANK: u64 = 1096;
 // Fullsnes detailed H/V Events: V=225, H=10 dots (4 clocks/dot).
@@ -196,7 +197,8 @@ impl SystemBus {
         while n > 0 {
             // Compare within one scanline, then handle H=0 on the new line.
             let old_h = self.h;
-            let mut elapsed = n.min(LINE - self.h);
+            let line = self.ppu.line_clocks();
+            let mut elapsed = n.min(line - self.h);
             if let Some(next) = self.auto_start {
                 elapsed = elapsed.min(next - self.clocks);
             }
@@ -207,6 +209,12 @@ impl SystemBus {
             self.h += elapsed;
             n -= elapsed;
             self.auto_joypad_event();
+            // Fullsnes detailed H/V Events: FIELD changes at V=0/H=1,
+            // four master clocks after raster rollover. Initial field zero
+            // is a reset convention; do not toggle during the initial line.
+            if self.frames != 0 && self.v == 0 && old_h < 4 && self.h >= 4 {
+                self.ppu.field = !self.ppu.field;
+            }
             if self.v == 225 && old_h < OAM_RELOAD && self.h >= OAM_RELOAD {
                 self.ppu.oam_vblank_reload();
             }
@@ -222,12 +230,12 @@ impl SystemBus {
             if mode & 0x10 != 0
                 && old_h < htime
                 && self.h >= htime
-                && htime < LINE
+                && htime < line
                 && (mode & 0x20 == 0 || self.v == vtime)
             {
                 self.irq = true;
             }
-            if self.h < LINE {
+            if self.h < line {
                 continue;
             }
             self.h = 0;
@@ -238,6 +246,7 @@ impl SystemBus {
                 self.frames += 1;
                 self.nmi_flag = false;
             }
+            self.ppu.v = self.v;
             self.ppu.oam_scanline_start(self.v);
             // V=0 is a valid comparison only after the frame counter wraps.
             if (mode == 0x20 && self.v == vtime)
@@ -251,7 +260,7 @@ impl SystemBus {
                     self.nmi_pending = true;
                 }
                 // Fullsnes: first H=74.5 dots; later starts on the same
-                // 256-clock lattice within H=32.5..95.5. Fixed NTSC raster.
+                // 256-clock lattice within H=32.5..95.5, across both fields.
                 let earliest = self.clocks + 130;
                 self.auto_start = Some(earliest + (254 + 256 - earliest % 256) % 256);
             }
@@ -501,7 +510,11 @@ impl SystemBus {
     // every other device, without consuming another CPU cycle or DMA byte.
     fn bus_tick(&mut self, mut clocks: u64) {
         while clocks > 0 {
-            let boundary = if self.h < 538 { 538 } else { LINE };
+            let boundary = if self.h < 538 {
+                538
+            } else {
+                self.ppu.line_clocks()
+            };
             let n = clocks.min(boundary - self.h);
             self.tick(n);
             clocks -= n;
@@ -967,7 +980,12 @@ mod tests {
     fn horizontal_zero_timer_fires_once_per_scanline_across_frames() {
         let mut bus = timer_bus(0x10, 0, 0);
         for line in 1..=3 * 262 {
-            bus.tick(LINE - 1);
+            let length = if (line - 1) / 262 % 2 == 1 && (line - 1) % 262 == 240 {
+                1360
+            } else {
+                1364
+            };
+            bus.tick(length - 1);
             assert!(!timeup(&mut bus), "early IRQ on line {line}");
             bus.tick(1);
             assert!(timeup(&mut bus), "missing IRQ on line {line}");
@@ -980,7 +998,7 @@ mod tests {
     fn vertical_zero_timer_fires_once_per_frame_after_wrap() {
         let mut bus = timer_bus(0x20, 0, 0);
         for frame in 1..=3 {
-            bus.tick(LINE * 262 - 1);
+            bus.tick(if frame % 2 == 1 { 357368 } else { 357364 } - 1);
             assert!(!timeup(&mut bus), "early IRQ in frame {frame}");
             bus.tick(1);
             assert!(timeup(&mut bus), "missing IRQ in frame {frame}");
@@ -998,7 +1016,7 @@ mod tests {
             bus.tick(LINE * vtime as u64 + 4 * htime as u64 + 1);
             timeup(&mut bus);
             for frame in 1..=3 {
-                bus.tick(LINE * 262 - 2);
+                bus.tick(if frame % 2 == 1 { 357368 } else { 357364 } - 2);
                 assert!(!timeup(&mut bus), "early IRQ at ({htime}, {vtime})");
                 bus.tick(1);
                 assert!(timeup(&mut bus), "missing IRQ at ({htime}, {vtime})");
@@ -1050,3 +1068,7 @@ mod ppu_cgram_tests;
 
 #[cfg(test)]
 mod joypad_auto_tests;
+
+#[cfg(test)]
+#[path = "machine/ntsc_timing_tests.rs"]
+mod ntsc_timing_tests;

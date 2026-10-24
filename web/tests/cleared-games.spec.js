@@ -126,7 +126,11 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
         effectEnergy += (audio[i] - audio[i + 1]) ** 2;
       }
       sampleCount += audio.length; totalSamples += audio.length;
-      const expectedSamples = (frame + 1) * 1364 * 262 / 21477272 * 64000;
+      // Independent field oracle: field 0 is ordinary; each completed odd
+      // field removes four clocks. Keep the existing audio drift tolerance.
+      const fields = frame + 1;
+      const elapsedClocks = fields * 357368 - Math.floor(fields / 2) * 4;
+      const expectedSamples = elapsedClocks / 21477272 * 64000;
       if (frame === 899) audioBaseline = totalSamples - expectedSamples;
       if (frame >= 900) {
         maxAudioDrift = Math.max(maxAudioDrift, Math.abs(totalSamples - expectedSamples - audioBaseline));
@@ -161,7 +165,7 @@ test('cleared Memory Game: five-minute playthroughs using controller inputs', as
       }
       if (frame % 120 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    return { frames: 18100, emulatedSeconds: 18100 * 1364 * 262 / 21477272, wins, windows, transitions, audioCadence: { maxAudioDrift, totalSamples } };
+    return { frames: 18100, emulatedSeconds: (9050 * 357368 + 9050 * 357364) / 21477272, wins, windows, transitions, audioCadence: { maxAudioDrift, totalSamples } };
   });
   expect(result.wins).toBeGreaterThan(1);
   expect(result.windows).toHaveLength(20);

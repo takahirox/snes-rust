@@ -7,7 +7,8 @@ let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastT
 let keyboard = 0;
 let operationError = '', persistenceError = '', restorePending = false;
 const sources = new Set();
-const frameMilliseconds = 1000 * 1364 * 262 / 21477272;
+// Pace by the confirmed 714732-master-clock NTSC non-interlaced field pair.
+const frameMilliseconds = 1000 * 714732 / 2 / 21477272;
 const audioLead = .04, maxAudioLead = .15, maxSources = 12;
 const keys = { ArrowUp: 0x800, ArrowDown: 0x400, ArrowLeft: 0x200, ArrowRight: 0x100, KeyZ: 0x8000, KeyX: 0x80, KeyA: 0x4000, KeyS: 0x40, KeyQ: 0x20, KeyW: 0x10, Enter: 0x1000, ShiftLeft: 0x2000, ShiftRight: 0x2000 };
 const held = new Set();

@@ -1331,3 +1331,38 @@ unchanged.
   allowlists, licenses, hashes and browser gameplay/audio/queue assertions are
   unchanged. Bounded conformance does not establish full hardware accuracy or
   commercial compatibility and does not complete Issue #3.
+
+## Original NTSC non-interlaced timing guest (Issue #95)
+
+- Source: `crates/snes-core/tests/ntsc_timing.rs`; original 65C816 program and
+  Rust byte builder, copyright (c) 2026 snes-rust contributors, MIT (repository
+  `LICENSE`). Built in memory as a 32 KiB LoROM by the normal workspace test.
+  No assembler, downloaded ROM, Nintendo firmware or external assets are used.
+- The guest executes SEI, forced blank and SETINI=0, programs the existing H/V
+  comparator for V=240/HTIME=321 and executes four WAIs. Masked IRQ wakes each
+  WAI; it captures SLHV, reads the independent H/V counter bytes and STAT78,
+  stores six bytes per field at $1800-$1817 and acknowledges TIMEUP. It reaches
+  fields 0,1,0,1 through ordinary CPU execution, including both short lines.
+  After collecting all observations, guest code compares every WRAM byte against
+  literal expectations. A mismatch STPs without a success marker; success writes
+  $A5 to $18F0 then STPs. The host asserts those bytes and bounds execution at
+  300,000 steps and 1,500,000 master clocks. It never sets beam, parity, IRQ or
+  result state. Machine reset and cartridge loading are the only host setup.
+- Expected values derive from the reconciled references in
+  [Issue #95 validation](../../docs/issue-95-validation.md), combined with the
+  retained CPU access/comparator conventions. Reset-vector reads consume 16
+  clocks, SEI 14, seven LDA-immediate/STA-I/O pairs 7*46; WAI takes 20, giving
+  its first waiting boundary at clock 372. Six-clock idle steps cross each
+  comparator, with 40-clock refresh holds. The first comparator is at 328644;
+  subtract 372 and 241*40, then round up to a six-clock step: wake=328648.
+  Each six-save block plus TIMEUP read and next WAI is 6*78+30+20=518
+  clocks. Between subsequent V=240 opportunities there are 262 refresh holds.
+  Ordinary/short field lengths are 357368/357364, yielding wakes at 686014,
+  1043380, 1400746. SLHV's LDA-absolute completes 30 clocks after each wake:
+  within-line clocks 1318,1316,1318,1316. Ordinary [1316,1320) is H=328;
+  short [1316,1320) is H=329. H high=1, V=240/high=0, CPU open bus from the
+  address operand=$21, STAT78 masked to bits 7/6=$40,$C0,$40,$C0.
+  These are explicit model timing deductions, not measured IRQ assertion delays.
+- The independent unit vectors are original MIT code too. They use literal
+  half-open counter boundaries, line/field totals and polling phases; no
+  production geometry helper is used as an expected-value oracle.
