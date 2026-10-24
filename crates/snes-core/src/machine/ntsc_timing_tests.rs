@@ -53,7 +53,8 @@ fn four_fields_all_line_totals_every_late_clock_and_stat78() {
         .enumerate()
         {
             let start = b.clocks;
-            assert_eq!(parity(&mut b), (field % 2) as u8);
+            // At H=0 the reported bit still belongs to the preceding field.
+            assert_eq!(parity(&mut b), u8::from(field != 0 && field % 2 == 0));
             for v in 0..262 {
                 let short = field % 2 == 1 && v == 240;
                 let line = if short { 1360 } else { 1364 };
@@ -83,7 +84,7 @@ fn four_fields_all_line_totals_every_late_clock_and_stat78() {
             assert_eq!(b.clocks, cumulative);
             assert_eq!(sum, cumulative);
             assert_eq!((b.frames, b.v, b.h), (field as u64 + 1, 0, 0));
-            assert_eq!(parity(&mut b), ((field + 1) % 2) as u8);
+            assert_eq!(parity(&mut b), (field % 2) as u8);
         }
     }
 }
@@ -283,18 +284,56 @@ fn irq_nmi_are_once_per_line_or_field_at_retained_event_offsets() {
 }
 
 #[test]
+fn timed_stat78_reads_across_field_reporting_edge_in_both_parities() {
+    for (end, next) in [(357368, 1), (714732, 0), (1072100, 1), (1429464, 0)] {
+        // Each six-clock B-bus read ends at one literal clock around V=0/H=1.
+        // Starts on the previous line exercise access splitting at rollover.
+        for offset in -2i64..=6 {
+            let mut b = bus();
+            let sample = (end as i64 + offset) as u64;
+            b.tick(sample - 6);
+            let status = b.read(0x213f);
+            assert_eq!(b.clocks, sample);
+            assert_eq!(
+                status,
+                3 | if offset < 4 { 1 - next } else { next } << 7,
+                "field end={end}, sample offset={offset}"
+            );
+            assert_eq!(
+                (b.v, b.h),
+                if offset < 0 {
+                    (261, (1364 + offset) as u64)
+                } else {
+                    (0, offset as u64)
+                }
+            );
+        }
+    }
+}
+
+#[test]
 fn literal_field_boundaries_and_reset_parity() {
     let mut b = bus();
+    for _ in 0..4 {
+        assert_eq!(parity(&mut b), 0); // no synthetic toggle on initial V=0
+        b.tick(1);
+    }
+    assert_eq!(parity(&mut b), 0);
     for (end, field) in [(357368, 1), (714732, 0), (1072100, 1), (1429464, 0)] {
         b.tick(end - b.clocks - 1);
         assert_eq!((b.v, b.h), (261, 1363));
         assert_eq!(parity(&mut b), 1 - field);
         b.tick(1);
         assert_eq!((b.v, b.h), (0, 0));
+        for h in 0..4 {
+            assert_eq!((b.v, b.h), (0, h));
+            assert_eq!(parity(&mut b), 1 - field);
+            b.tick(1);
+        }
         assert_eq!(parity(&mut b), field);
     }
     let mut m = Machine::new(include_bytes!("../../../../tests/roms/smoke.bin")).unwrap();
-    m.bus.tick(357368 - m.bus.clocks);
+    m.bus.tick(357372 - m.bus.clocks);
     assert_eq!(parity(&mut m.bus), 1);
     m.reset();
     assert_eq!(parity(&mut m.bus), 0);

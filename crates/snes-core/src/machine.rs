@@ -209,6 +209,12 @@ impl SystemBus {
             self.h += elapsed;
             n -= elapsed;
             self.auto_joypad_event();
+            // Fullsnes detailed H/V Events: FIELD changes at V=0/H=1,
+            // four master clocks after raster rollover. Initial field zero
+            // is a reset convention; do not toggle during the initial line.
+            if self.frames != 0 && self.v == 0 && old_h < 4 && self.h >= 4 {
+                self.ppu.field = !self.ppu.field;
+            }
             if self.v == 225 && old_h < OAM_RELOAD && self.h >= OAM_RELOAD {
                 self.ppu.oam_vblank_reload();
             }
@@ -236,7 +242,6 @@ impl SystemBus {
             self.v += 1;
             if self.v == 262 {
                 self.v = 0;
-                self.ppu.field = !self.ppu.field;
                 self.ppu.obj_frame_start();
                 self.frames += 1;
                 self.nmi_flag = false;
