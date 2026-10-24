@@ -539,9 +539,13 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   one cyclic 30,720-sample rate counter with rate-specific phase offsets. The
   [envelope validation](docs/issue-13-validation.md) covers every rate over two
   periods, selected envelope boundaries, an uploaded original SPC700 guest and
-  APU partition invariance. `dsp-envelope` remains partial: exhaustive envelope
-  transitions, hidden-envelope/bent-GAIN behavior, live register interactions
-  and DSP subcycle sampling remain unverified beyond those tests. One shared
+  APU partition invariance. The [hidden-envelope validation](docs/issue-75-validation.md)
+  adds per-sample pre-clamp candidates, unsigned bent-GAIN decisions during
+  rate holds, immediate phase tracking and selected live-mode/lifecycle vectors,
+  with a second uploaded guest and exact PCM/register partition checks.
+  `dsp-envelope` remains partial: exhaustive ADSR/GAIN transitions and write
+  combinations, physical startup/reset retention, DSP subcycle register sampling
+  and SPC/DSP races remain unverified. One shared
   15-bit noise generator uses that same counter and FLG rate, with per-voice
   NON source selection before envelope scaling; BRR/pitch/ENDX continue while
   noise is selected. The [noise validation](docs/issue-15-validation.md) covers

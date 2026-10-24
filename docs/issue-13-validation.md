@@ -7,6 +7,12 @@ voice processing and uses it for all three ADSR/dynamic-GAIN eligibility gates.
 Envelope arithmetic and the existing unclocked direct-GAIN/release paths are
 unchanged. No voice operation or register write resets that counter.
 
+Issue #75 subsequently corrects the arithmetic/phase contract that this historical
+record left unchanged. In particular, decay can enter sustain on a held candidate
+before the committed envelope changes; the original tick-69/70/536 vectors below
+are superseded by the [Issue #75 reconciliation](issue-75-validation.md).
+The counter convention and rate-event vectors remain unchanged.
+
 ## Specification and counter convention
 
 Sources consulted during implementation:

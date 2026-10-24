@@ -13,6 +13,8 @@ struct Voice {
     // Decoded history already includes the integer steps represented here.
     phase: u32,
     env: i32,
+    // Previous non-release candidate, before saturation (including rate holds).
+    hidden_env: i32,
     stage: u8,
     active: bool,
 }
@@ -175,48 +177,56 @@ impl Dsp {
             let adsr2 = self.regs[base + 6];
             let gain = self.regs[base + 7];
             if v.stage == 3 {
-                v.env -= 8;
-            } else if adsr & 128 != 0 {
-                match v.stage {
-                    0 => {
-                        let rate = (adsr & 15) * 2 + 1;
-                        if rate_event(self.counter, rate) {
-                            v.env += if rate == 31 { 1024 } else { 32 };
-                            if v.env >= 2047 {
-                                v.env = 2047;
-                                v.stage = 1;
-                            }
-                        }
-                    }
-                    1 | 2 => {
-                        let rate = if v.stage == 1 {
+                // Release bypasses the rate gate and leaves the hidden latch alone.
+                v.env = (v.env - 8).max(0);
+            } else {
+                // Anomie/jwdonal revision 1212, VxADSR/VxGAIN; see Issue #75
+                // reconciliation. Evaluate from committed E on EVERY sample.
+                let mut candidate = v.env;
+                let rate;
+                let level_data;
+                if adsr & 128 != 0 {
+                    level_data = adsr2;
+                    if v.stage == 0 {
+                        rate = (adsr & 15) * 2 + 1;
+                        candidate += if rate == 31 { 1024 } else { 32 };
+                    } else {
+                        rate = if v.stage == 1 {
                             ((adsr >> 4) & 7) * 2 + 16
                         } else {
                             adsr2 & 31
                         };
-                        if rate_event(self.counter, rate) {
-                            v.env -= ((v.env - 1) >> 8) + 1;
-                        }
-                        if v.stage == 1 && v.env <= (((adsr2 >> 5) as i32 + 1) * 256) {
-                            v.stage = 2;
+                        candidate -= ((candidate - 1) >> 8) + 1;
+                    }
+                } else {
+                    level_data = gain;
+                    rate = if gain & 128 == 0 { 31 } else { gain & 31 };
+                    if gain & 128 == 0 {
+                        candidate = (gain as i32) * 16;
+                    } else {
+                        match (gain >> 5) & 3 {
+                            0 => candidate -= 32,
+                            1 => candidate -= ((candidate - 1) >> 8) + 1,
+                            2 => candidate += 32,
+                            // Unsigned comparison also takes the small step for
+                            // negative H. Do not mask H to eleven bits.
+                            _ => candidate += if (v.hidden_env as u32) < 0x600 { 32 } else { 8 },
                         }
                     }
-                    _ => {}
                 }
-            } else if gain & 128 == 0 {
-                v.env = (gain as i32) * 16;
-            } else {
-                let rate = gain & 31;
+                // Phase tracking also runs in GAIN and during rate holds. Decay
+                // matches the candidate's upper bits, not a <= boundary on E.
+                if v.stage == 1 && (candidate >> 8) == (level_data >> 5) as i32 {
+                    v.stage = 2;
+                }
+                v.hidden_env = candidate;
+                if candidate as u32 > 0x7ff && v.stage == 0 {
+                    v.stage = 1;
+                }
                 if rate_event(self.counter, rate) {
-                    match (gain >> 5) & 3 {
-                        0 => v.env -= 32,
-                        1 => v.env -= ((v.env - 1) >> 8) + 1,
-                        2 => v.env += 32,
-                        _ => v.env += if v.env < 1536 { 32 } else { 8 },
-                    }
+                    v.env = candidate.clamp(0, 2047);
                 }
             }
-            v.env = v.env.clamp(0, 2047);
             if v.stage == 3 && v.env == 0 {
                 v.active = false;
             }
@@ -510,12 +520,14 @@ mod tests {
             (7, 2047, 1),
             (8, 2039, 1),
             (9, 2039, 1),
-            (69, 1799, 1),
-            (70, 1791, 2),
-            (71, 1791, 2),
-            (535, 1791, 2),
-            (536, 1784, 2),
-            (537, 1784, 2),
+            // At tick 69 the held decay candidate 1791 already matches
+            // sustain band 6. Tick 70 therefore polls sustain rate 3.
+            (69, 1799, 2),
+            (70, 1799, 2),
+            (71, 1799, 2),
+            (535, 1799, 2),
+            (536, 1791, 2),
+            (537, 1791, 2),
         ] {
             advance(&mut dsp, &mut ram, tick - previous);
             assert_eq!(dsp.voices[0].env, envelope, "tick {tick}");
@@ -743,3 +755,7 @@ mod pitch_tests;
 #[cfg(test)]
 #[path = "dsp_echo_tests.rs"]
 mod echo_tests;
+
+#[cfg(test)]
+#[path = "dsp_envelope_tests.rs"]
+mod envelope_tests;

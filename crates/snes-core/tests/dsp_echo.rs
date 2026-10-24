@@ -80,7 +80,7 @@ fn advance_to_sample(apu: &mut Apu, sample: usize) {
 }
 fn echo_data(apu: &mut Apu) {
     // Original repeated stereo words. No history or expected results injected.
-    for frame in apu.ram[0x6000..0x6800].chunks_exact_mut(4) {
+    for frame in apu.ram[0x6000..0x6800].as_chunks_mut::<4>().0 {
         frame.copy_from_slice(&[0x02, 0x40, 0xfe, 0xdf]); // 16386,-8194
     }
 }
@@ -130,7 +130,14 @@ fn uploaded_spc_configures_fir_feedback_and_records_echo_ram() {
     assert!(apu.cpu.halted);
     assert!(apu.error.is_none());
     assert!(apu.samples.len() / 2 < first + 1650);
-    for (n, pair) in apu.samples.chunks_exact(2).enumerate().skip(first) {
+    for (n, pair) in apu
+        .samples
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .enumerate()
+        .skip(first)
+    {
         let pcm = match (n - first) / 512 {
             0 => (4096, -2049),
             1 => (1024, -513),

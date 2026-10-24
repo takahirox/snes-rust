@@ -105,3 +105,80 @@ fn uploaded_spc_records_offset_rate_checkpoints_and_a_live_rate_change() {
     assert!(apu.cpu.halted);
     assert!(apu.error.is_none());
 }
+
+// A separate original guest keeps the held candidate stable with linear GAIN,
+// then selects bent rate 31. Twelve NOPs place ENVX in the first updated sample.
+fn hidden_guest() -> Vec<u8> {
+    let mut code = Vec::new();
+    for (reg, value) in [
+        (0x6c, 0x20),
+        (0x3d, 1),
+        (0, 64),
+        (1, 64),
+        (0x0c, 64),
+        (0x1c, 64),
+        (7, 94),
+        (0x4c, 1),
+    ] {
+        code.extend([0x8f, reg, 0xf2, 0x8f, value, 0xf3]);
+    }
+    code.extend([0x8f, 0x7f, 0xf4]);
+    for command in 1..=3u8 {
+        code.extend([0xe4, 0xf4, 0x68, command, 0xd0, 0xfa]);
+        if command == 2 {
+            code.extend([0x8f, 7, 0xf2, 0x8f, 0xc0, 0xf3]);
+        }
+        if command == 3 {
+            code.extend([0x8f, 7, 0xf2, 0x8f, 0xff, 0xf3]);
+            code.extend([0x00; 12]); // 24 SPC clocks
+        }
+        code.extend([0x8f, 8, 0xf2, 0xe4, 0xf3, 0xc5]);
+        code.extend((0x1010u16 + command as u16 - 1).to_le_bytes());
+        code.extend([0x8f, command, 0xf4]);
+    }
+    code.push(0xff);
+    code
+}
+
+#[test]
+fn uploaded_spc_records_first_bent_commit_from_a_held_linear_candidate() {
+    let mut apu = Apu::default();
+    let code = hidden_guest();
+    assert!(code.len() < 256);
+    upload(&mut apu, &code);
+    assert!(apu.samples.len() / 2 < 80);
+    for (command, tick) in [(1, 80), (2, 90), (3, 100)] {
+        for _ in 0..100_000 {
+            if apu.samples.len() / 2 >= tick {
+                break;
+            }
+            apu.tick(21);
+        }
+        assert_eq!(apu.samples.len() / 2, tick);
+        apu.port_write(0, command);
+        wait_for(&mut apu, command);
+        assert!(
+            apu.samples.len() / 2 <= tick + 1,
+            "checkpoint sampling window"
+        );
+        if command == 3 {
+            assert_eq!(apu.samples.len() / 2, 101, "first bent sample window");
+        }
+        assert_eq!(
+            apu.ram[0x1010 + command as usize - 1],
+            94,
+            "command {command}"
+        );
+    }
+    // First bent commitment after command 3: E=1504+8=1512, noise=-32768,
+    // voice/master scales each 1/2 -> -6048. Also assert the preceding holds.
+    assert!(apu.samples[80 * 2..100 * 2]
+        .iter()
+        .all(|&s| s == -6016.0 / 32768.0));
+    assert_eq!(&apu.samples[100 * 2..101 * 2], &[-6048.0 / 32768.0; 2]);
+    for _ in 0..10 {
+        apu.tick(21);
+    }
+    assert!(apu.cpu.halted);
+    assert!(apu.error.is_none());
+}
