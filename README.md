@@ -590,6 +590,15 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   workspace tests, 37 browser checks and required source-built hardware gates
   passed, with unchanged cleared-game build hashes. Physical header prefetch
   and publication timing are still unresolved.
+  The [zero-pitch initial-header correction](docs/issue-81-validation.md)
+  recognizes stable initial `01` headers by the first ordinary call after the
+  five silent KON calls, independently of pitch or NON. It retains zero envelope
+  and release across register edits and pitch changes, without decoding a nibble
+  or setting ENDX merely to recognize the header. Nonterminal zero-pitch noise
+  stays audible; ordinary zero-pitch waveform preloading remains unimplemented.
+  Original numerical vectors and an uploaded SPC700 guest cover the bounded API;
+  this does not establish physical KON/lookahead or register-publication timing.
+  Live-header sampling, directory/key races and reset retention remain unresolved.
   `dsp-voices` remains partial: independent BRR-filter 1–3 evidence, exhaustive
   interpolation phases, simultaneous key/mixing combinations, KON-delay selection
   changes and physical header/directory/key timing remain. Hidden
