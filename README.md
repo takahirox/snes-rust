@@ -98,6 +98,7 @@ cargo test --locked -p snes-core --test ppu_obj_limits
 cargo test --locked -p snes-core --test ppu_mode7_scroll
 cargo test --locked -p snes-core --test ppu_mode7_extbg
 cargo test --locked -p snes-core --test ppu_mode7_transform
+cargo test --locked -p snes-core --test ppu_mode7_row
 # Original CPU-built browser/runner fixtures (also built by browser tests).
 cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
 cargo run --locked -p snes-core --example pseudo-hires-fixture -- .cache/pseudo-hires
@@ -106,6 +107,7 @@ cargo run --locked -p snes-core --example obj-limits-fixture -- .cache/obj-limit
 cargo run --locked -p snes-core --example mode7-scroll-fixture -- .cache/mode7-scroll
 cargo run --locked -p snes-core --example mode7-extbg-fixture -- .cache/mode7-extbg
 cargo run --locked -p snes-core --example mode7-transform-fixture -- .cache/mode7-transform
+cargo run --locked -p snes-core --example mode7-row-fixture -- .cache/mode7-row
 python3 tools/make-fixture.py .cache/smoke.bin
 cmp tests/roms/smoke.bin .cache/smoke.bin
 # Requires make and C/C++ compilers; builds local hash-pinned assemblers.
@@ -445,8 +447,12 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   across BG1 and EXTBG BG2. The [transform validation](docs/issue-63-validation.md)
   records source reconciliation, literal signed/flip/screen-over edge vectors,
   exact-baseline counterexamples and original native/Wasm/canvas guests.
-  The framebuffer row convention is retained; physical scanline origin is
-  unverified. `ppu-mode7` remains partial: mosaic, interlace/overscan,
+  [Screen-row validation](docs/issue-65-validation.md) reconciles Fullsnes's
+  visible SCREEN.Y=1..224 with framebuffer rows 0..223: Mode 7 adds one before
+  vertical flipping in the shared BG1/EXTBG sampler. Original CPU guests with
+  nonzero B/D exercise first/interior/last rows through the native scheduler,
+  runner PPM, Wasm and canvas. Physical fetch timing remains unverified.
+  `ppu-mode7` remains partial: mosaic, interlace/overscan,
   pseudo-hires composition, multiplication timing/interference, physical reset
   retention and fetch/raster interactions remain.
   Rendering snapshots registers per scanline. Math-enabled pseudo-hires,

@@ -1,5 +1,10 @@
 # Issue #63: static Mode 7 fixed-point sampling
 
+Historical record: [Issue #65](issue-65-validation.md) supersedes the retained
+zero-based Mode 7 screen-Y convention and individually reconciles affected
+pixel expectations. The clipping/truncation correction and row-independent
+CPU guest controls below remain in force.
+
 ## Specification contract recorded before implementation and expectations
 
 Retrieved 2026-10-24 before production changes or final oracle authoring:
