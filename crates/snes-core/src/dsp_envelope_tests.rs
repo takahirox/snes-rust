@@ -146,7 +146,8 @@ fn release_retrigger_soft_reset_and_reconstruction_isolate_hidden_state() {
         assert_eq!(dsp.voices[0].env, env);
         assert_eq!(dsp.voices[0].hidden_env, 32);
     }
-    assert!(!dsp.voices[0].active);
+    assert!(dsp.voices[0].active); // release silence does not stop BRR processing
+    assert_eq!(dsp.voices[0].stage, 3);
     dsp = Dsp::default();
     assert_eq!(dsp.counter, 0);
     assert!(dsp.voices.iter().all(|v| v.env == 0 && v.hidden_env == 0));

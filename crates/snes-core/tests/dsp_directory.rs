@@ -278,14 +278,17 @@ fn normal_blocks_ignore_loop_bit_and_end_without_loop_stays_silent() {
             dsp.sample(&mut ram);
         }
         let sequence = [vec![2048; 16], vec![1024; 16]].concat();
-        for count in 1..=32 {
+        for count in 1..=16 {
             check(&mut dsp, &mut ram, &sequence, count, 0);
             if count == 4 {
                 dsp.write(0x5d, 0x21);
             }
         }
-        // Preserve this core's sample-level end/mute convention, not a claim
-        // about the hardware's earlier release/header fetch stage.
+        // Header processing mutes immediately; ENDX waits for completion.
+        for _ in 0..16 {
+            assert_eq!(dsp.sample(&mut ram), (0, 0));
+            assert_eq!([dsp.regs[8], dsp.regs[9], dsp.regs[0x7c]], [0; 3]);
+        }
         for _ in 0..32 {
             assert_eq!(dsp.sample(&mut ram), (0, 0));
             assert_eq!([dsp.regs[8], dsp.regs[9], dsp.regs[0x7c]], [0, 0, 1]);
@@ -293,7 +296,7 @@ fn normal_blocks_ignore_loop_bit_and_end_without_loop_stays_silent() {
         dsp.write(0x7c, 1);
         for _ in 0..32 {
             assert_eq!(dsp.sample(&mut ram), (0, 0));
-            assert_eq!(dsp.regs[0x7c], 0);
+            assert_eq!(dsp.regs[0x7c], 1);
         }
     }
 }

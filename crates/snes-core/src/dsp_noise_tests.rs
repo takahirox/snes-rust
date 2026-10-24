@@ -283,12 +283,19 @@ fn noise_pitch_is_independent_but_brr_decoding_loops_and_endx_continue() {
     }
     let (mut end, mut ram) = keyed(false, 0x1000, true);
     for _ in 0..21 {
-        end.sample(&mut ram);
+        assert_eq!(end.sample(&mut ram), (0, 0));
+        assert_eq!([end.regs[8], end.regs[9], end.regs[0x7c]], [0; 3]);
     }
     assert!(end.voices[0].active);
-    assert_eq!(end.sample(&mut ram), (0, 0)); // non-looping BRR end silences noise
+    assert_eq!(end.sample(&mut ram), (0, 0)); // terminal completion reports ENDX after header mute
     assert_eq!([end.regs[8], end.regs[9], end.regs[0x7c]], [0, 0, 1]);
-    assert!(!end.voices[0].active);
+    assert!(end.voices[0].active);
+    assert_eq!((end.voices[0].stage, end.voices[0].nibble), (3, 1));
+    end.write(0x7c, 0);
+    for _ in 0..16 {
+        assert_eq!(end.sample(&mut ram), (0, 0));
+    }
+    assert_eq!(end.regs[0x7c], 1);
     let state = end.noise;
     end.sample(&mut ram);
     assert_ne!(end.noise, state);

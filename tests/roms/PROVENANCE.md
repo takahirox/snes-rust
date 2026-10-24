@@ -1131,3 +1131,33 @@ logical checks from unverified electrical and subcycle timing behavior.
   cadence and every PCM sample, all DSP registers and relevant echo RAM across
   whole and irregular APU tick partitions. Reproduce with
   `cargo test --locked -p snes-core --test dsp_mixing`.
+
+## Issue #79: original terminal-header SPC700 guest and BRR vectors
+
+- Source: [`dsp_brr_end.rs`](../../crates/snes-core/tests/dsp_brr_end.rs), with a
+  narrow private history check in [`dsp.rs`](../../crates/snes-core/src/dsp.rs).
+  Authored for this repository by snes-rust contributors, copyright 2026,
+  [MIT](../../LICENSE). Cargo compiles the original Rust instruction builder;
+  no external assembler, firmware, commercial ROM, music, BRR asset or emulator
+  output is used. Original instruction bytes, directory entries, BRR payloads
+  and numerical expectations are redistributable under MIT.
+- Filter-0 range-10 BRR uses original signed nibbles, sequential and terminal
+  blocks, and a 64-block chain for a stable ENDX clear/read interval. The guest
+  uploads at $0200 using the existing firmware-free protocol and writes/reads
+  DSP through $F2/$F3. Commands record ENVX/OUTX/ENDX at $1000..$100e, clear ENDX,
+  edit the live loop word, change GAIN/ADSR/SRCN while released, retrigger via
+  KON and stop. No private DSP state or expected results are injected.
+- Code is below 512 bytes; each acknowledgement has a 1000-by-21-master-clock
+  bound, readiness is before sample 100, and STOP is required before sample 1510.
+  Independent stereo and register anchors cover terminal silence, clear/reassert,
+  no revival without KON and restored audio. Whole versus irregular APU tick
+  partitions compare every PCM sample, all DSP registers, all RAM and ports at
+  fixed checkpoints. This establishes determinism, not physical timing.
+- [Issue #79 validation](../../docs/issue-79-validation.md) records numerical
+  derivations, source reconciliation (including conflicting ENDX timing wording),
+  behavioral failures in an isolated baseline worktree, final checks and limits.
+  The pinned LGPL research source was read only for attributed hardware facts;
+  no implementation code, binary or output was copied, imported or executed.
+  Existing cleared-game sources, licenses, pins, hashes and replay assertions
+  remain unchanged. Reproduce with
+  `cargo test --locked -p snes-core --test dsp_brr_end`.

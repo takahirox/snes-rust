@@ -16,6 +16,8 @@ struct Voice {
     // Previous non-release candidate, before saturation (including rate holds).
     hidden_env: i32,
     stage: u8,
+    // Initialized processing state, independent of envelope silence/release.
+    // Only KON starts it; retain the existing FLG reset behavior.
     active: bool,
 }
 pub struct Dsp {
@@ -64,12 +66,6 @@ impl Dsp {
         let ended = v.nibble == 16 && v.header & 1 != 0;
         if v.nibble == 16 {
             if v.header & 1 != 0 {
-                if v.header & 2 == 0 {
-                    v.active = false;
-                    v.env = 0;
-                    v.decoded = [0; 4];
-                    return true;
-                }
                 v.addr = v.loop_addr;
             }
             v.nibble = 0;
@@ -77,6 +73,14 @@ impl Dsp {
         if v.nibble == 0 {
             v.header = ram[v.addr as usize];
             v.addr = v.addr.wrapping_add(1);
+            // Terminal headers silence the envelope, not the decoder. Both
+            // end flags redirect at completion, retaining BRR/phase history.
+            // Eager scalar mapping: process the header with its first nibble,
+            // before this call's output. See docs/issue-79-validation.md.
+            if v.header & 3 == 1 {
+                v.env = 0;
+                v.stage = 3;
+            }
         }
         let byte = ram[v.addr.wrapping_add((v.nibble / 2) as u16) as usize];
         let nibble = if v.nibble & 1 == 0 {
@@ -231,9 +235,7 @@ impl Dsp {
                     v.env = candidate.clamp(0, 2047);
                 }
             }
-            if v.stage == 3 && v.env == 0 {
-                v.active = false;
-            }
+            // Release at zero remains silent but keeps pitch/BRR work running.
             let pitch = self.regs[base + 2] as u32 | ((self.regs[base + 3] as u32 & 63) << 8);
             let increment = if i != 0 && self.regs[0x2d] & (1 << i) != 0 {
                 modulated_pitch(pitch, modulation_input)
@@ -763,3 +765,58 @@ mod echo_tests;
 #[cfg(test)]
 #[path = "dsp_envelope_tests.rs"]
 mod envelope_tests;
+
+#[cfg(test)]
+mod terminal_tests {
+    use super::*;
+
+    #[test]
+    fn silent_terminal_decoding_preserves_signed_history_phase_and_live_redirects() {
+        let mut ram = vec![0; 65536];
+        ram[0x2000..0x2004].copy_from_slice(&[0, 0x30, 0, 0x31]);
+        ram[0x3000] = 0xa1;
+        ram[0x3001..0x3009].fill(0x4c); // +2048,-2048
+        ram[0x3100] = 0xa3;
+        ram[0x3101..0x3109].copy_from_slice(&[0xc2, 0xf6, 0xc2, 0xf6, 0xc2, 0xf6, 0xc2, 0xf6]);
+        ram[0x3200] = 0xa3;
+        ram[0x3201..0x3209].fill(0x1e); // +512,-1024
+        let sequence: Vec<_> = [2048, -2048]
+            .repeat(8)
+            .into_iter()
+            .chain([-2048, 1024, -512, 3072].repeat(4))
+            .chain([512, -1024].repeat(16))
+            .collect();
+        let mut dsp = Dsp::default();
+        for (r, v) in [(0x6c, 0x20), (0x5d, 0x20), (3, 0x10), (7, 64), (0x4c, 1)] {
+            dsp.write(r, v);
+        }
+        for _ in 0..5 {
+            dsp.sample(&mut ram);
+        }
+        for count in 1usize..=50 {
+            assert_eq!(dsp.sample(&mut ram), (0, 0));
+            let voice = dsp.voices[0];
+            let at = |back| count.checked_sub(back).map_or(0, |index| sequence[index]);
+            assert_eq!(voice.history, [at(1), at(2)], "history count {count}");
+            assert_eq!(
+                voice.decoded,
+                [at(4), at(3), at(2), at(1)],
+                "buffer count {count}"
+            );
+            assert_eq!(voice.nibble as usize, (count - 1) % 16 + 1);
+            assert_eq!(voice.phase as usize, ((count - 1) % 4 + 1) * 4096);
+            assert_eq!((voice.env, voice.stage, voice.active), (0, 3, true));
+            let start = if count <= 16 {
+                0x3000
+            } else if count <= 32 {
+                0x3100
+            } else {
+                0x3200
+            };
+            assert_eq!(voice.addr, start + if count % 16 == 0 { 9 } else { 1 });
+            if count == 24 {
+                ram[0x2003] = 0x32;
+            }
+        }
+    }
+}

@@ -96,6 +96,7 @@ cargo test --locked -p snes-core --test dsp_mixing
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
 cargo test --locked -p snes-core --test dsp_directory
+cargo test --locked -p snes-core --test dsp_brr_end
 cargo test -p snes-core --test ppu_offset --locked
 cargo test --locked -p snes-core --test ppu_hires
 cargo test --locked -p snes-core --test ppu_mode6_offset
@@ -580,9 +581,18 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   the current selected loop word; only KON selects the start word. Numerical
   stereo/register vectors, address wraps, simultaneous voices, an original
   uploaded SPC700 guest and APU partition checks cover this bounded behavior.
+  The [terminal-header validation](docs/issue-79-validation.md) reconciles
+  immediate envelope zero/release on BRR `01` with continued silent decoding,
+  live end-bit redirection and ENDX clear/reassert. Original signed filter-0
+  PCM/register vectors, ordinary KOFF controls, an uploaded SPC700 guest and
+  whole/irregular APU partitions cover the bounded scalar API. All six new
+  public tests failed behaviorally on the baseline; on 2026-10-24, all 420
+  workspace tests, 37 browser checks and required source-built hardware gates
+  passed, with unchanged cleared-game build hashes. Physical header prefetch
+  and publication timing are still unresolved.
   `dsp-voices` remains partial: independent BRR-filter 1–3 evidence, exhaustive
-  interpolation phases, simultaneous key/mixing combinations and physical
-  directory/key-event timing remain. Hidden
+  interpolation phases, simultaneous key/mixing combinations, KON-delay selection
+  changes and physical header/directory/key timing remain. Hidden
   envelope corrections also remain unverified.
   Browser tests bound device-clock drift, queue duration and live sources,
   including main-thread stalls and repeated pause/reset/play.
