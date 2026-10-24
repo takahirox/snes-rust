@@ -140,14 +140,12 @@ impl Dsp {
             // Inactive/key-delayed voices must break the adjacent chain.
             previous_output = 0;
             let base = i * 16;
+            let dir = (self.regs[0x5d] as u16) << 8;
+            let entry = dir.wrapping_add(self.regs[base + 4] as u16 * 4);
             if self.kon & (1 << i) != 0 {
-                let dir = (self.regs[0x5d] as u16) << 8;
-                let entry = dir.wrapping_add(self.regs[base + 4] as u16 * 4);
                 let start = Self::word(ram, entry);
-                let loop_addr = Self::word(ram, entry.wrapping_add(2));
                 self.voices[i] = Voice {
                     addr: start,
-                    loop_addr,
                     active: true,
                     key_delay: 5,
                     ..Voice::default()
@@ -155,6 +153,12 @@ impl Dsp {
                 self.regs[0x7c] &= !(1 << i);
             }
             let v = &mut self.voices[i];
+            // Hardware refreshes the directory pointer in per-sample voice
+            // stages (Anomie S1/S2; blargg V1/V2), not just on KON. Collapse
+            // those stages here for stable writes; consume only on BRR end.
+            // Exact fetch/write races remain outside this sample-level API.
+            // See docs/issue-77-validation.md.
+            v.loop_addr = Self::word(ram, entry.wrapping_add(2));
             if self.regs[0x5c] & (1 << i) != 0 {
                 v.stage = 3;
             }
