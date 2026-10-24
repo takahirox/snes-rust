@@ -1,5 +1,11 @@
 # Issue #11 direct-color validation
 
+Historical record: [Issue #61](issue-61-validation.md#specification-contract-recorded-before-implementation-and-expectations)
+supersedes this record's EXTBG restriction. Its source reconciliation establishes
+that BG1 direct color remains selected with EXTBG enabled; the old paletted
+assertion was unsupported. BG2 remains paletted. The original Issue #11 results
+below describe its then-limited implementation.
+
 Validated on 2026-10-23 for [Issue #11](https://github.com/takahirox/snes-rust/issues/11),
 against evaluation baseline `7b265281def439c97a18b006ad12e313198c1bcd`.
 The change selects BGR555 direct color for nonzero BG1 pixels in Modes 3/4 and

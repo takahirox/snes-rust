@@ -464,6 +464,13 @@ impl Ppu {
     }
     fn bg_pixel(&self, bg: usize, x: usize, y: usize) -> Option<Pixel> {
         let mode = self.regs[5] & 7;
+        if mode == 7 {
+            return if bg == 0 || (bg == 1 && self.regs[0x33] & 0x40 != 0) {
+                self.mode7(bg, x, y)
+            } else {
+                None
+            };
+        }
         let depths = [
             [2, 2, 2, 2],
             [4, 4, 2, 0],
@@ -477,9 +484,6 @@ impl Ppu {
         let bpp = depths[mode as usize][bg];
         if bpp == 0 {
             return None;
-        }
-        if mode == 7 {
-            return if bg == 0 { self.mode7(x, y) } else { None };
         }
         let mosaic = (self.regs[6] >> 4) as usize + 1;
         let (x, y) = if self.regs[6] & (1 << bg) != 0 {
@@ -535,7 +539,7 @@ impl Ppu {
             math: true,
         })
     }
-    fn mode7(&self, x: usize, y: usize) -> Option<Pixel> {
+    fn mode7(&self, bg: usize, x: usize, y: usize) -> Option<Pixel> {
         let sel = self.regs[0x1a];
         let x = if sel & 1 != 0 { 255 - x } else { x } as i32;
         let y = if sel & 2 != 0 { 255 - y } else { y } as i32;
@@ -558,18 +562,29 @@ impl Ppu {
         } else {
             self.vram[((py / 8) * 128 + px / 8) * 2] as usize
         };
-        let color = self.vram[(tile * 128 + (py & 7) * 16 + (px & 7) * 2 + 1) & 65535];
+        let raw = self.vram[(tile * 128 + (py & 7) * 16 + (px & 7) * 2 + 1) & 65535];
+        // EXTBG shares BG1's transformed byte, but keeps its own layer,
+        // seven-bit palette index and per-pixel priority (Anomie, Mode 7).
+        let color = if bg == 1 { raw & 0x7f } else { raw };
         if color == 0 {
             None
         } else {
             Some(Pixel {
-                color: if self.regs[0x30] & 1 != 0 && self.regs[0x33] & 0x40 == 0 {
+                color: if bg == 0 && self.regs[0x30] & 1 != 0 {
                     Self::direct_color(color, 0)
                 } else {
                     self.palette(color as usize)
                 },
-                rank: 3,
-                layer: 0,
+                // OBJ ranks are 2/4/6/8: BG2-low < OBJ0 < BG1 <
+                // OBJ1 < BG2-high < OBJ2 < OBJ3.
+                rank: if bg == 0 {
+                    3
+                } else if raw & 0x80 != 0 {
+                    5
+                } else {
+                    1
+                },
+                layer: bg as u8,
                 math: true,
             })
         }

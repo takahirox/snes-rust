@@ -207,9 +207,9 @@ fn direct_color_preserves_other_color_sources_and_priority() {
         }
     }
     let mut p = scene(7, 255, 0);
-    p.write(0x33, 0x40); // EXTBG is outside the implemented direct-color scope.
+    p.write(0x33, 0x40); // EXTBG keeps BG1's eight-bit direct color (Anomie Mode 7).
     p.write(0x30, 1);
-    assert_pixel(&mut p, 0, [0, 0, 255, 255]);
+    assert_pixel(&mut p, 0, [230, 230, 197, 255]);
 }
 
 // Tiny source-built LoROM: LDA #byte / STA $address, then BRA forever.
