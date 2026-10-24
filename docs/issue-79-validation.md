@@ -4,6 +4,9 @@ Evaluation baseline: `64da1ba6249a451d6d7191409d74b6b0e792dd6d`.
 This bounded change corrects terminal-header handling for stable BRR data and
 nonzero pitch. It retains Issue #77's live-directory selection. It does not
 complete Issue #3 or establish physical DSP pipeline timing.
+[Issue #81](issue-81-validation.md) supersedes the initial-header nibble-demand
+assumption below: stable initial terminal headers are recognized after the five
+silent KON calls even at zero pitch. The original #79 results remain historical.
 
 ## Source reconciliation
 
@@ -44,16 +47,19 @@ V4–V7 together. We do not infer a stopped decoder from the word mute.
 
 ## Scalar API mapping and implementation
 
-The existing eager scalar decoder reads a header when consuming its first
-nibble. That call now zeros E and selects release **before its PCM, ENVX and
-OUTX publication**. Thus the terminal payload is never played at the previous
-envelope. At pitch $1000, after the existing five silent KON calls, a normal
-16-nibble block followed by `01` is muted on post-delay call 17. ENDX appears
+For later blocks, the eager scalar decoder reads a header when consuming its
+first nibble. That call zeros E and selects release **before its PCM, ENVX and
+OUTX publication**. Initial-header recognition no longer requires nibble demand;
+see [Issue #81's scalar mapping](issue-81-validation.md#scalar-api-boundary).
+Thus the terminal payload is never played at the previous envelope. At pitch
+$1000, after the existing five silent KON calls, a normal 16-nibble block followed
+by `01` is muted on post-delay call 17. ENDX appears
 when consumption advances beyond the terminal block, on call 33. Starting on
-`01` mutes on the first decoding call; ENDX appears on call 17. These call
-numbers describe this API, not physical hardware timing. In particular, this
-core does not reproduce the physical 12-sample lookahead, V3c's already-prepared
-output, header prefetch during KON, or separate register publication subcycles.
+`01` now mutes by the first ordinary post-delay call regardless of pitch;
+at pitch $1000 ENDX still appears on call 17. These call numbers describe this
+API, not physical hardware timing. In particular, this core does not reproduce the physical 12-sample lookahead, V3c's already-prepared
+output, physical header prefetch during KON, or separate register publication
+subcycles.
 
 No BRR history, interpolation window, phase or address is cleared by a terminal
 header. At either end-bit boundary, the decoder consumes the existing live

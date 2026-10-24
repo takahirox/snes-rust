@@ -1161,3 +1161,29 @@ logical checks from unverified electrical and subcycle timing behavior.
   Existing cleared-game sources, licenses, pins, hashes and replay assertions
   remain unchanged. Reproduce with
   `cargo test --locked -p snes-core --test dsp_brr_end`.
+
+## Issue #81: original zero-pitch terminal-header vectors and SPC700 guest
+
+- `crates/snes-core/tests/dsp_brr_end.rs` adds four tests authored for this
+  repository by the snes-rust contributors in 2026, under the root MIT license.
+  All new instruction bytes, command sequences, BRR data and numeric vectors
+  are original. The guest reuses the existing firmware-free uploader and
+  original filter-0 sample/directory builders; no firmware is included.
+- The zero/low-pitch matrix crosses all four initial header flags, direct GAIN
+  and fast ADSR, and NON on/off with PMON disabled. Held-noise expectations are
+  independently calculated from signed source -32768 and envelope arithmetic.
+  Release, KOFF, two-voice isolation, silent end chains, stable loop-word edits
+  and distinct-start KON controls use original data and explicit scalar counts.
+- `zero_pitch_guest` uploads original SPC700 code to $0200, configures DSP state
+  through $F2/$F3 and records ENVX/OUTX/ENDX triples at $1100..$1117. Eight bounded
+  commands test initial zero-pitch terminal silence, envelope/NON edits, pitch
+  resume/hold, ENDX clear/reassert and retrigger into a distinct nonterminal start.
+  Independently derived PCM/register anchors accompany whole/irregular APU tick
+  comparisons of every PCM sample, all DSP registers, RAM and output ports.
+- [Issue #81 validation](../../docs/issue-81-validation.md) attributes the
+  hardware semantics and numerical arithmetic. Anomie/jwdonal, Fullsnes and
+  Shay Green/blargg's pinned LGPL research implementation were consulted only
+  as attributed evidence. No external implementation code, expected emulator
+  output, ROM, firmware, audio, graphics or assets were incorporated. Tick
+  equality proves determinism only; these vectors do not establish physical
+  header-prefetch/publication timing or broad hardware accuracy.

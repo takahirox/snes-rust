@@ -75,8 +75,9 @@ impl Dsp {
             v.addr = v.addr.wrapping_add(1);
             // Terminal headers silence the envelope, not the decoder. Both
             // end flags redirect at completion, retaining BRR/phase history.
-            // Eager scalar mapping: process the header with its first nibble,
-            // before this call's output. See docs/issue-79-validation.md.
+            // Later headers retain the eager first-nibble scalar mapping.
+            // The initial stable header is also checked after KON delay.
+            // See docs/issue-81-validation.md.
             if v.header & 3 == 1 {
                 v.env = 0;
                 v.stage = 3;
@@ -177,6 +178,14 @@ impl Dsp {
             }
             if v.key_delay > 0 {
                 v.key_delay -= 1;
+                // Recognize the stable initial terminal header independently of
+                // pitch/NON. This ends the five silent KON calls without
+                // consuming a nibble, advancing phase or publishing ENDX.
+                // Physical prefetch and live header races remain unmodeled.
+                if v.key_delay == 0 && ram[v.addr as usize] & 3 == 1 {
+                    v.env = 0;
+                    v.stage = 3;
+                }
                 self.regs[base + 8] = 0;
                 self.regs[base + 9] = 0;
                 continue;
