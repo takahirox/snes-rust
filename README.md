@@ -99,6 +99,7 @@ cargo test --locked -p snes-core --test dsp_directory
 cargo test --locked -p snes-core --test dsp_brr_end
 cargo test --locked -p snes-core --test dsp_kon_preload
 cargo test --locked -p snes-core --test dsp_envelope_order
+cargo test --locked -p snes-core --test dsp_brr_filters
 cargo test --locked -p snes-core --test spc_timers
 cargo test --locked -p snes-core --test spc_io_readback
 cargo test --locked -p snes-core --lib apu::timing_tests
@@ -631,8 +632,14 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   SPC700 guest and partition checks cover live GAIN, ADSR events/holds, release,
   retrigger and counter wrap. Physical later-block lookahead, subcycle publication,
   live KON-delay selection, register/RAM races and reset retention remain unresolved.
-  `dsp-voices` remains partial: independent BRR-filter 1–3 evidence, exhaustive
-  interpolation phases, simultaneous key/mixing combinations, KON-delay selection
+  [BRR predictor conformance](docs/issue-93-validation.md) adds independent
+  full-amplitude arithmetic, signed rounding/saturation/wrap anchors for filters
+  1–3, sequential/loop history and predictor-dependent KON continuation. The
+  exact baseline passes the bounded matrix, so decoder behavior is retained.
+  Public PCM/OUTX and an original uploaded SPC700 guest independently constrain
+  both whole and irregular tick runs.
+  `dsp-voices` remains partial: exhaustive interpolation phases, simultaneous
+  key/mixing combinations, KON history retention, KON-delay selection
   changes and physical header/directory/key timing remain. Hidden
   envelope corrections also remain unverified.
   Browser tests bound device-clock drift, queue duration and live sources,

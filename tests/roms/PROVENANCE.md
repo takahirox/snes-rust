@@ -1304,3 +1304,30 @@ unchanged.
   shared-counter wrap; equality establishes determinism only. The original
   fixture/tool/game sources, pins, licenses, allowlists, hashes and browser
   gameplay/audio assertions are preserved.
+
+## Issue #93 original BRR predictor vectors and SPC700 guest
+
+- [`dsp_brr_tests.rs`](../../crates/snes-core/src/dsp_brr_tests.rs) and
+  [`dsp_brr_filters.rs`](../../crates/snes-core/tests/dsp_brr_filters.rs) are
+  original work by the snes-rust contributors, copyright 2026, licensed under
+  the root [MIT license](../../LICENSE). The signed nibble payload and upload
+  harness adapt the repository's original MIT #89 diagnostic. New predictor
+  headers, mixed-block layouts, numerical vectors, instruction sequences and
+  command/record layout were authored for this diagnostic. Cargo constructs
+  the guest in memory; only source is committed.
+  Generated guest bytes and BRR data are redistributable under MIT.
+- The firmware-free uploaded SPC700 guest at $0200 configures/reads DSP through
+  $F2/$F3, records eleven ENVX/OUTX/ENDX triples at $1100–$1120, pulses pitch
+  for ten single-window advances and STOPs. Upload, ready and acknowledgement
+  waits are bounded. Three filters run with independent numeric PCM/register
+  assertions in both whole and irregular APU tick partitions.
+- [Issue #93 validation](../../docs/issue-93-validation.md) reconciles freshly
+  inspected Anomie/jwdonal revision 1212 and Fullsnes BRR sections, proves the
+  half/full-amplitude conversion and works out original literal anchors.
+  References supplied hardware facts only. No external emulator implementation,
+  captured output, commercial ROM, Nintendo firmware, music, graphics or other
+  asset was imported, built or used as an oracle for the new vectors.
+- Existing source-built licensed fixtures, assembler and game pins, source
+  allowlists, licenses, hashes and browser gameplay/audio/queue assertions are
+  unchanged. Bounded conformance does not establish full hardware accuracy or
+  commercial compatibility and does not complete Issue #3.
