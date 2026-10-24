@@ -1,5 +1,10 @@
 # Issue #83: SPC700 live timer targets
 
+The historical enable/start approximation below was corrected by
+[Issue #85](issue-85-validation.md). Its source reconciliation and current
+validation supersede the original enable-relative phase assumption; all #83
+comparator scenarios and guest records remain required and unchanged.
+
 ## Specification reconciliation (before implementation)
 
 Inspected on **2026-10-24**, before changing the timer implementation:
@@ -80,17 +85,24 @@ different times, checking that T0/T1 keep their accumulated outputs and phases.
 
 The original guest uses the existing firmware-free uploader to load generated
 instruction bytes at $0200. It writes T0/T1/T2 targets 200/255/0, enables them,
-then lowers T0 to 100 at elapsed **19205 SPC cycles**: stage 150, divider phase
-5 in the existing API. Each delay block is independently counted as
+then lowers T0 to 100 at elapsed **19205 SPC cycles** from the start of the
+enable instruction. Each delay block is independently counted as
 `MOV Y,#n` (2 cycles) plus `n-1` taken `DBNZ Y` (6 each) and one final `DBNZ Y`
 (4), totaling **6n**. The guest never polls a timer to measure its own delay.
 MOV target-immediate takes 5 cycles; reading an output and storing it to RAM
-takes 3+5 cycles. The target write's five-cycle instruction lies wholly within
-the slow divider interval, even allowing the instruction's physical write
-point to differ from the current whole-instruction model.
+takes 3+5 cycles.
 
-T0's first new event is at absolute pulse 356 / cycle **45568**, followed by
-pulse 456 / cycle **58368**. T1 retains period **32640** and T2 period **4096**.
+**Phase correction in #85:** enable is an instruction-count origin, not a
+prescaler origin. Let the slow scaler's phase at enable be `p` in 0..127.
+At the target write, stage 2 is 150 or 151; lowering to 100 cannot create an
+equality even if a scaler pulse falls within that instruction. The required
+first new match is still enabled pulse 356, at elapsed **45568-p**, followed
+by pulse 456 at **58368-p**. T1's first event is **32640-p**, then repeats every
+32640 cycles. For fast phase `q` in 0..15, T2's first event is **4096-q**, then
+repeats every 4096 cycles. Thus all original numeric records below hold for
+every initial enable phase; no expectation is weakened or changed. Physical
+coincident target equality and output accesses remain outside this validation.
+
 The guest's timer read times and independently derived records are:
 
 | Row | T0 read cycle | T1 read cycle | T2 read cycle | Required output triple |

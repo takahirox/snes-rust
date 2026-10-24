@@ -1,4 +1,4 @@
-//! Original MIT timer vectors and firmware-free SPC700 guest for Issue #83.
+//! Original MIT timer vectors and firmware-free SPC700 guest for Issues #83/#85.
 //! Copyright 2026 snes-rust contributors. See tests/roms/PROVENANCE.md.
 use snes_core::apu::Apu;
 
@@ -65,6 +65,139 @@ fn fixed_targets_increment_then_match_and_repeat_on_all_timers() {
                 tick_to_cycle(&mut apu, &mut master, event * clocks);
                 assert_eq!(output(&mut apu, timer), 1, "T{timer}, target {target}");
                 assert_eq!(output(&mut apu, timer), 0, "read clears output");
+            }
+        }
+    }
+}
+
+// Default phase zero and instantaneous public writes are fixture conventions,
+// not physical startup/access alignment. All expected boundaries below follow
+// the documented free-running D-cycle source, independently of Apu internals.
+#[test]
+fn disabled_preroll_preserves_phase_for_every_timer_and_target() {
+    for timer in 0..3 {
+        let d = divider(timer);
+        for phase in [d / 4, d / 2, 3 * d / 4] {
+            for target in [1, 3, 0] {
+                let mut apu = Apu::default();
+                let mut master = 0;
+                apu.write(0xfa + timer as u16, target);
+                tick_to_cycle(&mut apu, &mut master, 3 * d + phase);
+                assert_eq!(output(&mut apu, timer), 0, "disabled pulses do not count");
+                apu.write(0xf1, 1 << timer);
+                for event in 0..3 {
+                    let boundary = (3 + (event + 1) * period(target)) * d;
+                    tick_to_cycle(&mut apu, &mut master, boundary - 2);
+                    assert_eq!(
+                        output(&mut apu, timer),
+                        0,
+                        "T{timer}, phase {phase}, target {target}, before {boundary}"
+                    );
+                    tick_to_cycle(&mut apu, &mut master, boundary);
+                    assert_eq!(
+                        output(&mut apu, timer),
+                        1,
+                        "T{timer}, phase {phase}, target {target}, at {boundary}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn disabled_wraps_keep_clock_running_and_reenable_clears_only_downstream() {
+    for timer in 0..3 {
+        for read_disabled in [false, true] {
+            let d = divider(timer);
+            let mut apu = enabled(timer, 3);
+            let mut master = 0;
+            tick_to_cycle(&mut apu, &mut master, 4 * d + d / 4);
+            // One unread output and counting stage 1. Disable at phase D/4.
+            apu.write(0xf1, 0);
+            // Five and a half disabled divider periods change phase to 3D/4.
+            // Frozen-phase resume would first match at 12D+D/2; restart-on-
+            // enable at 12D+3D/4. Free-running first matches exactly at 12D.
+            tick_to_cycle(&mut apu, &mut master, 9 * d + 3 * d / 4);
+            if read_disabled {
+                assert_eq!(
+                    output(&mut apu, timer),
+                    1,
+                    "disable retains unread output without generating events"
+                );
+                assert_eq!(output(&mut apu, timer), 0);
+            }
+            apu.write(0xf1, 1 << timer);
+            assert_eq!(
+                output(&mut apu, timer),
+                0,
+                "rising enable clears unread output"
+            );
+            for boundary in [12 * d, 15 * d, 18 * d] {
+                tick_to_cycle(&mut apu, &mut master, boundary - 2);
+                assert_eq!(output(&mut apu, timer), 0, "T{timer}, before {boundary}");
+                tick_to_cycle(&mut apu, &mut master, boundary);
+                assert_eq!(output(&mut apu, timer), 1, "T{timer}, at {boundary}");
+            }
+        }
+    }
+}
+
+#[test]
+fn repeated_enable_keeps_count_output_phase_and_control_port_effects() {
+    for timer in 0..3 {
+        let d = divider(timer);
+        let mut apu = enabled(timer, 3);
+        let mut master = 0;
+        tick_to_cycle(&mut apu, &mut master, 4 * d + d / 2);
+        for port in 0..4 {
+            apu.port_write(port, 0x40 + port as u8);
+            apu.write(0xf4 + port as u16, 0x50 + port as u8);
+        }
+        apu.write(0xf1, 0x30 | (1 << timer));
+        assert_eq!(apu.input, [0; 4], "CONTROL still clears input ports");
+        assert_eq!(apu.output, [0x50, 0x51, 0x52, 0x53]);
+        assert_eq!(output(&mut apu, timer), 1, "repeated enable retains output");
+        for boundary in [6 * d, 9 * d, 12 * d] {
+            tick_to_cycle(&mut apu, &mut master, boundary - 2);
+            assert_eq!(output(&mut apu, timer), 0);
+            tick_to_cycle(&mut apu, &mut master, boundary);
+            assert_eq!(output(&mut apu, timer), 1);
+        }
+    }
+}
+
+#[test]
+fn enabling_other_timers_preserves_running_timer_and_shared_pulse_alignment() {
+    for running in 0..3 {
+        let d = divider(running);
+        let mut apu = enabled(running, 3);
+        let mut master = 0;
+        for timer in 0..3 {
+            if timer != running {
+                apu.write(0xfa + timer as u16, 1);
+            }
+        }
+        let enable = 4 * d + d / 2 + 2;
+        tick_to_cycle(&mut apu, &mut master, enable);
+        apu.write(0xf1, 7);
+        assert_eq!(output(&mut apu, running), 1, "other enables retain output");
+        tick_to_cycle(&mut apu, &mut master, 6 * d - 2);
+        assert_eq!(output(&mut apu, running), 0);
+        tick_to_cycle(&mut apu, &mut master, 6 * d);
+        assert_eq!(
+            output(&mut apu, running),
+            1,
+            "other enables retain counting and phase"
+        );
+        for timer in 0..3 {
+            if timer != running {
+                let pulses = 6 * d / divider(timer) - enable / divider(timer);
+                assert_eq!(
+                    output(&mut apu, timer),
+                    (pulses % 16) as u8,
+                    "T{running} enabling T{timer}"
+                );
             }
         }
     }
@@ -191,11 +324,12 @@ fn guest() -> Vec<u8> {
         0x8f, 0x7f, 0xf4, // ready
         0xe4, 0xf4, 0x68, 1, 0xd0, 0xfa, // wait for host start
         0x8f, 200, 0xfa, 0x8f, 255, 0xfb, 0x8f, 0, 0xfc, 0x8f, 7,
-        0xf1, // enable all three timers; elapsed origin
+        0xf1, // enable all three; instruction-count origin, not scaler origin
     ];
     delay(&mut code, 3200);
-    // At elapsed 19205 SPC cycles: slow stage 150, phase 5. The 5-cycle
-    // MOV itself and whole-instruction approximation fit inside this window.
+    // At elapsed 19205 SPC cycles the slow stage is 150 or 151, depending
+    // on the free-running phase at enable. Both wait until absolute enabled
+    // pulse 356 for target 100; no target-equality race occurs at this write.
     code.extend([0x8f, 100, 0xfa]);
     for (row, wait) in [400, 2000, 2200, 2200].into_iter().enumerate() {
         delay(&mut code, wait);
@@ -220,7 +354,9 @@ fn wait_for(apu: &mut Apu, master: &mut u64, value: u8) {
     panic!("SPC acknowledgement {value:02x} exceeded 21,000 master clocks");
 }
 fn upload(apu: &mut Apu) -> u64 {
-    let code = guest();
+    upload_code(apu, &guest())
+}
+fn upload_code(apu: &mut Apu, code: &[u8]) -> u64 {
     assert!(code.len() < 512);
     let mut master = 0;
     apu.port_write(2, 0);
@@ -238,15 +374,17 @@ fn upload(apu: &mut Apu) -> u64 {
     apu.port_write(1, 0);
     apu.port_write(0, (code.len() as u8).wrapping_add(1));
     wait_for(apu, &mut master, 0x7f);
-    assert_eq!(&apu.ram[0x200..0x200 + code.len()], &code);
+    assert_eq!(&apu.ram[0x200..0x200 + code.len()], code);
     assert!(master < 100_000, "bounded firmware-free upload");
     master
 }
 
 // Elapsed guest read times from enable, based only on instruction durations:
 // T0 at 21610, 33634, 46858, 60082; T1/T2 follow at +8/+16 cycles.
-// T0 matches at pulse 356 (45568 cycles), then 456 (58368 cycles).
-// T1 is unchanged at 255*128, T2 unchanged at 256*16.
+// For any enable phase p in 0..127, T0 matches at elapsed 45568-p,
+// then 58368-p. T1 first matches at 32640-p. For T2 phase q in 0..15,
+// its first match is 4096-q. Every read window yields the same records.
+// These instruction-count times never imply an enable-relative scaler reset.
 const RECORDS: [u8; 12] = [0, 0, 5, 0, 1, 3, 1, 0, 3, 1, 0, 3];
 const CHECKPOINTS: [u64; 4] = [480_000, 740_000, 1_010_000, 1_300_000];
 
@@ -295,4 +433,130 @@ fn whole_and_irregular_ticks_match_with_independent_guest_expectations() {
     }
     assert_eq!(whole.output[0], 0x83);
     assert!(whole.cpu.halted && split.cpu.halted);
+}
+
+// Relative to the first instruction after the start handshake. Start is sent
+// at fixture cycle 8192, a common prescaler boundary. The 9-cycle polling loop
+// plus 7-cycle exit bounds this origin to [8192, 8210], including whole-step
+// overshoot. Every read window below has one required value over that range.
+const PHASE_READS: [(u64, u8, u8); 20] = [
+    (152, 0, 1),
+    (160, 1, 0),
+    (208, 2, 1),
+    (340, 0, 1),
+    (350, 1, 0),
+    (360, 2, 1),
+    (1000, 0, 1),
+    (1010, 1, 2),
+    (1030, 2, 4),
+    (1460, 0, 0),
+    (1480, 2, 0),
+    (1650, 2, 1),
+    (1680, 0, 0),
+    (1690, 1, 2),
+    (1780, 0, 1),
+    (1790, 1, 0),
+    (1800, 2, 1),
+    (2160, 0, 1),
+    (2170, 1, 1),
+    (2180, 2, 3),
+];
+
+fn phase_guest() -> Vec<u8> {
+    fn advance(code: &mut Vec<u8>, elapsed: &mut u64, at: u64) {
+        let mut cycles = at - *elapsed;
+        if cycles % 2 == 1 {
+            // Harmless MOV A,$00 (3), then even delays.
+            assert!(cycles >= 3);
+            code.extend([0xe4, 0]);
+            cycles -= 3;
+        }
+        let mut iterations = cycles / 6;
+        while iterations != 0 {
+            let n = iterations.min(255);
+            // MOV Y,#n (2) + DBNZ (6 taken / 4 final) = 6*n.
+            code.extend([0x8d, n as u8, 0xfe, 0xfe]);
+            iterations -= n;
+        }
+        code.extend(std::iter::repeat_n(0, (cycles % 6 / 2) as usize)); // NOP (2)
+        *elapsed = at;
+    }
+    let mut code = vec![
+        0x8f, 0x0c, 0xf2, 0x8f, 37, 0xf3, 0x8f, 0x6c, 0xf2, 0x8f, 0x20, 0xf3, 0x8f, 0x7f, 0xf4,
+        0xe4, 0xf4, 0x68, 1, 0xd0, 0xfa,
+    ];
+    let mut elapsed = 0;
+    let writes = [
+        (0, 0xfa, 1),
+        (5, 0xfb, 3),
+        (10, 0xfc, 8),
+        (52, 0xf1, 7),
+        (300, 0xf1, 7),  // enable, then repeated enable
+        (330, 0xfa, 3),  // multi-pulse T0 before the next slow pulse
+        (860, 0xf1, 2),  // disable T0/T2 with unread output, keep T1 running
+        (1440, 0xf1, 7), // re-enable after several scaler wraps
+    ];
+    let mut write = 0;
+    for (index, (at, timer, _)) in PHASE_READS.into_iter().enumerate() {
+        while write < writes.len() && writes[write].0 < at {
+            let (when, register, value) = writes[write];
+            advance(&mut code, &mut elapsed, when);
+            code.extend([0x8f, value, register]); // MOV dp,#imm (5)
+            elapsed += 5;
+            write += 1;
+        }
+        advance(&mut code, &mut elapsed, at);
+        code.extend([0xe4, 0xfd + timer, 0xc5]); // read (3), store (5)
+        code.extend((0x1100 + index as u16).to_le_bytes());
+        elapsed += 8;
+    }
+    assert_eq!(write, writes.len());
+    code.extend([0x8f, 0x85, 0xf4, 0xff]);
+    code
+}
+
+#[test]
+fn uploaded_enable_transitions_have_independent_records_across_tick_partitions() {
+    let code = phase_guest();
+    let mut whole = Apu::default();
+    let mut split = Apu::default();
+    let mut whole_master = upload_code(&mut whole, &code);
+    let mut split_master = upload_code(&mut split, &code);
+    assert_eq!(whole_master, split_master);
+    for (apu, master) in [
+        (&mut whole, &mut whole_master),
+        (&mut split, &mut split_master),
+    ] {
+        tick_to_cycle(apu, master, 8192);
+        assert_eq!(apu.port_read(0), 0x7f);
+        apu.port_write(0, 1);
+    }
+    let start = whole_master;
+    let expected: Vec<_> = PHASE_READS.iter().map(|&(_, _, value)| value).collect();
+    for (elapsed, records) in [(10_000, 6), (25_000, 9), (40_000, 17), (60_000, 20)] {
+        tick_to_master(&mut whole, &mut whole_master, start + elapsed, false);
+        tick_to_master(&mut split, &mut split_master, start + elapsed, true);
+        for apu in [&whole, &split] {
+            assert_eq!(&apu.ram[0x1100..0x1100 + records], &expected[..records]);
+        }
+        assert_eq!(whole.samples, split.samples);
+        assert_eq!(whole.dsp.regs, split.dsp.regs);
+        assert_eq!(whole.ram, split.ram);
+        assert_eq!(whole.input, split.input);
+        assert_eq!(whole.output, split.output);
+        assert_eq!(whole.cpu.pc, split.cpu.pc);
+        assert_eq!(whole.cpu.halted, split.cpu.halted);
+    }
+    for apu in [&whole, &split] {
+        assert_eq!(&apu.ram[0x1100..0x1100 + expected.len()], &expected);
+        assert_eq!(
+            apu.output[0], 0x85,
+            "completion within 60,000 master clocks"
+        );
+        assert!(apu.cpu.halted);
+        assert!(apu.error.is_none(), "{:?}", apu.error);
+        assert_eq!(apu.dsp.regs[0x0c], 37);
+        assert_eq!(apu.dsp.regs[0x6c], 0x20);
+        assert!(apu.samples.iter().all(|&sample| sample == 0.0));
+    }
 }
