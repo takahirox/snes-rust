@@ -31,7 +31,7 @@ pub struct Apu {
     cycles: i64,
     total: u64,
     timer_div: [u16; 3],
-    timer_stage: [u16; 3],
+    timer_stage: [u8; 3],
     timer_out: [u8; 3],
     control: u8,
 }
@@ -140,10 +140,10 @@ impl Apu {
                     self.timer_div[i] += 1;
                     if self.timer_div[i] == if i == 2 { 16 } else { 128 } {
                         self.timer_div[i] = 0;
-                        self.timer_stage[i] += 1;
-                        let target = self.ram[0xfa + i] as u16;
-                        let target = if target == 0 { 256 } else { target };
-                        if self.timer_stage[i] >= target {
+                        // Eight-bit post-increment equality: a live lowered
+                        // target is reached after wrap; zero matches on wrap.
+                        self.timer_stage[i] = self.timer_stage[i].wrapping_add(1);
+                        if self.timer_stage[i] == self.ram[0xfa + i] {
                             self.timer_stage[i] = 0;
                             self.timer_out[i] = (self.timer_out[i] + 1) & 15;
                         }

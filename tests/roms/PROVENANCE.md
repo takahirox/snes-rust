@@ -1187,3 +1187,22 @@ logical checks from unverified electrical and subcycle timing behavior.
   output, ROM, firmware, audio, graphics or assets were incorporated. Tick
   equality proves determinism only; these vectors do not establish physical
   header-prefetch/publication timing or broad hardware accuracy.
+
+## Issue #83 original SPC700 timer vectors and guest
+
+`crates/snes-core/tests/spc_timers.rs` is original work by the snes-rust
+contributors, Copyright 2026, under this repository's MIT license. It constructs
+public-API vectors and an SPC700 instruction stream in Rust; no binary fixture
+or assembler is needed. The guest is uploaded to RAM through the existing
+firmware-free port protocol. It writes timer targets, counts with original
+bounded instruction-delay loops, reads timer outputs into RAM, and signals
+completion through a port. It also writes two DSP registers as controls.
+
+Expected pulse distances, modulo counts and guest records come from the
+attributed hardware contract and independent arithmetic in
+[Issue #83 validation](../../docs/issue-83-validation.md). No commercial ROM,
+Nintendo firmware, emulator implementation, or captured emulator output was
+imported as a fixture or oracle.
+Fullsnes and Anomie's attributed hardware research were consulted as
+documentation only. Existing source/tool pins, fixtures and game hashes are
+unchanged.
