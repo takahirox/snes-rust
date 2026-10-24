@@ -94,21 +94,22 @@ All other latch, mirror, rotation, CPU, DMA/HDMA and game assertions are retaine
 
 `crates/snes-core/tests/ppu_oam_reload.rs` constructs an original in-memory
 32 KiB MIT LoROM. It initializes low-table bytes `$12,$34,$56,$78`, enables
-display, programs H/V IRQ at V=224/H=330 dots, and executes SEI/WAI. Under the
-retained scheduler convention, IRQ comparison is at `HTIME*4`, and WAI advances
-in six-clock idles: with even clocks it wakes at H=1320..1324. This is a model
-synchronization derivation, not physical IRQ latency verification (Fullsnes lists
-an additional IRQ offset). All following bus accesses precede the next refresh.
+display, programs H/V IRQ at V=224/HTIME=327, and executes SEI/WAI.
+[Issue #99](issue-99-validation.md) retimes the original HTIME=330 setup:
+`327*4+14=1322` assertion clocks gives an even six-clock WAI wake at
+H=1322..1326. The read must still precede H=40; accepting a later read would
+lose the original regression. WAI polling/access costs are model conventions,
+not physical CPU sampling verification. These accesses precede the next refresh.
 
 | Executed operation | Cost / completion on V=225, master clocks |
 | --- | --- |
-| LDA immediate 4; STA `$2102` | 16 + 30; H=2..6, explicitly restores byte 8 during VBlank |
-| LDA `$2138` | 30; H=32..36, reads `$12` before automatic reload |
-| STA WRAM `$1800` | 32; H=64..68, crossing H=40 |
-| LDA `$2138` | 30; H=94..98, reads restored `$12` after automatic reload |
+| LDA immediate 4; STA `$2102` | 16 + 30; H=4..8, explicitly restores byte 8 during VBlank |
+| LDA `$2138` | 30; H=34..38, reads `$12` before automatic reload |
+| STA WRAM `$1800` | 32; H=66..70, crossing H=40 |
+| LDA `$2138` | 30; H=96..100, reads restored `$12` after automatic reload |
 | Subsequent STA/LDA pairs | 62 each; read `$34`, then `$56`, proving no duplicate reload |
 
-The guest's H=2..6 address write makes even the early read independent of any
+The guest's H=4..8 address write makes even the early read independent of any
 rendering-corruption address or byte. Later values follow the source-backed
 programmed-address reload and byte increment rules. It publishes four WRAM bytes
 and marker `$18F0=$A5`, then STP. The host supplies only the cartridge and

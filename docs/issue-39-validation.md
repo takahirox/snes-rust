@@ -85,13 +85,14 @@ The host supplies only the ROM and observes results and deadlines; it injects no
 CPU, bus, raster or guest-memory state. STP plus `$18F0=$A5` is required within
 100,000 instructions and fewer than three frame wraps.
 
-The deterministic model wakes at H=1028 clocks. SLHV completes 30 clocks later,
-so A is `(264,256)`. Subsequent 30-clock register loads, 32-clock WRAM stores
-and a 46-clock immediate-load/register-store pair place the falling edge at
-H=1260, so B is `(315,256)`. Both selectors remain high across that edge.
+After [Issue #99](issue-99-validation.md), assertion is `256*4+14=1038`
+clocks and six-clock WAI polling wakes at H=1040. SLHV completes 30 clocks
+later, so A is `(267,256)`. Subsequent 30-clock register loads, 32-clock WRAM
+stores and a 46-clock immediate-load/register-store pair place the falling edge at
+H=1272, so B is `(318,256)`. Both selectors remain high across that edge.
 Disabled SLHV and repeated low writes preserve B. Low STAT78 returns `$40`
 twice; release preserves B and the first high read returns `$40`, then zero.
-Re-enabled SLHV completes at `(V=258,H=312 clocks)`, producing C `(78,258)`.
+Re-enabled SLHV completes at `(V=258,H=324 clocks)`, producing C `(81,258)`.
 Its acknowledgement sequence is again `$40,$00`. Floating bits are masked by
 guest instructions, while SLHV's deterministic CPU open byte is `$21`.
 See [provenance](../tests/roms/PROVENANCE.md#original-wrio-counter-latch-cpu-guest-approved).

@@ -41,17 +41,17 @@ fn guest(indirect: bool) -> Vec<u8> {
         (0x4306, 0),
         (0x4307, 0),
         (0x420c, 1),
-        (0x4207, 14),
-        (0x4208, 1), // H=270 -> 1080 clocks
+        (0x4207, 11),
+        (0x4208, 1), // HTIME=267 -> 267*4+14=1082 assertion clocks
         (0x4209, 0),
         (0x420a, 0),
         (0x4200, 0x30), // V=0 only
     ] {
         write(&mut code, address, value);
     }
-    // WAI waits for next frame V=0,H=270. Six-clock idle polling wakes
-    // at 1080..1084. Slow-ROM LDA abs: 3*8+6=30 clocks; its data access
-    // starts at 1104..1108 and completes at 1110..1114. Corrected HDMA
+    // WAI waits for next frame V=0, master H=1082. Six-clock polling
+    // wakes at 1082..1086. Slow-ROM LDA abs: 3*8+6=30 clocks; its data access
+    // starts at 1106..1110 and completes at 1112..1116. Corrected HDMA
     // cannot service before that read. H=274 baseline services during the
     // operand fetches and returns the already reloaded next-row address.
     code.push(0xcb);

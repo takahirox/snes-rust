@@ -54,8 +54,11 @@ HDMA eligibility=1112, refresh start=538/hold=40 remain existing conventions.
 Fullsnes lists IRQ assertion after comparison (HTIME+3.5; V-only H=2.5), and
 NMI flag after VBlank begins. Beam conversion does not establish those delays:
 `HTIME*4`, H=0 V comparisons, NMI at V=225/H=0 and instruction-boundary
-sampling remain limitations. Interlace, overscan, PAL and fetch/arbitration
-accuracy are not implemented by this change.
+sampling remained limitations of #95. [Issue #97](issue-97-validation.md)
+supersedes V-only timing; [Issue #99](issue-99-validation.md) supersedes the
+nonzero same-line H/HV approximation. Zero/late cases and NMI delays remain
+unresolved. Interlace, overscan, PAL and fetch/arbitration accuracy are not
+implemented by these changes.
 
 ## Implementation and validation
 
@@ -64,7 +67,7 @@ same active-line geometry. Parity lives in the PPU and changes at V=0/H=1
 after each field rollover; its V coordinate is synchronized at each line
 boundary even in a whole-field tick. APU advancement remains by the actual
 elapsed master clocks, with no raster-phase reset. The late PPU conversion is
-separate from `HTIME*4`.
+separate from CPU timer units (now `HTIME*4+14` in #99's bounded domain).
 
 Eight original unit regressions and one original source-built CPU guest are part
 of normal workspace execution:

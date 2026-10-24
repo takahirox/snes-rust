@@ -88,6 +88,7 @@ cargo test --locked -p snes-core --test hdma_ntrl
 cargo test --locked -p snes-core --test ppu_counter_latch
 cargo test --locked -p snes-core --test ntsc_timing
 cargo test --locked -p snes-core v_only_irq
+cargo test --locked -p snes-core horizontal_irq
 cargo test --locked -p snes-core --lib machine::ntsc_timing_tests
 cargo test --locked -p snes-core --test ppu_vram_access
 cargo test --locked -p snes-core --test ppu_oam_access
@@ -172,9 +173,13 @@ independent timing oracles, an original CPU guest and bounded gate results.
 Issue #97 corrects V-only IRQ assertion to ten elapsed master clocks after the
 matching scanline begins, including natural rollover and DMA. Its
 [validation record](docs/issue-97-validation.md) covers independent clock vectors,
-timed TIMEUP reads and an original self-checking CPU guest. H-only/HV assertion
-delays, live timer-write races, instruction-boundary CPU sampling and
-interlaced/overscan/PAL geometry remain unresolved.
+timed TIMEUP reads and an original self-checking CPU guest. Issue #99 adds
+14 master clocks to nonzero H-only/HV comparisons whose assertion fits strictly
+inside the current line. Its [validation record](docs/issue-99-validation.md)
+covers independent boundaries, CPU/DMA reads and both modes across four natural
+fields. Zero/late IRQs, live timer-write races, physical CPU sampling and
+interlaced/overscan/PAL geometry remain unresolved; CPU recognition still occurs
+at instruction boundaries.
 
 Issue #67 adds independent manual reads for two standard joypads with a shared
 latch. `Machine::set_buttons` supplies port 1 and `Machine::set_buttons2` supplies
