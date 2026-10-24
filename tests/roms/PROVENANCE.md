@@ -1366,3 +1366,52 @@ unchanged.
 - The independent unit vectors are original MIT code too. They use literal
   half-open counter boundaries, line/field totals and polling phases; no
   production geometry helper is used as an expected-value oracle.
+
+## Original V-only IRQ timing guest (Issue #97)
+
+- [`v_only_irq.rs`](../../crates/snes-core/tests/v_only_irq.rs) and
+  [`v_only_irq_tests.rs`](../../crates/snes-core/src/machine/v_only_irq_tests.rs)
+  are original work by the snes-rust contributors, copyright (c) 2026, under
+  the repository [MIT license](../../LICENSE). The guest adapts the repository's
+  original MIT #95 byte-builder pattern; its V-only program, observations,
+  self-checks and timing vectors were authored for #97. Cargo constructs a
+  32 KiB LoROM in memory from explicit 65C816 instruction bytes. Generated
+  code/data are MIT redistributable; no binary, assembler, firmware, commercial
+  ROM, captured emulator result or external asset is incorporated.
+- SEI, forced blank and SETINI=0 establish the bounded mode. HTIME=511 and
+  VTIME=240 are programmed before entering the target scanline, with
+  NMITIMEN=$20. Four WAIs naturally wait for V-only IRQ in fields 0,1,0,1.
+  Each wake captures SLHV, reads both H/V counter bytes and STAT78, acknowledges
+  TIMEUP and reads TIMEUP again. Eight bytes per field at $1800-$181F are
+  compared against literal expectations by the guest itself. A mismatch STPs
+  without success; passing writes $A5 to $18F0 then STPs. The host loads/resets
+  the cartridge and steps only; it injects no beam, IRQ, parity or result state.
+  Both instruction/step and master-clock bounds are enforced: 300,000 steps
+  and less than 1,500,000 clocks. Final raster field count must be three.
+- Independent event arithmetic follows the reconciled hardware references in
+  [Issue #97 validation](../../docs/issue-97-validation.md): ordinary field
+  262*1364=357368 clocks, alternate field 357364, V=240 offset 240*1364=327360,
+  V-only assertion offset 2.5*4=10. The four absolute events are 327370,
+  684738, 1042102, 1399470. These are not derived from production helpers.
+- The guest's finer observations explicitly depend on the existing emulator
+  access-end sampling, instruction timing and refresh conventions, not measured
+  physical CPU strobes. Reset-vector reads cost 16 clocks; SEI 14; seven
+  LDA-immediate/STA-I/O pairs 7*46; WAI 20. Initial waiting begins at 372.
+  Before the first event there are 240 refresh holds of 40 clocks. Thus
+  wake_0 = 372+9600+6*ceil((327370-372-9600)/6) = 327372.
+  Each save costs 30+16+32=78 clocks (LDA I/O, AND immediate, STA WRAM).
+  Eight saves and the next WAI cost 644 access clocks. There are 262 refresh
+  holds between successive V=240 wakes, so
+  wake_next = wake+644+10480+6*ceil((event_next-wake-644-10480)/6).
+  The wakes are 327372,684738,1042104,1399470. SLHV completes 30 clocks after
+  wake, at within-line clocks 42,40,42,40: all latch H=10 (high=0), V=240
+  (high=0). SLHV returns CPU open bus $21; masked STAT78 is $40,$C0,$40,$C0.
+  The first TIMEUP read ends wake+498, before that line's refresh, and returns
+  $80; the second ends wake+576+40 and returns zero. The extra 40 is the
+  refresh crossed during the later save. Baseline H=0 assertion instead gives
+  captured H=7,8,7,8, so this guest behaviorally distinguishes the correction.
+- The unchanged #95 HV geometry guest is retained and remains a separate
+  geometry control. No source/tool/game pin, licensed fixture, cleared-game
+  hash, replay, gameplay, audio or drift assertion is changed. These bounded
+  original diagnostics do not establish full hardware accuracy or commercial
+  compatibility.

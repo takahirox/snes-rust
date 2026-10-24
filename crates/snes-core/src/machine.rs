@@ -10,6 +10,10 @@ const HBLANK: u64 = 1096;
 // Fullsnes detailed H/V Events: V=225, H=10 dots (4 clocks/dot).
 // Distinct from VBlank availability at H=0 and first-line INIDISP writes.
 const OAM_RELOAD: u64 = 40;
+// Fullsnes SNES Timing H/V Events: V-only IRQ at H=2.5 dots = 10
+// master clocks, independent of HTIME. This is line assertion; Machine::step
+// still samples interrupts at instruction boundaries. See Issue #97 validation.
+const V_ONLY_IRQ: u64 = 10;
 // Fullsnes H/V Events and Anomie HDMA: activity at H=278 (4 clocks/dot).
 // Model this as service eligibility, consumed at the next CPU/DMA boundary.
 // No distinct earlier hardware request edge is established by those references;
@@ -195,7 +199,7 @@ impl SystemBus {
         let vtime = u16::from_le_bytes([self.io[9], self.io[10] & 1]);
         let mode = self.io[0] & 0x30;
         while n > 0 {
-            // Compare within one scanline, then handle H=0 on the new line.
+            // Compare crossings within one scanline, then handle rollover.
             let old_h = self.h;
             let line = self.ppu.line_clocks();
             let mut elapsed = n.min(line - self.h);
@@ -235,6 +239,16 @@ impl SystemBus {
             {
                 self.irq = true;
             }
+            if mode == 0x20
+                && self.v == vtime
+                && old_h < V_ONLY_IRQ
+                && self.h >= V_ONLY_IRQ
+                // Preserve the startup convention: initial V=0 was not entered
+                // by raster rollover. Live configuration/reset timing is unverified.
+                && (self.v != 0 || self.frames != 0)
+            {
+                self.irq = true;
+            }
             if self.h < line {
                 continue;
             }
@@ -248,10 +262,8 @@ impl SystemBus {
             }
             self.ppu.v = self.v;
             self.ppu.oam_scanline_start(self.v);
-            // V=0 is a valid comparison only after the frame counter wraps.
-            if (mode == 0x20 && self.v == vtime)
-                || (mode & 0x10 != 0 && htime == 0 && (mode & 0x20 == 0 || self.v == vtime))
-            {
+            // H-only/HV retain the approximate H=0 comparator convention.
+            if mode & 0x10 != 0 && htime == 0 && (mode & 0x20 == 0 || self.v == vtime) {
                 self.irq = true;
             }
             if self.v == 225 {
@@ -961,7 +973,7 @@ mod tests {
         }
     }
 
-    fn timer_bus(mode: u8, htime: u16, vtime: u16) -> SystemBus {
+    pub(super) fn timer_bus(mode: u8, htime: u16, vtime: u16) -> SystemBus {
         let cart = Cartridge::load(include_bytes!("../../../tests/roms/smoke.bin")).unwrap();
         let mut bus = SystemBus::new(cart);
         bus.write_raw(0x4207, htime as u8);
@@ -972,12 +984,13 @@ mod tests {
         bus
     }
 
-    fn timeup(bus: &mut SystemBus) -> bool {
+    pub(super) fn timeup(bus: &mut SystemBus) -> bool {
         bus.read_raw(0x4211) & 0x80 != 0
     }
 
     #[test]
     fn horizontal_zero_timer_fires_once_per_scanline_across_frames() {
+        // Approximate H-only control; physical assertion delay is not verified.
         let mut bus = timer_bus(0x10, 0, 0);
         for line in 1..=3 * 262 {
             let length = if (line - 1) / 262 % 2 == 1 && (line - 1) % 262 == 240 {
@@ -995,20 +1008,23 @@ mod tests {
     }
 
     #[test]
-    fn vertical_zero_timer_fires_once_per_frame_after_wrap() {
+    fn v_only_irq_vertical_zero_fires_at_ten_after_natural_wrap() {
         let mut bus = timer_bus(0x20, 0, 0);
-        for frame in 1..=3 {
-            bus.tick(if frame % 2 == 1 { 357368 } else { 357364 } - 1);
+        for (frame, start) in [(1, 357368), (2, 714732), (3, 1072100)] {
+            bus.tick(start - bus.clocks);
             assert!(!timeup(&mut bus), "early IRQ in frame {frame}");
+            bus.tick(9);
+            assert!(!timeup(&mut bus));
             bus.tick(1);
             assert!(timeup(&mut bus), "missing IRQ in frame {frame}");
             assert!(!timeup(&mut bus));
-            assert_eq!((bus.frames, bus.v, bus.h), (frame, 0, 0));
+            assert_eq!((bus.frames, bus.v, bus.h), (frame, 0, 10));
         }
     }
 
     #[test]
     fn combined_timers_match_zero_and_nonzero_coordinates() {
+        // Approximate HV control; this does not establish the hardware delay.
         for (htime, vtime) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
             let mut bus = timer_bus(0x30, htime, vtime);
             // Start after the initial frame's comparison, then verify three
@@ -1072,3 +1088,7 @@ mod joypad_auto_tests;
 #[cfg(test)]
 #[path = "machine/ntsc_timing_tests.rs"]
 mod ntsc_timing_tests;
+
+#[cfg(test)]
+#[path = "machine/v_only_irq_tests.rs"]
+mod v_only_irq_tests;
