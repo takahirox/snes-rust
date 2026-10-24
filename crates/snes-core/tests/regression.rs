@@ -1190,7 +1190,7 @@ fn dsp_endx_reports_brr_ends_independently_of_looping() {
             for _ in 0..16 {
                 dsp.sample(&mut ram);
             }
-            assert_eq!(dsp.regs[0x7c], if header == 0x83 { expected } else { 0 });
+            assert_eq!(dsp.regs[0x7c], if header & 1 != 0 { expected } else { 0 });
             dsp.write(0x4c, 1 << voice);
             dsp.sample(&mut ram);
             assert_eq!(dsp.regs[0x7c], 0);

@@ -63,6 +63,12 @@ difference. Stable writes completed before both windows select the same word.
 
 ## Sample API conventions and remaining uncertainty
 
+Historical note: [Issue #79](issue-79-validation.md) supersedes the terminal
+control approximation described below. Header `01` now zeros/releases the
+envelope when the eager decoder processes the header, and silent BRR work
+continues through live end-bit redirects and later ENDX events. The directory
+selection evidence and its timing limits remain applicable.
+
 `Dsp::sample` now refreshes each voice's selected loop word once per call, using
 current DIR/SRCN, before its existing scalar decode work. Only KON reads the
 start word. The decoder still consumes the cached loop word when crossing an

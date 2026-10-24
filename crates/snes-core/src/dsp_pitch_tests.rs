@@ -218,7 +218,7 @@ fn noise_predecessor_and_target_keep_shared_noise_and_brr_end_processing() {
             (4, 0x5000, 5, 0),
             (12, 0x3000, 15, 0),
             (13, 0x4400, 16, 0),
-            (14, 0x1800, if looping { 1 } else { 16 }, 2),
+            (14, 0x1800, 1, 2),
         ] {
             let already = (30720 - d.counter) % 30720;
             for _ in already..tick {
@@ -227,7 +227,7 @@ fn noise_predecessor_and_target_keep_shared_noise_and_brr_end_processing() {
             assert_eq!(d.voices[1].phase, phase);
             assert_eq!(d.voices[1].nibble, nibble);
             assert_eq!(d.regs[0x7c], end);
-            assert_eq!(d.regs[25], if !looping && tick == 14 { 0 } else { 32 });
+            assert_eq!(d.regs[25], if looping { 32 } else { 0 });
             assert_eq!(d.noise, 0x2000);
         }
     }
