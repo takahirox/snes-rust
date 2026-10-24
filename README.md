@@ -95,6 +95,7 @@ cargo test --locked -p snes-core --test dsp_echo
 cargo test --locked -p snes-core --test dsp_mixing
 cargo test -p snes-core --test dsp_noise --locked
 cargo test -p snes-core --test dsp_pitch --locked
+cargo test --locked -p snes-core --test dsp_directory
 cargo test -p snes-core --test ppu_offset --locked
 cargo test --locked -p snes-core --test ppu_hires
 cargo test --locked -p snes-core --test ppu_mode6_offset
@@ -574,8 +575,14 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   startup/reset behavior remain outstanding.
   Signed endpoint narrowing follows the documented 16-bit arithmetic with
   research-emulator corroboration; no physical-device verification is claimed.
+  The [live-directory validation](docs/issue-77-validation.md) reconciles per-sample
+  directory refresh with stable loop-word RAM, DIR and SRCN changes. Looping uses
+  the current selected loop word; only KON selects the start word. Numerical
+  stereo/register vectors, address wraps, simultaneous voices, an original
+  uploaded SPC700 guest and APU partition checks cover this bounded behavior.
   `dsp-voices` remains partial: independent BRR-filter 1–3 evidence, exhaustive
-  interpolation phases and simultaneous key/mixing combinations remain. Hidden
+  interpolation phases, simultaneous key/mixing combinations and physical
+  directory/key-event timing remain. Hidden
   envelope corrections also remain unverified.
   Browser tests bound device-clock drift, queue duration and live sources,
   including main-thread stalls and repeated pause/reset/play.

@@ -201,6 +201,29 @@ are not release acceptance evidence.
   guest binary is committed. Source and generated code/data may be redistributed
   under MIT. All external fixture decisions and pins below remain unchanged.
 
+## Original live-directory SPC700 guest and BRR data: approved
+
+- Source: [`crates/snes-core/tests/dsp_directory.rs`](../../crates/snes-core/tests/dsp_directory.rs).
+  Copyright 2026 snes-rust contributors; [MIT](../../LICENSE).
+- The original 212-byte SPC700 guest is generated in memory and uploaded through
+  the existing firmware-free port protocol. It configures one BRR voice through
+  `$F2/$F3`, waits for four host commands, records OUTX/ENVX/ENDX at
+  `$1000..$100b`, changes loop-word RAM, DIR and SRCN without another KON,
+  acknowledges each bounded checkpoint through `$F4`, and stops.
+- Directory words, constant signed range-10 filter-0 BRR blocks, normal and
+  terminating controls, wrap cases, initial RAM, command data, instruction
+  stream and numerical expectations are original MIT code/data. The hardware
+  facts and independent arithmetic are attributed in the
+  [validation record](../../docs/issue-77-validation.md).
+- No commercial ROM, Nintendo firmware, external sample, font, game asset,
+  executable or emulator implementation was acquired or imported for these
+  diagnostics. No guest binary is committed; no external assembler is needed.
+  The pinned blargg source was consulted as attributed research evidence, not
+  copied, linked, executed or used as an output oracle.
+- Decision: original source and generated guest/data may be redistributed under
+  MIT. This is bounded sample-level evidence, not complete hardware accuracy or
+  game acceptance. All external fixture decisions and pins below remain intact.
+
 ## Source-built hardware suites: approved with documented alterations
 
 ### gilyon/snes-tests
