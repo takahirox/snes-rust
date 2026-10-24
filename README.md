@@ -86,6 +86,8 @@ cargo test --locked -p snes-core --test hdma_reload
 cargo test --locked -p snes-core --test hdma_phase
 cargo test --locked -p snes-core --test hdma_ntrl
 cargo test --locked -p snes-core --test ppu_counter_latch
+cargo test --locked -p snes-core --test ntsc_timing
+cargo test --locked -p snes-core --lib machine::ntsc_timing_tests
 cargo test --locked -p snes-core --test ppu_vram_access
 cargo test --locked -p snes-core --test ppu_oam_access
 cargo test --locked -p snes-core --test ppu_oam_reload
@@ -161,6 +163,12 @@ live zero/repeat behavior and records boundary vectors and two original CPU gues
 Issue #39 connects WRIO bit 7 to PPU counter capture and STAT78 acknowledgement;
 its [counter-latch validation](docs/issue-39-validation.md) records source qualifications,
 64 edge/mirror vectors, scanline-crossing accesses, B-bus controls and an original CPU guest.
+
+Issue #95 adds NTSC non-interlaced long-dot counters, alternating short-line
+geometry, STAT78 field reporting and two-field browser cadence. Its
+[validation record](docs/issue-95-validation.md) records specification conflicts,
+independent timing oracles, an original CPU guest and bounded gate results.
+IRQ assertion delays and interlaced/overscan/PAL geometry remain unresolved.
 
 Issue #67 adds independent manual reads for two standard joypads with a shared
 latch. `Machine::set_buttons` supplies port 1 and `Machine::set_buttons2` supplies
@@ -347,7 +355,8 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   cover addressing, stacks, interrupts and RMW writes. CPU-cycle multiply/divide
   latency and a 40-master-clock scanline refresh hold are implemented. This is
   not a claim of every instruction/interrupt edge on every CPU revision.
-- A master-clock scheduler, NTSC scanlines, VBlank/HBlank, NMI, timer IRQs,
+- A master-clock scheduler, NTSC non-interlaced long-dot counters and alternating
+  short scanlines, STAT78 field reporting, VBlank/HBlank, NMI, timer IRQs,
   serial/automatic reads of two standard joypads through shared latch/serial
   state, with clocked busy/result phases, general DMA and
   direct/indirect HDMA. HDMA preempts DMA between bytes; all devices advance

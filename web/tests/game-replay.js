@@ -45,9 +45,11 @@ export async function replay(page, game, frames = 18100) {
         sample.energy += v * v; energy += v * v;
       }
       count += audio.length; sample.count += audio.length;
-      // APU cadence vs the fixed NTSC raster, after boot/DMA startup. Bound
+      // APU cadence vs alternating NTSC fields, after boot/DMA startup. Bound
       // cumulative drift as well as individual buffers: no growing A/V backlog.
-      const expectedSamples = (frame + 1) * 1364 * 262 / 21477272 * 64000;
+      const fields = frame + 1;
+      const elapsedClocks = fields * 357368 - Math.floor(fields / 2) * 4;
+      const expectedSamples = elapsedClocks / 21477272 * 64000;
       if (frame === 899) audioBaseline = count - expectedSamples;
       if (frame >= 900) {
         minAudio = Math.min(minAudio, audio.length); maxAudio = Math.max(maxAudio, audio.length);
@@ -70,7 +72,7 @@ export async function replay(page, game, frames = 18100) {
     }
     const image = new ImageData(new Uint8ClampedArray(core.memory.buffer, core.framebuffer(), 256 * 224 * 4).slice(), 256, 224);
     document.querySelector('canvas').getContext('2d').putImageData(image, 0, 0);
-    return { name: game.name, frames, emulatedSeconds: frames * 1364 * 262 / 21477272, nonzero, audioRms: Math.sqrt(energy / count), windows, transitions,
+    return { name: game.name, frames, emulatedSeconds: (frames * 357368 - Math.floor(frames / 2) * 4) / 21477272, nonzero, audioRms: Math.sqrt(energy / count), windows, transitions,
       audioCadence: { startupFrames: 900, minSamples: minAudio, maxSamples: maxAudio, maxDriftSamples: maxAudioDrift, boundSamples: 128 }, elapsedMs: performance.now() - begin };
   }, { game, frames });
 }

@@ -3,6 +3,8 @@
 use super::*;
 
 const START: u64 = 225 * 1364 + 298;
+// First two opportunities are 1396*256 apart, even with the short field.
+// This is a polling interval, not a field length. Later lattice wraps differ.
 const NEXT: u64 = START + 357376;
 const END: u64 = START + 4224;
 const PREFIXES: [(u16, u16); 16] = [
@@ -325,13 +327,14 @@ fn dma_naturally_crosses_poll_and_leaves_both_serial_ports_consumed() {
 #[test]
 fn starts_follow_the_256_clock_lattice_across_its_frame_phase_wrap() {
     let mut m = machine(0, 0);
-    // Independent fixed-raster derivation: each 357368-clock frame moves the
-    // lattice's H phase forward eight clocks, wrapping 378 -> 130.
+    // Independent alternating-field derivation: the H phase advances 8 then
+    // 12 clocks on the 256-clock lattice, wrapping 378 -> 130.
     let offsets = [
-        298, 306, 314, 322, 330, 338, 346, 354, 362, 370, 378, 130, 138,
+        298, 306, 318, 326, 338, 346, 358, 366, 378, 130, 142, 150, 162,
     ];
     for (frame, h) in offsets.into_iter().enumerate() {
-        let start = frame as u64 * 357368 + 225 * 1364 + h;
+        let frame_start = (frame as u64 / 2) * 714732 + (frame as u64 % 2) * 357368;
+        let start = frame_start + 306900 + h;
         m.set_buttons(if frame % 2 == 0 { 0xa590 } else { 0x5a60 });
         m.set_buttons2(if frame % 2 == 0 { 0x5a60 } else { 0xa590 });
         until(&mut m.bus, start - 1);

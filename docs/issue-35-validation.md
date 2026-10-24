@@ -32,8 +32,8 @@ byte procedure without adding startup. Exact hardware request/startup/bus-strobe
 alignment remains unresolved. This bounded correction does not claim that the
 first hardware source read occurs at 1116 or commitment at 1120.
 
-The following numeric contract uses four master clocks per dot and a 1364-clock
-scanline. `S` denotes the actual modeled service boundary, which can be later
+The following early horizontal events use four master clocks per dot and an
+ordinary 1364-clock scanline. `S` denotes the actual modeled service boundary, which can be later
 than 1112. Times below are emulator conventions except for the reference phase
 positions and algorithmic ordering explicitly identified.
 
@@ -199,3 +199,7 @@ All inventory scopes/statuses remain unchanged: `cpu`, `bus`, `scheduler`,
 implemented_unverified; `ppu-hires`, `ppu-raster`, `pal` remain unimplemented.
 This resolves one scheduling gap, not whole-category completion or completion
 of Issue #3. No optional or required post-merge verification is specified.
+
+Issue #95 qualifies this conversion: latched H=323/327 last six clocks on
+ordinary lines, and field 1 V=240 is 1360 clocks. The early events above precede
+those dots; `H*4` is not a universal PPU counter formula.
