@@ -89,6 +89,7 @@ cargo test --locked -p snes-core --test ppu_counter_latch
 cargo test --locked -p snes-core --test ntsc_timing
 cargo test --locked -p snes-core v_only_irq
 cargo test --locked -p snes-core horizontal_irq
+cargo test --locked -p snes-core late_horizontal_irq
 cargo test --locked -p snes-core combined_zero_irq
 cargo test --locked -p snes-core horizontal_zero_irq
 cargo test --locked -p snes-core --lib machine::ntsc_timing_tests
@@ -194,6 +195,31 @@ phases, reset/refresh alignment, NMI delays and interlaced/overscan/PAL geometry
 remain unresolved; CPU recognition still occurs at instruction boundaries.
 Full device synchronization, including APU advancement before raster processing,
 also remains incomplete.
+
+Issue #105 selects a **PROVISIONAL / HARDWARE UNVERIFIED** late H-only policy:
+emit at `4*HTIME+14` only when strictly inside the current line; otherwise
+suppress without an undelayed fallback or carry into the next line/field.
+This makes scheduling deterministic while physical endpoint evidence is pending.
+Stable H-only configuration ignores VTIME, including 262 and 511. The exact
+software policy for NTSC non-interlaced operation is:
+
+| HTIME | Ordinary line (1364 clocks) | Odd-field V=240 (1360 clocks) |
+| ---: | --- | --- |
+| 336 | H=1358 | H=1358 |
+| 337 | H=1362 | Suppress |
+| 338 | Suppress | Suppress |
+| 339 | Suppress | Suppress |
+| 340 | Suppress | Suppress |
+| 341 | Suppress | Suppress |
+| 511 | Suppress | Suppress |
+
+Pending IRQs survive rollover until acknowledged; each new line evaluates
+independently. Combined late IRQs retain their previous approximation. The
+[validation/design record](docs/issue-105-validation.md) records baseline
+counterexamples, executed checks, known risks and the future hardware diagnostic
+plan. Software tests establish this selected policy, not chip accuracy or
+commercial compatibility. True late eligibility/delivery and line/field ownership
+remain unresolved; existing inventory scopes and Issue #3 status are unchanged.
 
 Issue #67 adds independent manual reads for two standard joypads with a shared
 latch. `Machine::set_buttons` supplies port 1 and `Machine::set_buttons2` supplies

@@ -205,8 +205,11 @@ impl SystemBus {
             // Fullsnes H/V Events: H-only (including zero) and nonzero HV
             // assert 3.5 timer units after comparison: 4*HTIME+14 master
             // clocks. Combined zero uses the separate ten-clock event below.
-            // Late/line-spanning comparisons retain approximate scheduling.
-            let h_irq = if (htime != 0 || mode == 0x10) && htime + 14 < line {
+            // Issue #105 PROVISIONAL / HARDWARE UNVERIFIED: H-only keeps
+            // that offset even when outside the line; the crossing guard
+            // below suppresses it, with no early fallback or rollover carry.
+            // Combined late comparisons retain their approximate fallback.
+            let h_irq = if mode == 0x10 || (htime != 0 && htime + 14 < line) {
                 htime + 14
             } else {
                 htime
@@ -1130,3 +1133,7 @@ mod combined_zero_irq_tests;
 #[cfg(test)]
 #[path = "machine/horizontal_zero_irq_tests.rs"]
 mod horizontal_zero_irq_tests;
+
+#[cfg(test)]
+#[path = "machine/late_horizontal_irq_tests.rs"]
+mod late_horizontal_irq_tests;

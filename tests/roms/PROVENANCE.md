@@ -1589,3 +1589,74 @@ unchanged.
   V=0 no-event policy remain emulator conventions. The
   [validation record](../../docs/issue-103-validation.md) records baseline
   behavioral failures, corrected passes and all executed acceptance gates.
+
+## Original late horizontal IRQ diagnostics (Issue #105)
+
+- Sources: [`late_horizontal_irq.rs`](../../crates/snes-core/tests/late_horizontal_irq.rs)
+  and [`late_horizontal_irq_tests.rs`](../../crates/snes-core/src/machine/late_horizontal_irq_tests.rs).
+  Original repository-authored work, copyright (c) 2026 snes-rust contributors,
+  under [MIT](../../LICENSE), using the repository's original hand-encoded
+  65C816 diagnostic construction pattern. Rust constructs zero-filled 32 KiB
+  LoROMs with code, header and reset vector in memory. No external assembler,
+  emulator code, firmware, cartridge or asset is fetched for these diagnostics;
+  no generated ROM is committed.
+- **PROVISIONAL / HARDWARE UNVERIFIED.** Expected results test the selected
+  Issue #105 software policy, not physical SNES behavior. The independent
+  candidate arithmetic is `4*336+14=1358`, `4*337+14=1362`,
+  `4*338+14=1366`, `4*339+14=1370`, `4*340+14=1374`,
+  `4*341+14=1378`, `4*511+14=2058`. The chosen policy emits only at offsets
+  strictly inside 1364-clock ordinary or 1360-clock odd V=240 lines, with
+  no carry. It does not infer physical endpoint eligibility from arithmetic.
+- Two guest variants execute SEI, forced blank, SETINI=0 and H-only mode,
+  with HTIME=337 or 338 and VTIME=511 before the first tested event. Both
+  timer bytes, VTIME and enable stay unchanged through four natural fields.
+  No host CPU, beam, parity, IRQ, RAM, result or timing state is injected.
+  With 337, WAI/acknowledge/counter-poll loops find the wake from V=239,
+  then another WAI waits for the tested V=240 event. With 338, guest counter
+  polling reaches V=241 without requiring an IRQ, then leaves it before
+  waiting for the next field. All traversal uses executed instructions.
+- Six bytes per field record SLHV open bus, captured V low/high, masked
+  STAT78, TIMEUP and a second TIMEUP acknowledgement. Every one of the 24
+  literal bytes is compared in guest instructions. Failure executes
+  $18F1=$EE/STP; success executes $18F0=$A5/STP. Host code only loads, steps
+  and observes, with 300,000-step and 1,500,000-master-clock deadlines and
+  completion in field 3. Both ordinary and short V=240 lines are reached
+  naturally, twice each.
+- Independent geometry: `262*1364=357368`, odd fields lose four clocks at
+  V=240. Field starts are 0/357368/714732/1072100; V=240 starts are
+  327360/684728/1042092/1399460. The selected 337 events on ordinary
+  V=240 are 328722 and 1043454. Odd V=240 suppresses, so the next eligible
+  events belong to V=241: 687450 and 1402182. A capture shortly after each
+  event must therefore observe V=241/242/241/242. The baseline undelayed
+  short-line fallback instead captures V=241 in all four fields. With 338,
+  all comparisons suppress and TIMEUP stays zero; the baseline leaves it
+  pending from undelayed events on both line geometries.
+- CPU arithmetic uses existing emulator conventions, not measured bus phases.
+  Reset reads cost 16, SEI 14, seven configuration pairs cost `7*(16+30)=322`:
+  initial WAI starts at 352 and waits after its 20-clock setup at 372.
+  Refresh adds 40 per line. WAI idle advances six clocks at a time, so wake
+  is within five clocks of the late event (which is far from refresh).
+  The 337 search loop captures at wake+90: acknowledge, STAT78 and SLHV
+  loads each cost 30. The selected event is at H=1362, so this capture is
+  safely in the following line. The record's STAT78 reset plus SLHV load
+  capture at wake+60, H=58..63 of the following line. Six saves cost
+  `6*(30+16+32)=468`, plus the initial 30-clock selector reset: record
+  completion is at wake+498, before the following line's H=540 refresh.
+  TIMEUP reads at wake+372 and +450 return $80/0 before any new event.
+  Search-loop work finishes well before the next H=1362 comparison.
+- The 338 poll loop has three 30-clock loads, CMP immediate 16, and taken
+  BNE 22, plus at most a six-clock branch-page penalty and one 40-clock
+  refresh hold: successive SLHV captures are at most 174 clocks apart.
+  Once V=241 is found, another 122 access clocks (plus at most one hold)
+  lead to the record capture, still within V=241. All six saves finish
+  before the next line. STAT78 is $40/$C0/$40/$C0, V high is zero and
+  SLHV leaves CPU open bus $21. These bounds derive the literal records
+  independently of scheduler/PPU conversion helpers or captured test output.
+- Unit tests independently use literal event offsets and field boundaries;
+  stereo sample counts are `2*floor(clocks*32000/21477272)`. PCM partition
+  equality establishes determinism only. CPU access-end TIMEUP sampling,
+  immediate acknowledgement, DMA phases and instruction-boundary service
+  remain emulator conventions. The [validation record](../../docs/issue-105-validation.md)
+  records baseline failures and actual gates. All existing fixture/game pins,
+  hashes, inputs, deadlines and tolerances remain intact. These tests do not
+  establish hardware accuracy, commercial compatibility or Issue #3 completion.
