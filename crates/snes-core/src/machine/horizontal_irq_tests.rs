@@ -159,7 +159,8 @@ fn horizontal_irq_one_irregular_and_whole_intervals_cross_natural_boundaries() {
 
 #[test]
 fn horizontal_irq_zero_delay_and_approximate_late_controls() {
-    // H-only zero now asserts at 14; late controls remain approximations.
+    // H-only zero asserts at 14. Issue #105 supersedes its late fallback
+    // with provisional suppression; combined late controls remain unverified.
     // Combined zero is covered by the Issue #101 ten-clock regressions.
     for mode in [0x10, 0x30] {
         for field in 1..=2 {
@@ -184,7 +185,10 @@ fn horizontal_irq_zero_delay_and_approximate_late_controls() {
                 b.tick(offset.min(length) - 1);
                 assert!(!timeup(&mut b));
                 b.tick(1);
-                assert_eq!(timeup(&mut b), offset < length);
+                assert_eq!(
+                    timeup(&mut b),
+                    offset < length && (mode == 0x30 || htime == 0)
+                );
             }
         }
     }
