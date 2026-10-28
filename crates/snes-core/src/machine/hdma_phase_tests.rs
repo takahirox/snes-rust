@@ -110,9 +110,12 @@ fn visible_line_is_rendered_before_later_hdma_and_stays_completed() {
         let mut b = bus(indirect, 0);
         b.ppu.cgram[..2].copy_from_slice(&[255, 127]);
         at(&mut b, 0, 1, 1094);
-        assert_eq!(&b.ppu.frame[..4], &[0; 4]);
+        // Raster progress already emitted 251 pixels before HBlank; tail
+        // completes by H=1112, before the unchanged HDMA service boundary.
+        assert_eq!(&b.ppu.frame[..251 * 4], &[255; 251 * 4]);
+        assert_eq!(&b.ppu.frame[251 * 4..1024], &[0; 5 * 4]);
         assert_eq!(b.ppu.regs[0], 15); // line-0 event already serviced
-        b.read(0x4212); // render at 1096, no HDMA
+        b.read(0x4212); // crosses HBlank, no HDMA
         assert_eq!(&b.ppu.frame[..4], &[255, 255, 255, 255]);
         assert_eq!(b.dma[0][10], 0x82);
         at(&mut b, 0, 1, 1112);
