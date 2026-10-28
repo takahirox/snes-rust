@@ -1,4 +1,4 @@
-//! Scanline renderer for planar backgrounds and objects.
+//! Raster-progress compositor for planar backgrounds and objects.
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 224;
 pub struct Ppu {
@@ -8,6 +8,9 @@ pub struct Ppu {
     pub regs: [u8; 64],
     pub frame: Vec<u8>,
     frame_width: usize,
+    raster_x: usize,
+    raster_objects: Option<[Option<Pixel>; WIDTH]>,
+    raster_overflow: u8,
     vaddr: u16,
     vbuffer: u16,
     caddr: usize,
@@ -48,6 +51,9 @@ impl Default for Ppu {
             },
             frame: vec![0; WIDTH * HEIGHT * 4],
             frame_width: WIDTH,
+            raster_x: 0,
+            raster_objects: None,
+            raster_overflow: 0,
             vaddr: 0,
             vbuffer: 0,
             caddr: 0,
@@ -754,9 +760,9 @@ impl Ppu {
     pub fn framebuffer_height(&self) -> usize {
         HEIGHT
     }
-    fn prepare_frame_width(&mut self, y: usize, wide_output: bool) {
+    fn prepare_frame_width(&mut self, frame_start: bool, wide_output: bool) {
         let width = if wide_output { WIDTH * 2 } else { WIDTH };
-        if y == 0 && self.frame_width != width {
+        if frame_start && self.frame_width != width {
             self.frame.resize(width * HEIGHT * 4, 0);
             self.frame.fill(0);
             self.frame_width = width;
@@ -772,14 +778,42 @@ impl Ppu {
             self.frame_width = WIDTH * 2;
         }
     }
-    pub fn render_line(&mut self, y: usize) {
-        if y >= HEIGHT {
-            return;
+    pub(crate) fn raster_line_start(&mut self) {
+        self.raster_x = 0;
+        self.raster_objects = None;
+        self.raster_overflow = 0;
+    }
+    /// PROVISIONAL / HARDWARE UNVERIFIED output convention (Issue #107):
+    /// low-res pixel x occupies [88+4*x, 92+4*x), emitted at its right edge.
+    /// A write committed at that edge affects x+1. HBlank is NOT the picture end.
+    /// Hires emits both existing compositor phases at the same low-res edge.
+    pub(crate) fn render_until(&mut self, y: usize, master_h: u64) {
+        let end = (master_h.saturating_sub(88) / 4).min(WIDTH as u64) as usize;
+        if y < HEIGHT && end > self.raster_x {
+            self.render_span(y, self.raster_x, end);
+            self.raster_x = end;
         }
+        // Preserve the existing coarse STAT77 publication at HBlank. Early
+        // composition needs OBJ pixels, but does not establish hardware flag timing.
+        if master_h >= 1096 {
+            self.obj_overflow |= self.raster_overflow;
+        }
+    }
+    /// Whole-line convenience for static renderer tests and callers.
+    pub fn render_line(&mut self, y: usize) {
+        if y < HEIGHT {
+            self.raster_line_start();
+            self.render_span(y, 0, WIDTH);
+            self.obj_overflow |= self.raster_overflow;
+            self.raster_x = WIDTH;
+        }
+    }
+    fn render_span(&mut self, y: usize, start: usize, end: usize) {
         let wide_output = self.wide_output();
-        self.prepare_frame_width(y, wide_output);
+        self.prepare_frame_width(y == 0 && start == 0, wide_output);
         if self.regs[0] & 128 != 0 {
-            for x in 0..self.frame_width {
+            let scale = self.frame_width / WIDTH;
+            for x in start * scale..end * scale {
                 let i = (y * self.frame_width + x) * 4;
                 self.frame[i..i + 4].copy_from_slice(&[0, 0, 0, 255]);
             }
@@ -787,9 +821,22 @@ impl Ppu {
         }
         let fixed_color =
             self.fixed[0] as u16 | ((self.fixed[1] as u16) << 5) | ((self.fixed[2] as u16) << 10);
-        let objects = self.objects(y);
-        let samples = if wide_output { WIDTH * 2 } else { WIDTH };
-        for output_x in 0..samples {
+        // Reuse the existing scanline OBJ evaluation once per line. This is
+        // deliberately not a dot-accurate OAM/fetch pipeline. BG/compositing
+        // state is sampled only for the newly emitted span.
+        let objects = match self.raster_objects {
+            Some(objects) => objects,
+            None => {
+                let overflow = self.obj_overflow;
+                let objects = self.objects(y);
+                self.raster_overflow |= self.obj_overflow;
+                self.obj_overflow = overflow;
+                self.raster_objects = Some(objects);
+                objects
+            }
+        };
+        let scale = if wide_output { 2 } else { 1 };
+        for output_x in start * scale..end * scale {
             let x = if wide_output { output_x / 2 } else { output_x };
             let obj = &objects[x];
             let back = Pixel {

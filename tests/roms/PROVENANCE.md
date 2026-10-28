@@ -1660,3 +1660,23 @@ unchanged.
   records baseline failures and actual gates. All existing fixture/game pins,
   hashes, inputs, deadlines and tolerances remain intact. These tests do not
   establish hardware accuracy, commercial compatibility or Issue #3 completion.
+
+## Original raster-progress 65C816/DMA guest: approved
+
+- Source: [`raster.rs`](../../crates/snes-core/tests/common/raster.rs), an annotated
+  Rust byte emitter, and [`raster-fixture`](../../crates/snes-core/examples/raster-fixture.rs).
+  Copyright 2026 snes-rust contributors; source and generated ROM are [MIT](../../LICENSE).
+- All 65C816 instructions, header, fixed colors and DMA data are original. No
+  font, imported graphics, external program, firmware, commercial ROM or emulator
+  implementation is used. No external assembler is required.
+- Ordinary CPU I/O polls HBlank, initializes Mode 1/backdrop color math, and writes
+  COLDATA and INIDISP during each visible line. A one-byte CPU-triggered general
+  DMA adds blue later in the same line. The host supplies only the ROM.
+- Native and real Chromium/Wasm tests bound execution to three frames and assert
+  literal pixel spans and a whole-frame hash. Additional UI playback asserts the
+  canvas; scheduler tests partition CPU/DMA/HDMA progress down to one clock.
+- The generated 32 KiB diagnostic stays in `.cache/raster`; no ROM is committed
+  or included in `web/dist`/GitHub Pages. See the
+  [validation record](../../docs/issue-107-validation.md) for hashes, provisional
+  timing conventions and limitations. This diagnostic is not a game or hardware
+  verification.

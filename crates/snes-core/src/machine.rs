@@ -50,6 +50,8 @@ pub struct SystemBus {
     pub wram: Vec<u8>,
     pub clocks: u64,
     pub frames: u64,
+    #[cfg(test)]
+    raster_quantum: u64,
     io: [u8; 32],
     dma: [[u8; 16]; 8],
     open: u8,
@@ -162,6 +164,8 @@ impl SystemBus {
             wram: vec![0; 131072],
             clocks: 0,
             frames: 0,
+            #[cfg(test)]
+            raster_quantum: u64::MAX,
             io: {
                 let mut io = [0; 32];
                 io[1] = 0xff; // WRIO power-on value; no falling-edge latch.
@@ -215,6 +219,10 @@ impl SystemBus {
                 htime
             };
             let mut elapsed = n.min(line - self.h);
+            #[cfg(test)]
+            {
+                elapsed = elapsed.min(self.raster_quantum);
+            }
             if let Some(next) = self.auto_start {
                 elapsed = elapsed.min(next - self.clocks);
             }
@@ -237,8 +245,8 @@ impl SystemBus {
             if self.v == 0 && old_h < HDMA_INIT && self.h >= HDMA_INIT {
                 self.hdma_init = true;
             }
-            if old_h < HBLANK && self.h >= HBLANK && (1..=224).contains(&self.v) {
-                self.ppu.render_line(self.v as usize - 1);
+            if (1..=224).contains(&self.v) {
+                self.ppu.render_until(self.v as usize - 1, self.h);
             }
             if old_h < HDMA_SCANLINE && self.h >= HDMA_SCANLINE && self.v <= 224 {
                 self.hdma_pending = true;
@@ -278,6 +286,7 @@ impl SystemBus {
                 self.nmi_flag = false;
             }
             self.ppu.v = self.v;
+            self.ppu.raster_line_start();
             self.ppu.oam_scanline_start(self.v);
             if self.v == 225 {
                 self.nmi_flag = true;
@@ -456,6 +465,12 @@ impl SystemBus {
                     return;
                 }
                 0x2100..=0x2133 => {
+                    // Flush elapsed output before ANY PPU write, including
+                    // DMA/HDMA B-bus writes. tick normally already did this;
+                    // the cursor makes the explicit pre-write flush idempotent.
+                    if (1..=224).contains(&self.v) {
+                        self.ppu.render_until(self.v as usize - 1, self.h);
+                    }
                     self.ppu.write((lo - 0x2100) as u8, v);
                     return;
                 }
@@ -1137,3 +1152,6 @@ mod horizontal_zero_irq_tests;
 #[cfg(test)]
 #[path = "machine/late_horizontal_irq_tests.rs"]
 mod late_horizontal_irq_tests;
+
+#[cfg(test)]
+mod raster_tests;

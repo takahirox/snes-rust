@@ -111,6 +111,8 @@ cargo test --locked -p snes-core --test spc_timers
 cargo test --locked -p snes-core --test spc_io_readback
 cargo test --locked -p snes-core --lib apu::timing_tests
 cargo test -p snes-core --test ppu_offset --locked
+cargo test --locked -p snes-core --lib machine::raster_tests
+cargo test --locked -p snes-core --test ppu_raster
 cargo test --locked -p snes-core --test ppu_hires
 cargo test --locked -p snes-core --test ppu_mode6_offset
 cargo test --locked -p snes-core --test ppu_pseudo_hires
@@ -121,6 +123,7 @@ cargo test --locked -p snes-core --test ppu_mode7_extbg
 cargo test --locked -p snes-core --test ppu_mode7_transform
 cargo test --locked -p snes-core --test ppu_mode7_row
 # Original CPU-built browser/runner fixtures (also built by browser tests).
+cargo run --locked -p snes-core --example raster-fixture -- .cache/raster
 cargo run --locked -p snes-core --example hires-fixture -- .cache/hires
 cargo run --locked -p snes-core --example pseudo-hires-fixture -- .cache/pseudo-hires
 cargo run --locked -p snes-core --example obj-sizes-fixture -- .cache/obj-sizes
@@ -492,7 +495,7 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   the next low-resolution row zero. This safe storage policy does not verify
   physical switching/fetch timing. The [hires validation](docs/issue-49-validation.md)
   records specifications, equations, original CPU guests and transition checks.
-  `ppu-hires` is partial; `ppu-raster` remains unimplemented.
+  `ppu-hires` and `ppu-raster` are partial.
   Non-mosaic Mode 6 BG1 also supports independent H/V offsets from raw BG3
   descriptors, with full-dot columns and retained fine scroll. Its
   [offset validation](docs/issue-51-validation.md) records source-derived units,
@@ -546,10 +549,21 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   `ppu-mode7` remains partial: mosaic, interlace/overscan,
   pseudo-hires composition, multiplication timing/interference, physical reset
   retention and fetch/raster interactions remain.
-  Rendering snapshots registers per scanline. Math-enabled pseudo-hires,
+  Raster output now advances with elapsed master clocks, preserving emitted
+  pixels before CPU/DMA/HDMA register commits. The tested live subset is ordinary
+  NTSC non-interlaced 256-pixel output: INIDISP forced blank/brightness and COLDATA
+  fixed-color math, including non-mosaic Mode 1 BG1. Pixel x is provisionally
+  emitted at H=`92+4*x`; a write at that edge affects the following pixel.
+  This **PROVISIONAL / HARDWARE UNVERIFIED** convention uses the picture interval
+  H=88..1112, independently of the HBlank flag at 1096 and CPU IRQ counters.
+  Static Mode 0–7 and 256/512 geometry use the same compositor; hires phase-pair
+  emission and cached scanline OBJ evaluation do not establish fetch accuracy.
+  The [raster validation](docs/issue-107-validation.md) records literal timing
+  vectors, an original MIT CPU/DMA ROM, native/Wasm snapshots and actual gates.
+  Math-enabled pseudo-hires,
   color-window clipping/prevention interactions, ordinary-hires composition,
   hires mosaic/color-math/window/OBJ accuracy,
-  mosaic/offset interactions, timed mosaic state, mid-scanline raster effects,
+  mosaic/offset interactions, timed mosaic state, other mid-scanline fetch effects,
   interlace/overscan/PAL, physical object overflow timing/rotation oddities and
   Mode 7 transform edge behavior and EXTBG interactions beyond the static scope
   above are outside the tested targets.
@@ -655,7 +669,7 @@ context; a program legitimately waiting forever is bounded by the frame limit.
   [mixing validation](docs/issue-73-validation.md) records independent positive/negative
   overflow and cancellation vectors, stereo/echo controls, an original uploaded
   SPC700 guest and multi-voice APU partition checks. All 24 supplied inventory
-  scopes remain: 22 partial, `ppu-raster` and `pal` unimplemented, none verified.
+  scopes are now 23 partial (including `ppu-raster`), `pal` unimplemented, none verified.
   `dsp-echo` and `dsp-timing` remain partial: live echo-register sampling, DSP
   subcycle register/RAM interactions, SPC bus synchronization and physical
   startup/reset behavior remain outstanding.
