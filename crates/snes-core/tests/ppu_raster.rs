@@ -31,10 +31,10 @@ fn cpu_dma_guest_raster_snapshot() {
         let mut spans = vec![];
         let row = &m.framebuffer()[y * 1024..(y + 1) * 1024];
         let mut last = [0; 4];
-        for (x, pixel) in row.chunks_exact(4).enumerate() {
-            if pixel != last {
+        for (x, pixel) in row.as_chunks::<4>().0.iter().enumerate() {
+            if *pixel != last {
                 spans.push((x, pixel.to_vec()));
-                last.copy_from_slice(pixel);
+                last = *pixel;
             }
         }
         println!("row {y}: {spans:?}");
