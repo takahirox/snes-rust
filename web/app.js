@@ -5,7 +5,9 @@ let image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
 let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
 let keyboard = 0;
-let operationError = '', persistenceError = '', restorePending = false;
+let operationError = '', persistenceError = '', restorePending = false, loading = false;
+const demoName = '潮鳴りの密室 / Shionari no Misshitsu';
+const demoHash = '3cb02d07e3bf2bc3bf470311b4046ffb061ee7f8aa7b844e551b4144f0826b42';
 const sources = new Set();
 // Pace by the confirmed 714732-master-clock NTSC non-interlaced field pair.
 const frameMilliseconds = 1000 * 714732 / 2 / 21477272;
@@ -95,36 +97,61 @@ function animate(time) {
     if (time - saveClock > 5000) { save(); saveClock = time; }
   } catch (e) { pause(); report(e); }
 }
-$('rom').addEventListener('change', async (event) => {
-  const file = event.target.files[0]; if (!file) return;
-  $('rom').disabled = true;
+// Both sources use the same identity, core validation and battery-save lifecycle.
+async function loadCartridge(name, read, local = false) {
+  if (loading) return;
+  loading = true;
+  $('rom').disabled = true; $('demo').disabled = true;
+  $('play').disabled = true; $('reset').disabled = true;
   try {
     if (!pause()) return;
     clearError();
     if (!core) throw new Error('Emulator has not loaded');
-    if (!/\.(sfc|smc)$/i.test(file.name)) throw new Error('Choose an .sfc or .smc cartridge image');
-    if (file.size > 4 * 1024 * 1024 + 512) throw new Error('Maximum ROM size is 4 MiB plus a copier header');
-    let data = new Uint8Array(await file.arrayBuffer()); if (data.length % 1024 === 512) data = data.subarray(512);
+    $('status').textContent = `Loading ${name}…`;
+    let data = new Uint8Array(await read());
+    if (data.length > 4 * 1024 * 1024 + 512) throw new Error('Maximum ROM size is 4 MiB plus a copier header');
+    if (local && data.length % 1024 === 512) data = data.subarray(512);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
-    const newKey = `snes-rust:sram:${Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')}`;
-    // Reading/hashing is asynchronous: save again at the replacement boundary
-    // in case playback or storage availability changed while loading the file.
+    const hash = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+    if (!local && (data.length !== 524288 || hash !== demoHash)) throw new Error('Demo download does not match the published ROM');
+    // Reading/hashing is asynchronous: save again at the replacement boundary.
     if (!pause()) return;
-    copyInput(data); check(core.load_rom()); key = newKey; loaded = true;
-    $('play').disabled = false; $('reset').disabled = false;
+    // load_rom validates before replacing the old machine, leaving it intact on error.
+    copyInput(data); check(core.load_rom()); key = `snes-rust:sram:${hash}`; loaded = true;
     if (core.battery() && core.sram_len()) restoreSave();
-    $('status').textContent = restorePending ? `${file.name} loaded — restore save before playing` : `${file.name} loaded — click Play`; draw();
-  } catch (e) { report(e); }
-  finally { $('rom').disabled = false; event.target.value = ''; }
+    $('status').textContent = restorePending ? `${name} loaded — restore save before playing` : `${name} loaded — click Play`; draw();
+  } catch (e) {
+    $('status').textContent = loaded ? 'Paused' : 'Cartridge could not be loaded';
+    report(e);
+  } finally {
+    loading = false;
+    $('rom').disabled = !core; $('demo').disabled = !core;
+    $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
+  }
+}
+$('rom').addEventListener('change', async (event) => {
+  const file = event.target.files[0]; if (!file) return;
+  try {
+    await loadCartridge(file.name, () => {
+      if (!/\.(sfc|smc)$/i.test(file.name)) throw new Error('Choose an .sfc or .smc cartridge image');
+      if (file.size > 4 * 1024 * 1024 + 512) throw new Error('Maximum ROM size is 4 MiB plus a copier header');
+      return file.arrayBuffer();
+    }, true);
+  } finally { event.target.value = ''; }
 });
+$('demo').addEventListener('click', () => loadCartridge(demoName, async () => {
+  const response = await fetch('shionari.sfc', { mode: 'same-origin', redirect: 'error' });
+  if (!response.ok) throw new Error(`Demo download failed: HTTP ${response.status}`);
+  return response.arrayBuffer();
+}));
 $('play').addEventListener('click', async () => {
-  if (!loaded || restorePending) return;
+  if (!loaded || restorePending || loading) return;
   if (playing) { pause(); return; }
   clearError(); await activateAudio();
-  if (restorePending) return;
+  if (restorePending || loading) return;
   debt = frameMilliseconds; lastTime = performance.now(); playing = true; $('play').textContent = 'Pause'; $('status').textContent = 'Playing';
 });
-$('reset').addEventListener('click', () => { pause(); try { check(core.reset()); draw(); clearError(); $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
+$('reset').addEventListener('click', () => { if (!loaded || restorePending || loading) return; pause(); try { check(core.reset()); draw(); clearError(); $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
 $('sound').addEventListener('change', () => { flushAudio(); if ($('sound').checked) void activateAudio(); });
 $('scale').addEventListener('change', () => { const scale = Number($('scale').value); canvas.style.width = `${256 * scale}px`; });
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {
@@ -139,5 +166,5 @@ window.addEventListener('pagehide', save);
 try {
   const response = await fetch('snes_wasm.wasm'); if (!response.ok) throw new Error(`Wasm download failed: HTTP ${response.status}`);
   const result = await WebAssembly.instantiate(await response.arrayBuffer(), {}); core = result.instance.exports;
-  $('status').textContent = 'Open a local SNES ROM to begin'; requestAnimationFrame(animate);
-} catch (e) { report(e); $('status').textContent = 'Emulator unavailable'; $('rom').disabled = true; }
+  $('status').textContent = 'Open a local SNES ROM or load the demo to begin'; $('rom').disabled = false; $('demo').disabled = false; requestAnimationFrame(animate);
+} catch (e) { report(e); $('status').textContent = 'Emulator unavailable'; $('rom').disabled = true; $('demo').disabled = true; }

@@ -15,7 +15,8 @@
     <p>Experimental SNES emulator. Game compatibility is still under development.</p>
     <div class="screen"><canvas width="256" height="224" aria-label="Emulated SNES display"></canvas></div>
     <div class="controls">
-      <label class="file">Open ROM <input id="rom" type="file" accept=".sfc,.smc"></label>
+      <button id="demo" disabled>Load demo: 潮鳴りの密室 / Shionari no Misshitsu</button>
+      <label class="file">Open ROM <input id="rom" type="file" disabled accept=".sfc,.smc"></label>
       <button id="play" disabled>Play</button>
       <button id="reset" disabled>Reset</button>
       <label>Scale <select id="scale"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option></select></label>
@@ -25,8 +26,9 @@
     <p id="error" role="alert"></p>
     <button id="retry-save" hidden>Retry restoring save</button>
     <p>Arrows: move · Z: B · X: A · A: Y · S: X · Q/W: L/R · Enter: Start · Shift: Select</p>
-    <p>Standard gamepads are supported. Click Play to activate audio. ROMs and saves stay in this browser; no ROMs are shipped. Use lawfully obtained images.</p>
-    <p>Battery saves persist in this browser’s local storage. Reset preserves SRAM and clears volatile memory. Opening a ROM starts from reset and restores its saved SRAM.</p>
+    <p>Standard gamepads are supported. Click Play to activate audio. Our sole bundled demo is the original Japanese adventure 潮鳴りの密室 / Shionari no Misshitsu. You can also open a lawfully obtained local ROM. Personal ROMs and SRAM saves stay in this browser and are never uploaded.</p>
+    <p>Battery saves persist in this browser’s local storage. Reset preserves SRAM and clears volatile memory. Loading or reloading either the demo or a local ROM starts from reset and restores its own saved SRAM.</p>
+    <p>Shionari no Misshitsu: created by takahirox with AI assistance, 2026. Copyright © 2026 takahirox, to the extent applicable law recognizes protectable rights. All rights reserved. The maintainer permits this repository and its official public demo to distribute the unmodified game, including embedded assets; visitors may access and play it. No broader redistribution, modification, sublicensing or commercial exploitation rights are granted. Applicable law and GitHub terms still apply. The emulator’s MIT license does not cover the game. <a href="https://github.com/takahirox/snes-rust/blob/main/demos/NOTICE.md">ROM provenance and distribution notice</a>.</p>
   </main>
 </body>
 </html>

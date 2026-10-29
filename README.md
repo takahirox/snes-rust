@@ -23,9 +23,24 @@ user-supplied investigations with unresolved binary/build licensing.
 ## Run the browser app
 
 Public site: <https://takahirox.github.io/snes-rust/> (deployment and live-site
-checks passed on 2026-10-22; see the [Pages verification record](docs/issue-9-validation.md)).
-Visitors select their own legally obtained ROM locally. ROMs are never uploaded
-or downloaded by the app, and browser SRAM saves remain in local storage.
+checks for the previous app passed on 2026-10-22; see the
+[Pages verification record](docs/issue-9-validation.md)). Publication of the new
+demo still requires the post-merge verification below.
+
+The sole bundled demo is **潮鳴りの密室 / Shionari no Misshitsu**, an original
+Japanese adventure created by takahirox with AI assistance. Click **Load demo**,
+then **Play**. The unmodified 524,288-byte `demos/shionari.sfc` is downloaded from
+the same site; its SHA-256 is
+`3cb02d07e3bf2bc3bf470311b4046ffb061ee7f8aa7b844e551b4144f0826b42`.
+The maintainer authorizes distribution of the complete binary and embedded
+assets in this repository and its official public demo. **All rights reserved**
+to the extent legally protectable; the emulator's MIT license does not cover the
+game. See the [ROM-specific provenance and distribution notice](demos/NOTICE.md)
+for the exact permission, authorship and known asset notices. Castle/Memory and
+diagnostic fixtures are test-only and were never shipped in the browser app.
+
+Visitors can alternatively select their own legally obtained ROM locally.
+Personal ROMs and SRAM are never uploaded; saves remain in browser local storage.
 
 Requirements: Rust 1.94+ with Cargo, the `wasm32-unknown-unknown` standard library,
 Node.js 24+, npm, and Python 3.12+. Only browser tests use an npm dependency
@@ -38,10 +53,11 @@ npm --prefix web run build
 npm --prefix web run serve
 ```
 
-Open <http://127.0.0.1:8080>. Select a lawfully obtained ordinary NTSC LoROM or
-HiROM `.sfc`/`.smc` cartridge, then click **Play**. Files stay client-side. No server
-upload or remote ROM download is implemented. The static production output is
-`web/dist`; the local server serves the same assets as GitHub Pages.
+Open <http://127.0.0.1:8080>. Load the bundled demo or select a lawfully obtained
+ordinary NTSC LoROM or HiROM `.sfc`/`.smc` cartridge, then click **Play**. Local
+files stay client-side; the demo is the only ROM fetched, from the same origin.
+The static production output is `web/dist`; the local server serves the same
+assets as GitHub Pages.
 
 Keyboard: arrows move, Z = B, X = A, A = Y, S = X, Q/W = L/R, Enter = Start,
 Shift = Select. Standard gamepads use the corresponding four face buttons,
@@ -51,9 +67,11 @@ The canvas supports integer scaling and preserves pixel edges.
 
 SRAM for battery-backed cartridges is stored locally under the SHA-256 of the
 ROM after removing any copier header. Reset clears volatile machine state and
-controllers, preserving SRAM. Opening a ROM resets it and restores its own saved
-SRAM. Saves are persisted every five seconds, on pause/reset/ROM changes and on
-page exit; browser storage failure is reported. A failed save blocks opening
+controllers, preserving SRAM. Loading or reloading the demo or a local ROM
+resets it and restores its own saved SRAM. Opening the identical game locally
+(including a copier-header variant) shares the same save identity as the demo.
+Saves are persisted every five seconds, on pause/reset/ROM changes and on page
+exit; browser storage failure is reported. A failed save blocks opening
 another cartridge, preserving the current machine's recoverable SRAM. Play and
 Reset retain the warning until a later save succeeds. Keep the tab open while
 storage is unavailable. A failed save restoration blocks saving, Play, Reset and
@@ -295,10 +313,15 @@ npm --prefix web test -- tests/pages.spec.js
 ```
 
 It inspects the actual `web/dist`, serves it strictly under `/snes-rust/`, checks
-HTML/CSS/JavaScript/Wasm responses and real Wasm initialization, and plays the
-checked-in MIT diagnostic through local file selection. It rejects unexpected
-files, symlinks, root-path or remote requests, HTTP failures and browser/CSP
-errors. The diagnostic and test evidence are outside the public artifact.
+HTML/CSS/JavaScript/Wasm/ROM responses, the pinned demo hash and real Wasm
+initialization. It starts Shionari with keyboard input, verifies a stable title
+background changes to the warehouse story, and checks battery-save retention,
+source switching and failed-save/restore protection. It also plays the checked-in
+MIT diagnostic through local file selection. See the [Issue #110 validation
+record](docs/issue-110-validation.md) for bounded assertions and actual results.
+It rejects unexpected files, symlinks, root-path or remote requests, HTTP failures
+and browser/CSP errors. The diagnostic and test evidence are outside the public
+artifact.
 
 ## GitHub Pages deployment
 
@@ -318,12 +341,13 @@ both core and browser jobs to pass. Pull requests and other branch pushes run
 checks separately, without production deployment permissions. Production runs
 share a concurrency group to prevent overlapping deployments.
 
-The Pages artifact contains exactly `index.html`, `app.js`, `style.css` and
-`snes_wasm.wasm`. Rebuilding clears stale output, and the smoke test enforces this
-allowlist before upload. Relative URLs, including `fetch('snes_wasm.wasm')`, work
-under the project subpath. Generated `web/dist` stays ignored by Git. No ROMs,
-firmware, `.srm` saves, source/download caches, test evidence or game artifacts
-are published. Users supply lawful ROMs locally; saves on the public origin are
+The Pages artifact contains exactly `index.html`, `app.js`, `style.css`,
+`snes_wasm.wasm` and the pinned `shionari.sfc`. Rebuilding clears stale output,
+and the smoke test enforces this allowlist before upload. Relative URLs, including
+`fetch('snes_wasm.wasm')`, work
+under the project subpath, as does `fetch('shionari.sfc')`. Generated `web/dist`
+stays ignored by Git. No other ROMs, firmware, `.srm` saves, source/download
+caches or test evidence are published. Saves on the public origin are
 separate from saves on localhost and remain in that browser's local storage.
 
 Inspect the repository's [Actions tab](https://github.com/takahirox/snes-rust/actions)
@@ -344,9 +368,12 @@ not been exercised separately.
 For future deployment changes, the PR author/merger checks the resulting `main`
 deployment run and opens its reported HTTPS URL. Record the run URL,
 live URL and actual result: assets load without 404/CSP/MIME errors, Wasm
-initializes, and the local ROM chooser is enabled. Where possible select the
-cleared diagnostic to check input/video without uploading a ROM. Confirm later
-`main` pushes can republish. A passing local build does not establish publication,
+initializes, the demo control is visible and the local ROM chooser is enabled.
+For Issue #110, verify `/snes-rust/shionari.sfc` returns the size/hash above,
+load/play the demo with input and a local battery save, and record actual results
+with no 404/CSP/MIME/console errors. This new deployment verification is pending;
+the historical Issue #9 result does not establish publication of Shionari.
+Confirm later `main` pushes can republish. A passing local build does not establish publication,
 and this check cannot block pre-merge approval. If setup or
 the live site fails after merge, create a new Issue with the `task` label linking
 [#7](https://github.com/takahirox/snes-rust/issues/7), the run, failing URL,

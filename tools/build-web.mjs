@@ -8,4 +8,5 @@ rmSync(resolve(root, 'web/dist'), { recursive: true, force: true });
 mkdirSync(resolve(root, 'web/dist'), { recursive: true });
 for (const name of ['index.html', 'app.js', 'style.css']) copyFileSync(resolve(root, 'web', name), resolve(root, 'web/dist', name));
 copyFileSync(resolve(root, 'target/wasm32-unknown-unknown/release/snes_wasm.wasm'), resolve(root, 'web/dist/snes_wasm.wasm'));
+copyFileSync(resolve(root, 'demos/shionari.sfc'), resolve(root, 'web/dist/shionari.sfc'));
 console.log('Built web/dist; serve it over HTTP.');
