@@ -39,6 +39,8 @@ structure and conventions. Inspect the evidence for checks actually performed;
 validation claims must accurately distinguish passes, failures, skipped checks,
 and unperformed checks, with reasons.
 
+Review applicable interface changes against the [UI/UX principles](../README.md#uiux).
+
 Choose checks appropriate to the changed files and available tooling. Runtime and browser checks are documented in the [README](../README.md#validate). For documentation and
 templates, check syntax, links, whitespace, and consistency as described in
 [available validation](development-flow.md#available-validation). Do not demand
