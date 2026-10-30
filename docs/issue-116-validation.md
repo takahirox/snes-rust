@@ -122,5 +122,5 @@ After merge, the author/merger must check the actual new `main` GitHub Pages
 deployment on desktop and portrait/landscape mobile viewports: one-tap launch,
 visible controls, relative ROM/Wasm requests and absence of 404/CSP/MIME/runtime
 errors. Record its deployment URL/run and results; open a follow-up task Issue
-with reproduction/logs on failure. This check is pending because this node must
-not push, open a PR, merge or comment. No background monitoring is implied.
+with reproduction/logs on failure. This check remains pending until after merge.
+No background monitoring is implied.
