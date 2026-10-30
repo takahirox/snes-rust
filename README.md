@@ -20,6 +20,22 @@ This is a first-playable baseline for these artifacts, not broad commercial
 compatibility. Gothicvania and the original Castle release are optional,
 user-supplied investigations with unresolved binary/build licensing.
 
+## UI/UX
+
+Apply these principles to the browser frontend, command-line tools, messages,
+and usage examples:
+
+1. **Keep it simple.** Show only necessary information and actions; avoid
+   unnecessary UI elements.
+2. **Show, don't tell.** Prefer layout, spacing and visual hierarchy over
+   explanatory labels or prose to communicate structure.
+3. **Intuitive and predictable.** Keep appearance and behavior consistent with
+   user expectations; don't interrupt the user's work.
+
+Preserve necessary control labels, accessible names, error messages, and
+information needed to use the interface. Simplification must preserve meaningful
+consent, destructive-action safeguards, and necessary warnings.
+
 ## Run the browser app
 
 Public site: <https://takahirox.github.io/snes-rust/> (deployment and live-site
