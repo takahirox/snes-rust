@@ -101,5 +101,53 @@ and visually verify the deployed
 [public page](https://takahirox.github.io/snes-rust/) on desktop and mobile,
 including working demo/local-ROM choices. Record the run, URL and results; open a separate
 task Issue with evidence if publication fails. This required check remains
-pending and is not a pre-merge condition. No push, PR, merge, comment, deployment
+pending at the implementation checkpoint and is not a pre-merge condition. No push, PR, merge, comment, deployment
 or background monitoring was performed by this implementation node.
+
+## Post-merge verification
+
+Completed on 2026-10-30 at 07:08 UTC by the merge node. Immediately before
+merging, the source Issue was read from GitHub and confirmed open. PR #119
+still had the reviewed head `93164656b8d33d45c09da15bcbb4864794e8024a`;
+both its push and pull-request core/browser CI runs passed. GitHub merged it
+with the expected-head guard and the `merge` method, producing
+[`c788796706cd8161748df154362b8987b2f72287`](https://github.com/takahirox/snes-rust/commit/c788796706cd8161748df154362b8987b2f72287).
+The merge's second parent is the reviewed PR head, preserving its checkpoint
+history. GitHub then closed Issue #118.
+
+The resulting main
+[Deploy GitHub Pages run #41017418117](https://github.com/takahirox/snes-rust/actions/runs/41017418117)
+passed its core, browser and deployment jobs for that merge commit. Its production
+build and full mandatory browser suite passed: **80 tests in 6.0 minutes**.
+
+After deployment, fresh Chromium 149.0.7827.55 contexts visited the actual
+[public site](https://takahirox.github.io/snes-rust/). All four viewports below
+passed live hierarchy, entry-action, playback and layout assertions. The app name
+was 28px on desktop and 20px on mobile, above the 12px demo caption. One demo
+activation per context loaded the real public ROM once and ran more than 130
+Wasm frames; canvas pixels contained multiple colors. Selecting the repository's
+source-built `tests/roms/smoke.bin` as `Local diagnostic.sfc` updated the cartridge
+metadata and played successfully in every context. The observed requests were
+only GETs for the public page and its four assets; no local ROM or SRAM was
+uploaded. No page JavaScript errors occurred.
+
+Visual inspection of the public desktop, portrait and landscape captures
+confirmed the emulator-first identity, dominant generic desktop player, compact
+demo/local alternatives, and unobscured mobile screen and controls. All twelve
+touch buttons and Play/Pause were within the mobile viewport before and after
+launch, with no horizontal or vertical overflow. The emulated safe-area view
+also kept targets within 44px left/right and 21px bottom insets.
+
+| Public viewport | Ready | Playing |
+| --- | --- | --- |
+| Desktop 1280 × 900 | [Image](issue-118/public-desktop-ready.png) | [Image](issue-118/public-desktop-playing.png) |
+| Portrait 320 × 740 | [Image](issue-118/public-portrait-ready.png) | [Image](issue-118/public-portrait-playing.png) |
+| Landscape 667 × 320 | [Image](issue-118/public-landscape-ready.png) | [Image](issue-118/public-landscape-playing.png) |
+| Landscape 568 × 320 with emulated safe areas | [Image](issue-118/public-landscape-safe-area-ready.png) | [Image](issue-118/public-landscape-safe-area-playing.png) |
+
+These are actual public-page screenshots, retained in the merge node's GitWeave
+checkpoint with this record. They show the bundled game's genuine emulated pixels
+under the existing ROM notice. Physical-device review remains unperformed and
+optional. Required post-merge verification is complete; publication succeeded,
+so no follow-up publication-failure Issue was needed. No background monitoring
+was started.
