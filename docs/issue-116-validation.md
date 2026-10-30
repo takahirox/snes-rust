@@ -107,6 +107,42 @@ local switching, hash/MIME/error paths, save recovery/isolation, CSP and subpath
 checks; original 256/512 geometry, diagnostic, Castle/Memory replays, progression
 and audio scheduling tests remain included.
 
+## Responsive layout review fixes (2026-10-30)
+
+The review regressions were reproduced before the fix: one-tap Shionari at
+375 × 667 and 360 × 640 placed controls below the viewport, and 568 × 320 with
+44px side safe areas rendered video at 196 × 188 instead of 256:224.
+
+Active portrait video now has a viewport-height limit that reserves room for the
+header, playback actions, all twelve 44px touch targets, gaps and safe-area
+padding. Landscape video width is limited by the actual center column and the
+available height after safe-area padding; its height follows the aspect ratio.
+This keeps the controls beside the display without squeezing game pixels.
+
+Regression coverage adds both short portrait sizes to the live-resize/SRAM
+checks, exercises actual one-tap Shionari playback and pause/resume at each, and
+combines the shortest landscape viewport with emulated notches/home indicator.
+Every layout assertion checks all twelve targets for visibility, hit testing,
+minimum size, no horizontal overflow and the Canvas 256:224 ratio.
+
+Additional actual production-build Chromium screenshots (touch/mobile context):
+
+| Viewport (CSS px) | Result | Screenshot |
+| --- | --- | --- |
+| 375 × 667 | Canvas approximately 241.14 × 210.98; lowest control ends at y=651.48 | [Portrait](issue-116/after-short-portrait.png) |
+| 568 × 320; 44px left/right, 21px bottom safe areas | Canvas 196 × 171.5; lowest control ends at y=285.75 | [Landscape with safe areas](issue-116/after-short-landscape-safe-area.png) |
+
+Revision validation reran formatting, warning-denying Clippy and all 518 Rust
+workspace tests successfully. The source-built smoke fixture was identical;
+the pinned test assemblers built successfully and two cleared-game builds
+matched their pinned Castle/Memory hashes. The production Wasm build passed
+with rustup's compiler, and all 16 focused touch browser tests passed.
+The full mandatory Chromium suite, including Pages smoke, passed all 69 tests
+with no failures or skips using
+`SNES_TEST_PORT=18090 npm --prefix web test -- --grep-invert '301 seconds' --reporter=line`.
+The hardware-specific CPU/SPC/HDMA gates recorded above were not rerun for this
+CSS revision; emulation behavior is unchanged.
+
 ## Limitations and required post-merge work
 
 Physical iOS Safari/Android Chrome, Bluetooth controllers, assistive technology

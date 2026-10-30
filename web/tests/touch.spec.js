@@ -111,7 +111,7 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await expect.poll(() => controller(page)).toBe(0);
 });
 
-for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }]) {
+for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }]) {
   test(`touch layout and live resize preserve geometry/SRAM at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page); const touch = await fingers(page);
     let result = await layout(page);
@@ -132,6 +132,15 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }
   });
 }
 
+for (const viewport of [{ width: 375, height: 667 }, { width: 360, height: 640 }]) {
+  test(`one-tap demo keeps every touch control in view at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport); await boot(page, false); await layout(page);
+    await page.locator('#demo').tap(); await expect(page.locator('#status')).toHaveText('Paused'); await layout(page);
+    await page.locator('#demo').tap(); await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+  });
+}
+
 test('Shionari title advances into its real story with mobile A touch', async ({ page }) => {
   await boot(page, false); const touch = await fingers(page);
   const scene = () => page.evaluate(async () => {
@@ -147,17 +156,19 @@ test('Shionari title advances into its real story with mobile A touch', async ({
 });
 
 
-test('safe-area insets keep landscape controls clear of notches and home indicators', async ({ page }) => {
-  await page.setViewportSize({ width: 844, height: 390 });
-  const session = await page.context().newCDPSession(page);
-  await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, bottom: 21, top: 0 } });
-  await boot(page); const result = await layout(page);
-  for (const r of [result.screen, ...result.buttons]) {
-    expect(r.x).toBeGreaterThanOrEqual(44); expect(r.right).toBeLessThanOrEqual(800);
-    expect(r.bottom).toBeLessThanOrEqual(369);
-  }
-  expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
-});
+for (const viewport of [{ width: 844, height: 390 }, { width: 568, height: 320 }]) {
+  test(`safe-area insets preserve landscape geometry and controls at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const session = await page.context().newCDPSession(page);
+    await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, bottom: 21, top: 0 } });
+    await boot(page); const result = await layout(page);
+    for (const r of [result.screen, ...result.buttons]) {
+      expect(r.x).toBeGreaterThanOrEqual(44); expect(r.right).toBeLessThanOrEqual(viewport.width - 44);
+      expect(r.bottom).toBeLessThanOrEqual(viewport.height - 21);
+    }
+    expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
+  });
+}
 
 test('fullscreen entry/exit release virtual input and preserve running guest geometry', async ({ page }) => {
   await boot(page); const touch = await fingers(page);
