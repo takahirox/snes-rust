@@ -44,7 +44,7 @@ checks for the previous app passed on 2026-10-22; see the
 demo still requires the post-merge verification below.
 
 The sole bundled demo is **潮鳴りの密室 / Shionari no Misshitsu**, an original
-Japanese adventure created by takahirox with AI assistance. Click **Play demo**
+Japanese adventure created by takahirox with AI assistance. Click **Try demo**
 to load and start it in one action. The unmodified 524,288-byte
 `demos/shionari.sfc` is downloaded from the same site; its SHA-256 is
 `fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343`.
@@ -69,7 +69,7 @@ npm --prefix web run build
 npm --prefix web run serve
 ```
 
-Open <http://127.0.0.1:8080>. Click **Play demo**, or select a lawfully obtained
+Open <http://127.0.0.1:8080>. Click **Try demo**, or select a lawfully obtained
 ordinary NTSC LoROM or HiROM `.sfc`/`.smc` cartridge and click **Play**. Local
 files stay client-side; the demo is the only ROM fetched, from the same origin.
 The static production output is `web/dist`; the local server serves the same
@@ -81,7 +81,7 @@ shoulders, Start/Select, D-pad and left stick. Phones have all twelve SNES touch
 buttons, below the screen in portrait and beside it in landscape. Multi-touch
 supports diagonals and combined buttons.
 Help / Controls contains the keyboard map and scale setting; About / Legal
-contains the game notice. Audio activates on the initial Play demo or Play
+contains the game notice. Audio activates on the initial Try demo or Play
 gesture; Sound toggles playback and retries blocked audio. Pause stops queued
 audio. A hidden tab pauses. The canvas supports integer scaling and preserves
 pixel edges.
