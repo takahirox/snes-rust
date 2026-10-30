@@ -31,7 +31,7 @@ The sole bundled demo is **潮鳴りの密室 / Shionari no Misshitsu**, an orig
 Japanese adventure created by takahirox with AI assistance. Click **Load demo**,
 then **Play**. The unmodified 524,288-byte `demos/shionari.sfc` is downloaded from
 the same site; its SHA-256 is
-`3cb02d07e3bf2bc3bf470311b4046ffb061ee7f8aa7b844e551b4144f0826b42`.
+`fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343`.
 The maintainer authorizes distribution of the complete binary and embedded
 assets in this repository and its official public demo. **All rights reserved**
 to the extent legally protectable; the emulator's MIT license does not cover the
