@@ -47,7 +47,7 @@ The sole bundled demo is **潮鳴りの密室 / Shionari no Misshitsu**, an orig
 Japanese adventure created by takahirox with AI assistance. Click **Play demo**
 to load and start it in one action. The unmodified 524,288-byte
 `demos/shionari.sfc` is downloaded from the same site; its SHA-256 is
-`fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343`.
+`1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca`.
 The maintainer authorizes distribution of the complete binary and embedded
 assets in this repository and its official public demo. **All rights reserved**
 to the extent legally protectable; the emulator's MIT license does not cover the
@@ -337,8 +337,9 @@ npm --prefix web test -- tests/pages.spec.js
 
 It inspects the actual `web/dist`, serves it strictly under `/snes-rust/`, checks
 HTML/CSS/JavaScript/Wasm/ROM responses, the pinned demo hash and real Wasm
-initialization. It starts Shionari with keyboard input, verifies a stable title
-background changes to the warehouse story, and checks battery-save retention,
+initialization. It starts Shionari with keyboard input, skips the opening
+prologue to a stable title background, verifies the menu starts the warehouse
+story, and checks battery-save retention,
 source switching and failed-save/restore protection. It also plays the checked-in
 MIT diagnostic through local file selection. See the [Issue #110 validation
 record](docs/issue-110-validation.md) for bounded assertions and actual results.

@@ -9,7 +9,7 @@ const virtualPointers = new Map(), virtualKeys = new Map();
 const touchButtons = [...document.querySelectorAll('[data-button]')];
 let operationError = '', persistenceError = '', restorePending = false, loading = false;
 const demoName = '潮鳴りの密室 / Shionari no Misshitsu';
-const demoHash = 'fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343';
+const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
 const sources = new Set();
 // Pace by the confirmed 714732-master-clock NTSC non-interlaced field pair.
 const frameMilliseconds = 1000 * 714732 / 2 / 21477272;
