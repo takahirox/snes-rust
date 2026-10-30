@@ -41,9 +41,10 @@ async function load(page, name) {
       return start.apply(this, args);
     };
   });
-  await page.goto('/'); await expect(page.locator('#status')).toContainText('Open a local');
+  await page.goto('/'); await expect(page.locator('#status')).toHaveText('Ready');
   await page.locator('#rom').setInputFiles({ name: `${name}.sfc`, mimeType: 'application/octet-stream', buffer });
-  await expect(page.locator('#status')).toContainText('loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
 }
 async function evidence(testInfo, result) {
   const path = testInfo.outputPath('result.json');
@@ -326,7 +327,9 @@ test('cleared Memory Game plays music and finite effects through gesture-activat
 test('cleared Memory Game bounds real Web Audio queues and drift across stalls and repeat playback', async ({ page }, testInfo) => {
   test.setTimeout(45000);
   await load(page, 'memory');
-  expect(await page.evaluate(() => audioSchedule.starts)).toBe(0);
+  const pausedStarts = await page.evaluate(() => audioSchedule.starts);
+  await page.waitForTimeout(100);
+  expect(await page.evaluate(() => audioSchedule.starts)).toBe(pausedStarts);
   await page.locator('#play').click();
   await expect.poll(() => page.evaluate(() => testCore.peek(0x7e2c1e))).toBe(2);
   await page.keyboard.press('Enter', { delay: 80 });

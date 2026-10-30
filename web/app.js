@@ -7,7 +7,7 @@ let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastT
 let keyboard = 0, activeDemo = false;
 const virtualPointers = new Map(), virtualKeys = new Map();
 const touchButtons = [...document.querySelectorAll('[data-button]')];
-let operationError = '', persistenceError = '', restorePending = false, loading = false;
+let operationError = '', persistenceError = '', restorePending = false, loading = false, pendingCartridge;
 const demoName = '潮鳴りの密室 / Shionari no Misshitsu';
 const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
 const sources = new Set();
@@ -43,25 +43,34 @@ function save() {
   catch (e) { persistenceError = `Could not persist SRAM: ${e.message}. Keep this tab open to retain the current save. Cartridge changes are blocked until saving succeeds.`; showErrors(); return false; }
 }
 function restoreSave() {
-  // Block writes until restoration completes, including corrupt/wrong-size saves.
+  // The candidate remains separate until its save has been read and validated.
+  // Failed restoration leaves the inserted machine and recoverable SRAM intact.
   restorePending = true;
   try {
-    const saved = localStorage.getItem(key);
-    if (saved !== null) { copyInput(Uint8Array.from(atob(saved), (c) => c.charCodeAt(0))); check(core.load_sram()); }
-    restorePending = false; persistenceError = '';
+    const saved = core.prepared_sram_len() ? localStorage.getItem(pendingCartridge.key) : null;
+    if (saved !== null) copyInput(Uint8Array.from(atob(saved), (c) => c.charCodeAt(0)));
+    check(core.commit_rom(saved !== null ? 1 : 0));
+    ({ key, activeDemo } = pendingCartridge); loaded = true;
+    $('current-game').textContent = pendingCartridge.name;
+    $('current-game').title = pendingCartridge.name;
+    $('placeholder').hidden = true;
+    pendingCartridge = undefined; restorePending = false; persistenceError = '';
+    draw(); $('status').textContent = 'Paused';
   } catch (e) {
     persistenceError = `Save could not be restored: ${e.message}. Saving and cartridge changes are blocked. Retry restoring the save when storage is available.`;
   }
   $('retry-save').hidden = !restorePending;
-  $('play').disabled = restorePending; $('reset').disabled = restorePending;
+  $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
   showErrors(); updatePlayback();
 }
-$('retry-save').addEventListener('click', () => { restoreSave(); if (!restorePending) { draw(); $('status').textContent = 'Save restored — click Play'; } });
+$('retry-save').addEventListener('click', () => {
+  if (!restorePending || loading) return;
+  void activateAudio(); restoreSave();
+  if (!restorePending) { start(); canvas.focus({ preventScroll: true }); }
+});
 function flushAudio() { for (const source of sources) source.stop(); sources.clear(); nextAudio = 0; }
 function updatePlayback() {
   $('play').textContent = playing ? 'Pause' : 'Play';
-  $('demo').textContent = activeDemo ? (restorePending ? 'Restore save first' : playing ? 'Pause demo' : 'Resume demo') : 'Try demo';
-  document.body.classList.toggle('has-cartridge', loaded);
   for (const button of touchButtons) button.disabled = !playing;
 }
 function clearInput() { keyboard = 0; held.clear(); clearVirtualInput(); }
@@ -82,10 +91,10 @@ async function activateAudio() {
     audio ??= new AudioContext({ sampleRate: 32000 });
     // Call resume during the activation gesture, before any asynchronous ROM read.
     const resumed = audio.resume();
-    $('audio-status').textContent = audio.state === 'running' ? '' : 'Sound is blocked. Toggle Sound to enable audio; gameplay can continue.';
+    $('audio-status').textContent = audio.state === 'running' ? '' : 'Sound blocked. Toggle Sound to retry or mute.';
     await resumed;
-    $('audio-status').textContent = audio.state === 'running' ? '' : 'Sound is blocked. Toggle Sound to try again.';
-  } catch (e) { $('audio-status').textContent = `Audio could not start: ${e.message}. Toggle Sound to try again; gameplay can continue.`; }
+    $('audio-status').textContent = audio.state === 'running' ? '' : 'Sound blocked. Toggle Sound to retry or mute.';
+  } catch (e) { $('audio-status').textContent = `Sound unavailable: ${e.message}. Toggle Sound to retry or mute.`; }
 }
 function queueAudio() {
   if (!audio || audio.state !== 'running' || !$('sound').checked) return;
@@ -124,9 +133,9 @@ function animate(time) {
 }
 // Both sources use the same identity, core validation and battery-save lifecycle.
 async function loadCartridge(name, read, local = false) {
-  if (loading) return;
+  if (loading || restorePending) return;
   loading = true;
-  $('rom').disabled = true; $('demo').disabled = true;
+  $('rom').disabled = true; $('demo').disabled = true; $('open-local').disabled = true; $('change-cartridge').disabled = true;
   $('play').disabled = true; $('reset').disabled = true;
   try {
     if (!pause()) return;
@@ -141,26 +150,33 @@ async function loadCartridge(name, read, local = false) {
     if (!local && (data.length !== 524288 || hash !== demoHash)) throw new Error('Demo download does not match the published ROM');
     // Reading/hashing is asynchronous: save again at the replacement boundary.
     if (!pause()) return;
-    // load_rom validates before replacing the old machine, leaving it intact on error.
-    copyInput(data); check(core.load_rom()); key = `snes-rust:sram:${hash}`; loaded = true; activeDemo = !local;
-    $('placeholder').hidden = true;
-    $('current-game').textContent = name;
-    $('current-game').hidden = false;
-    if (core.battery() && core.sram_len()) restoreSave();
-    $('status').textContent = restorePending ? `${name} loaded — restore save before playing` : `${name} loaded — click Play`; draw();
+    copyInput(data); check(core.prepare_rom());
+    pendingCartridge = { key: `snes-rust:sram:${hash}`, name, activeDemo: !local };
+    restoreSave();
+    if (restorePending) $('status').textContent = 'Restore save before changing cartridge';
   } catch (e) {
     $('status').textContent = loaded ? 'Paused' : 'Cartridge could not be loaded';
     report(e);
   } finally {
     loading = false;
-    $('rom').disabled = !core; $('demo').disabled = !core;
+    $('rom').disabled = !core; $('demo').disabled = !core; $('open-local').disabled = !core; $('change-cartridge').disabled = !core;
     $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
     updatePlayback();
   }
-  return !local && activeDemo && !restorePending && !operationError;
+  if (pendingCartridge || restorePending || operationError || persistenceError) return;
+  start();
+  if (playing) canvas.focus({ preventScroll: true });
 }
+const picker = $('cartridge-picker');
+function closePicker() { picker.hidePopover(); $('change-cartridge').focus({ preventScroll: true }); }
+$('open-local').addEventListener('click', () => {
+  if (loading || !core) return;
+  // Unlock before the native file chooser can consume transient activation.
+  void activateAudio(); closePicker(); $('rom').click();
+});
 $('rom').addEventListener('change', async (event) => {
   const file = event.target.files[0]; if (!file) return;
+  void activateAudio();
   try {
     await loadCartridge(file.name, () => {
       if (!/\.(sfc|smc)$/i.test(file.name)) throw new Error('Choose an .sfc or .smc cartridge image');
@@ -169,16 +185,18 @@ $('rom').addEventListener('change', async (event) => {
     }, true);
   } finally { event.target.value = ''; }
 });
-$('demo').addEventListener('click', async (event) => {
-  if (loading || !core || (event.pointerType === 'mouse' && event.detail > 1)) return;
-  if (activeDemo) { if (restorePending) $('retry-save').focus(); else togglePlayback(event); return; }
+$('demo').addEventListener('click', async () => {
+  if (loading || !core) return;
+  closePicker();
+  if (restorePending) { $('retry-save').focus(); return; }
   void activateAudio();
-  const ready = await loadCartridge(demoName, async () => {
+  // Reselecting the inserted demo never reloads or changes playback state.
+  if (activeDemo) { canvas.focus({ preventScroll: true }); return; }
+  await loadCartridge(demoName, async () => {
     const response = await fetch('shionari.sfc', { mode: 'same-origin', redirect: 'error' });
     if (!response.ok) throw new Error(`Demo download failed: HTTP ${response.status}`);
     return response.arrayBuffer();
   });
-  if (ready) { start(); if (playing && event.detail > 0) canvas.focus({ preventScroll: true }); }
 });
 $('play').addEventListener('click', togglePlayback);
 $('reset').addEventListener('click', () => { if (!loaded || restorePending || loading) return; pause(); try { check(core.reset()); draw(); clearError(); $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
@@ -186,7 +204,7 @@ $('sound').addEventListener('change', () => { flushAudio(); $('audio-status').te
 $('scale').addEventListener('change', () => { const scale = Number($('scale').value); canvas.style.width = `${256 * scale}px`; });
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {
   if (!keys[event.code] || !playing) return;
-  if ((['INPUT', 'SELECT'].includes(event.target.tagName) || (['BUTTON', 'SUMMARY', 'A'].includes(event.target.tagName) && ['Enter', 'Space'].includes(event.code))) && !(type === 'keyup' && held.has(event.code))) return;
+  if ((event.target.closest?.('#cartridge-picker') || ['INPUT', 'SELECT'].includes(event.target.tagName) || (['BUTTON', 'SUMMARY', 'A'].includes(event.target.tagName) && ['Enter', 'Space'].includes(event.code))) && !(type === 'keyup' && held.has(event.code))) return;
   event.preventDefault(); if (type === 'keydown') held.add(event.code); else held.delete(event.code);
   keyboard = [...held].reduce((value, code) => value | keys[code], 0);
 });
@@ -264,5 +282,5 @@ window.addEventListener('pagehide', save);
 try {
   const response = await fetch('snes_wasm.wasm'); if (!response.ok) throw new Error(`Wasm download failed: HTTP ${response.status}`);
   const result = await WebAssembly.instantiate(await response.arrayBuffer(), {}); core = result.instance.exports;
-  $('status').textContent = 'Open a local SNES ROM or load the demo to begin'; $('rom').disabled = false; $('demo').disabled = false; requestAnimationFrame(animate);
-} catch (e) { report(e); $('status').textContent = 'Emulator unavailable'; $('rom').disabled = true; $('demo').disabled = true; }
+  $('status').textContent = 'Ready'; $('rom').disabled = false; $('demo').disabled = false; $('open-local').disabled = false; $('change-cartridge').disabled = false; requestAnimationFrame(animate);
+} catch (e) { report(e); $('status').textContent = 'Emulator unavailable'; $('rom').disabled = true; $('demo').disabled = true; $('open-local').disabled = true; $('change-cartridge').disabled = true; }

@@ -22,10 +22,11 @@ for (const mode of [0,1,2,3]) {
       };
     });
     await page.goto('/');
-    await expect(page.locator('#status')).toContainText('Open a local');
+    await expect(page.locator('#status')).toHaveText('Ready');
     const buffer = readFileSync(new URL(`../../.cache/obj-limits/obj-limits-${mode}.sfc`, import.meta.url));
     await page.locator('#rom').setInputFiles({ name:`obj-limits-${mode}.sfc`, mimeType:'application/octet-stream', buffer });
-    await expect(page.locator('#status')).toContainText('loaded');
+    await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
     await page.locator('#play').click();
     const flags = [0,0x40,0x80,0xc0][mode];
     const expected = vectors[mode].map(([,color]) => color);

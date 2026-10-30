@@ -9,7 +9,8 @@ const fixture = (mode, suffix = '') => readFileSync(new URL(`../../.cache/hires/
 const green = [0,255,0,255], blue = [0,0,255,255];
 async function upload(page, mode, suffix = '') {
   await page.locator('#rom').setInputFiles({ name: `hires-${mode}${suffix}.sfc`, mimeType: 'application/octet-stream', buffer: fixture(mode, suffix) });
-  await expect(page.locator('#status')).toContainText('loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
 }
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -49,7 +50,7 @@ for (const mode of [5,6]) test(`Mode ${mode}: real canvas/Wasm 256→512→256, 
     const instantiate = WebAssembly.instantiate;
     WebAssembly.instantiate = async (...args) => { const r=await instantiate(...args); window.testCore=r.instance.exports; return r; };
   });
-  await page.goto('/'); await expect(page.locator('#status')).toContainText('Open a local');
+  await page.goto('/'); await expect(page.locator('#status')).toHaveText('Ready');
   await upload(page,mode,'-switch'); await page.locator('#play').click();
   await checkFrame(page,256,mode);
   await page.keyboard.down('KeyX'); // A: guest switches BGMODE during VBlank.

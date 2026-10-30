@@ -44,8 +44,8 @@ checks for the previous app passed on 2026-10-22; see the
 demo still requires the post-merge verification below.
 
 The sole bundled demo is **潮鳴りの密室 / Shionari no Misshitsu**, an original
-Japanese adventure created by takahirox with AI assistance. Click **Try demo**
-to load and start it in one action. The unmodified 524,288-byte
+Japanese adventure created by takahirox with AI assistance. Choose
+**Change cartridge → Bundled demo — 潮鳴りの密室** to load and start it. The unmodified 524,288-byte
 `demos/shionari.sfc` is downloaded from the same site; its SHA-256 is
 `1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca`.
 The maintainer authorizes distribution of the complete binary and embedded
@@ -69,8 +69,9 @@ npm --prefix web run build
 npm --prefix web run serve
 ```
 
-Open <http://127.0.0.1:8080>. Click **Try demo**, or select a lawfully obtained
-ordinary NTSC LoROM or HiROM `.sfc`/`.smc` cartridge and click **Play**. Local
+Open <http://127.0.0.1:8080>. Use **Change cartridge** to choose the bundled demo
+or a lawfully obtained ordinary NTSC LoROM or HiROM `.sfc`/`.smc` file with **Open local ROM…**.
+Both sources start automatically after validation and save restoration. Local
 files stay client-side; the demo is the only ROM fetched, from the same origin.
 The static production output is `web/dist`; the local server serves the same
 assets as GitHub Pages.
@@ -81,17 +82,18 @@ shoulders, Start/Select, D-pad and left stick. Phones have all twelve SNES touch
 buttons, below the screen in portrait and beside it in landscape. Multi-touch
 supports diagonals and combined buttons.
 Help / Controls contains the keyboard map and scale setting; About / Legal
-contains the game notice. Audio activates on the initial Try demo or Play
+contains the game notice. Audio activates on the cartridge choice or Play
 gesture; Sound toggles playback and retries blocked audio. Pause stops queued
 audio. A hidden tab pauses. The canvas supports integer scaling and preserves
 pixel edges.
 
 SRAM for battery-backed cartridges is stored locally under the SHA-256 of the
 ROM after removing any copier header. Reset clears volatile machine state and
-controllers, preserving SRAM. Opening the demo or a local ROM resets it and
-restores its own saved SRAM. Once the demo is active, its primary button
-pauses/resumes the current game;
-use Reset to start again while preserving SRAM. Opening the identical game locally
+controllers, preserving SRAM. Changing cartridges restores the new game’s own
+saved SRAM before replacing the inserted machine. Dismissing the picker or cancelling the file chooser keeps
+the current game running. Selecting the already inserted demo leaves playback
+unchanged. Use the shared Play/Pause control for playback and Reset to start again
+while preserving SRAM. Opening the identical game locally
 (including a copier-header variant) shares the same save identity as the demo.
 Saves are persisted every five seconds, on pause/reset/ROM changes and on page
 exit; browser storage failure is reported. A failed save blocks opening
@@ -100,9 +102,12 @@ Reset retain the warning until a later save succeeds. Keep the tab open while
 storage is unavailable. A failed save restoration blocks saving, Play, Reset and
 cartridge replacement so existing persisted bytes cannot be overwritten by empty
 SRAM. Use **Retry restoring save** after restoring storage access (or repairing
-corrupt stored data); recovery must succeed before playing. Clearing browser
-storage erases persisted saves. There are no save states or save-file import/export
-controls yet.
+corrupt stored data); recovery must succeed before playing. The previous cartridge
+and its recoverable SRAM remain inserted until restoration succeeds; retry then
+inserts and starts the selected cartridge. Clearing browser storage erases
+persisted saves. There are no save states or save-file import/export
+controls yet. See the [cartridge-switcher validation record](docs/issue-122-validation.md)
+for workflow screenshots, save-failure coverage and required post-merge checks.
 
 If Homebrew Cargo picks a different `rustc` from rustup on macOS, select the
 compiler that owns the installed wasm standard library:

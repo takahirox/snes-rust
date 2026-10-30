@@ -19,10 +19,11 @@ test('raster CPU and DMA: native/Wasm frame hash, exact edges, live canvas and r
     };
   });
   await page.goto('/');
-  await expect(page.locator('#status')).toContainText('Open a local');
+  await expect(page.locator('#status')).toHaveText('Ready');
   const buffer = readFileSync(new URL('../../.cache/raster/raster.sfc', import.meta.url));
   await page.locator('#rom').setInputFiles({ name:'raster.sfc', mimeType:'application/octet-stream', buffer });
-  await expect(page.locator('#status')).toContainText('loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
   // Actual Wasm ABI runs exactly three frames, without host register mutation.
   for (let attempt = 0; attempt < 2; attempt++) {
     const snapshot = await page.evaluate(rows => {

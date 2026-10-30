@@ -24,11 +24,12 @@ for (const variant of ['normal','flipped']) for (const layer of ['bg1','bg2']) {
       };
     });
     await page.goto('/');
-    await expect(page.locator('#status')).toContainText('Open a local');
+    await expect(page.locator('#status')).toHaveText('Ready');
     const name = `${variant}-${layer}.sfc`;
     const buffer = readFileSync(new URL(`../../.cache/mode7-row/${name}`, import.meta.url));
     await page.locator('#rom').setInputFiles({ name, mimeType:'application/octet-stream', buffer });
-    await expect(page.locator('#status')).toContainText('loaded');
+    await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
     await page.locator('#play').click();
     for (let observation = 0; observation < 3; observation++) {
       await expect.poll(() => page.evaluate(points => {

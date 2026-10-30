@@ -22,9 +22,10 @@ async function loadGame(page, game) {
     const original = WebAssembly.instantiate;
     WebAssembly.instantiate = async (...args) => { const result = await original(...args); window.testCore = result.instance.exports; return result; };
   });
-  await page.goto('/'); await expect(page.locator('#status')).toContainText('Open a local');
+  await page.goto('/'); await expect(page.locator('#status')).toHaveText('Ready');
   await page.locator('#rom').setInputFiles({ name: 'game.sfc', mimeType: 'application/octet-stream', buffer });
-  await expect(page.locator('#status')).toContainText('loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
 }
 for (const game of cases) {
   test(`${game.name}: 301 seconds of recorded inputs`, async ({ page }, testInfo) => {
