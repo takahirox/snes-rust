@@ -22,7 +22,7 @@ protection in every jurisdiction.
 
 - File: `demos/shionari.sfc` (published unchanged as `shionari.sfc`).
 - Size: 524,288 bytes; headerless ordinary LoROM, 8 KiB battery-backed SRAM.
-- SHA-256: `fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343`.
+- SHA-256: `1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca`.
 - Added in [PR #109](https://github.com/takahirox/snes-rust/pull/109).
 - Authorship and distribution authorization: the maintainer's
   [Issue #110 clarification](https://github.com/takahirox/snes-rust/issues/110#issuecomment-6502461333).

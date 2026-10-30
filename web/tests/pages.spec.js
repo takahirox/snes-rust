@@ -6,7 +6,7 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 
 const dist = new URL('../dist/', import.meta.url);
 const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream' };
-const demoHash = 'fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343';
+const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
 const saveKey = `snes-rust:sram:${demoHash}`;
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const prefix = '/snes-rust/';
@@ -123,7 +123,15 @@ const scene = (page) => page.evaluate(async () => {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)), b => b.toString(16).padStart(2, '0')).join('');
 });
 
-test('Shionari starts from its title and keyboard A advances into the warehouse story', async ({ page }, testInfo) => {
+const lit = (page) => page.evaluate(() => new Uint8Array(pagesCore.memory.buffer, pagesCore.framebuffer() + 16 * 256 * 4, 128 * 256 * 4).some((value, index) => index % 4 !== 3 && value > 0));
+async function tapA(page) {
+  await page.keyboard.down('KeyX'); // Existing mapping: X = SNES A.
+  await page.waitForTimeout(100);
+  await page.keyboard.up('KeyX');
+  await page.waitForTimeout(300);
+}
+
+test('Shionari skips its opening to the title and keyboard A starts the warehouse story', async ({ page }, testInfo) => {
   const errors = [], requests = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -135,14 +143,19 @@ test('Shionari starts from its title and keyboard A advances into the warehouse 
   await loadDemo(page);
   await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => audioActivations)).toBe(1);
-  // Wait for the original game's title background to finish drawing.
-  await page.waitForTimeout(1000);
+  await page.locator('canvas').click();
+  // After a short black boot the opening prologue fades in; A skips it to the title.
+  await expect.poll(() => lit(page), { timeout: 10000 }).toBe(true);
+  await testInfo.attach('Shionari opening', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  await tapA(page);
+  // Wait for the title background to finish fading in.
+  await page.waitForTimeout(1500);
   const title = await scene(page);
   await testInfo.attach('Shionari title', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
   await page.waitForTimeout(500);
   expect(await scene(page)).toBe(title); // No idle scene transition.
-  await page.locator('canvas').click();
-  await page.keyboard.down('KeyX'); // Existing mapping: X = SNES A.
+  await tapA(page); // Opens the title menu with New Game selected.
+  await page.keyboard.down('KeyX');
   try { await expect.poll(() => scene(page)).not.toBe(title); }
   finally { await page.keyboard.up('KeyX'); }
   await page.waitForTimeout(1000);
