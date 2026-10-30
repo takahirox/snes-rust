@@ -87,8 +87,10 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
 });
 
 async function loadDemo(page) {
-  await page.getByRole('button', { name: 'Load demo: 潮鳴りの密室 / Shionari no Misshitsu' }).click();
-  await expect(page.locator('#status')).toHaveText('潮鳴りの密室 / Shionari no Misshitsu loaded — click Play');
+  // If already running, pause first: the primary action resumes rather than reloading.
+  if (await page.locator('#demo').textContent() === 'Pause demo') await page.locator('#demo').click();
+  await page.locator('#demo').click();
+  await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#play')).toBeEnabled();
   expect(await page.evaluate(() => [pagesCore.battery(), pagesCore.sram_len()])).toEqual([1, 8192]);
 }
@@ -129,9 +131,8 @@ test('Shionari starts from its title and keyboard A advances into the warehouse 
   page.on('response', response => { if (!response.ok()) errors.push(`${response.status()} ${response.url()}`); });
   page.on('request', request => requests.push(request.url()));
   await boot(page);
-  await loadDemo(page);
   expect(await page.evaluate(() => audioActivations)).toBe(0);
-  await page.locator('#play').click();
+  await loadDemo(page);
   await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => audioActivations)).toBe(1);
   // Wait for the original game's title background to finish drawing.
@@ -173,7 +174,7 @@ test('demo battery SRAM survives reset/reload, shares local identity and stays i
   expect(await marker(page)).toBe(0x79);
   await setMarker(page, 0x48);
   await loadDemo(page); expect(await marker(page)).toBe(0x48);
-  await loadDemo(page); expect(await marker(page)).toBe(0x48); // Same-demo reload/reset.
+  await loadDemo(page); expect(await marker(page)).toBe(0x48); // Same-demo pause/resume retains SRAM.
   await localRom(page); expect(await marker(page)).toBe(0);
   await setMarker(page, 0x26);
   await loadDemo(page); expect(await marker(page)).toBe(0x48);

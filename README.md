@@ -44,9 +44,9 @@ checks for the previous app passed on 2026-10-22; see the
 demo still requires the post-merge verification below.
 
 The sole bundled demo is **潮鳴りの密室 / Shionari no Misshitsu**, an original
-Japanese adventure created by takahirox with AI assistance. Click **Load demo**,
-then **Play**. The unmodified 524,288-byte `demos/shionari.sfc` is downloaded from
-the same site; its SHA-256 is
+Japanese adventure created by takahirox with AI assistance. Click **Play demo**
+to load and start it in one action. The unmodified 524,288-byte
+`demos/shionari.sfc` is downloaded from the same site; its SHA-256 is
 `fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343`.
 The maintainer authorizes distribution of the complete binary and embedded
 assets in this repository and its official public demo. **All rights reserved**
@@ -69,22 +69,29 @@ npm --prefix web run build
 npm --prefix web run serve
 ```
 
-Open <http://127.0.0.1:8080>. Load the bundled demo or select a lawfully obtained
-ordinary NTSC LoROM or HiROM `.sfc`/`.smc` cartridge, then click **Play**. Local
+Open <http://127.0.0.1:8080>. Click **Play demo**, or select a lawfully obtained
+ordinary NTSC LoROM or HiROM `.sfc`/`.smc` cartridge and click **Play**. Local
 files stay client-side; the demo is the only ROM fetched, from the same origin.
 The static production output is `web/dist`; the local server serves the same
 assets as GitHub Pages.
 
 Keyboard: arrows move, Z = B, X = A, A = Y, S = X, Q/W = L/R, Enter = Start,
 Shift = Select. Standard gamepads use the corresponding four face buttons,
-shoulders, Start/Select, D-pad and left stick. Audio activates on Play's user
-gesture; Sound toggles playback. Pause stops queued audio. A hidden tab pauses.
-The canvas supports integer scaling and preserves pixel edges.
+shoulders, Start/Select, D-pad and left stick. Phones have all twelve SNES touch
+buttons, below the screen in portrait and beside it in landscape. Multi-touch
+supports diagonals and combined buttons.
+Help / Controls contains the keyboard map and scale setting; About / Legal
+contains the game notice. Audio activates on the initial Play demo or Play
+gesture; Sound toggles playback and retries blocked audio. Pause stops queued
+audio. A hidden tab pauses. The canvas supports integer scaling and preserves
+pixel edges.
 
 SRAM for battery-backed cartridges is stored locally under the SHA-256 of the
 ROM after removing any copier header. Reset clears volatile machine state and
-controllers, preserving SRAM. Loading or reloading the demo or a local ROM
-resets it and restores its own saved SRAM. Opening the identical game locally
+controllers, preserving SRAM. Opening the demo or a local ROM resets it and
+restores its own saved SRAM. Once the demo is active, its primary button
+pauses/resumes the current game;
+use Reset to start again while preserving SRAM. Opening the identical game locally
 (including a copier-header variant) shares the same save identity as the demo.
 Saves are persisted every five seconds, on pause/reset/ROM changes and on page
 exit; browser storage failure is reported. A failed save blocks opening
