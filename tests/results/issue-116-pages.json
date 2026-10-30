@@ -1,0 +1,471 @@
+{
+  "issue": 116,
+  "pr": 117,
+  "headSha": "457a838f74d7e366b684704736bc38f436ddf4e5",
+  "mergeCommit": "41b4c64357afd454c469553150128df072b1647a",
+  "deploymentRun": "https://github.com/takahirox/snes-rust/actions/runs/41006942035",
+  "deploymentId": 7431326094,
+  "deploymentConclusion": "success",
+  "mandatoryBrowserTests": 69,
+  "url": "https://takahirox.github.io/snes-rust/",
+  "checkedAt": "2026-10-30T05:18:24.924Z",
+  "cases": [
+    {
+      "device": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 900,
+        "mobile": false
+      },
+      "oneActivation": true,
+      "metrics": {
+        "loads": 1,
+        "frames": 23,
+        "audio": [
+          {
+            "active": true,
+            "loads": 0
+          }
+        ]
+      },
+      "titleScene": "05a911f2ce014542850029e8680546231be26ffc180786fcf9d15f96c306919d",
+      "pauseResume": true,
+      "sramBytes": 8192,
+      "errors": []
+    },
+    {
+      "device": {
+        "name": "portrait",
+        "width": 375,
+        "height": 667,
+        "mobile": true
+      },
+      "oneActivation": true,
+      "metrics": {
+        "loads": 1,
+        "frames": 23,
+        "audio": [
+          {
+            "active": true,
+            "loads": 0
+          }
+        ]
+      },
+      "layout": {
+        "viewport": [
+          375,
+          667
+        ],
+        "scrollWidth": 375,
+        "canvas": {
+          "x": 66.921875,
+          "y": 57,
+          "right": 308.0625,
+          "bottom": 267.984375,
+          "width": 241.140625,
+          "height": 210.984375
+        },
+        "buttons": [
+          {
+            "name": "SNES L",
+            "width": 132,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Up",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Left",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Right",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Down",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Select",
+            "width": 72,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES R",
+            "width": 132,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES X",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Y",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES A",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES B",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Start",
+            "width": 72,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          }
+        ],
+        "allControlsWithinViewport": true
+      },
+      "titleScene": "05a911f2ce014542850029e8680546231be26ffc180786fcf9d15f96c306919d",
+      "storyScene": "6ab76e82a6855c783352b9e030a19230d14df81e506bddb55898632969acfb92",
+      "transitions": [
+        {
+          "viewport": [
+            568,
+            320
+          ],
+          "canvas": {
+            "x": 176.578125,
+            "y": 39,
+            "right": 391.421875,
+            "bottom": 226.984375,
+            "width": 214.84375,
+            "height": 187.984375
+          },
+          "controls": 12,
+          "allControlsWithinViewport": true,
+          "allControlsHitTestable": true,
+          "horizontalOverflow": false
+        },
+        {
+          "viewport": [
+            320,
+            740
+          ],
+          "canvas": {
+            "x": 18,
+            "y": 57,
+            "right": 302,
+            "bottom": 305.5,
+            "width": 284,
+            "height": 248.5
+          },
+          "controls": 12,
+          "allControlsWithinViewport": true,
+          "allControlsHitTestable": true,
+          "horizontalOverflow": false
+        },
+        {
+          "viewport": [
+            375,
+            667
+          ],
+          "canvas": {
+            "x": 66.921875,
+            "y": 57,
+            "right": 308.0625,
+            "bottom": 267.984375,
+            "width": 241.140625,
+            "height": 210.984375
+          },
+          "controls": 12,
+          "allControlsWithinViewport": true,
+          "allControlsHitTestable": true,
+          "horizontalOverflow": false
+        },
+        {
+          "viewport": [
+            667,
+            320
+          ],
+          "canvas": {
+            "x": 226.078125,
+            "y": 39,
+            "right": 440.921875,
+            "bottom": 226.984375,
+            "width": 214.84375,
+            "height": 187.984375
+          },
+          "controls": 12,
+          "allControlsWithinViewport": true,
+          "allControlsHitTestable": true,
+          "horizontalOverflow": false
+        }
+      ],
+      "pauseResume": true,
+      "sramBytes": 8192,
+      "errors": []
+    },
+    {
+      "device": {
+        "name": "landscape",
+        "width": 667,
+        "height": 320,
+        "mobile": true
+      },
+      "oneActivation": true,
+      "metrics": {
+        "loads": 1,
+        "frames": 23,
+        "audio": [
+          {
+            "active": true,
+            "loads": 0
+          }
+        ]
+      },
+      "layout": {
+        "viewport": [
+          667,
+          320
+        ],
+        "scrollWidth": 667,
+        "canvas": {
+          "x": 226.078125,
+          "y": 39,
+          "right": 440.921875,
+          "bottom": 226.984375,
+          "width": 214.84375,
+          "height": 187.984375
+        },
+        "buttons": [
+          {
+            "name": "SNES L",
+            "width": 132,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Up",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Left",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Right",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Down",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Select",
+            "width": 72,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES R",
+            "width": 132,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES X",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Y",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES A",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES B",
+            "width": 44,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          },
+          {
+            "name": "SNES Start",
+            "width": 72,
+            "height": 44,
+            "hit": true,
+            "disabled": false
+          }
+        ],
+        "allControlsWithinViewport": true
+      },
+      "titleScene": "05a911f2ce014542850029e8680546231be26ffc180786fcf9d15f96c306919d",
+      "storyScene": "6ab76e82a6855c783352b9e030a19230d14df81e506bddb55898632969acfb92",
+      "transitions": [
+        {
+          "viewport": [
+            568,
+            320
+          ],
+          "canvas": {
+            "x": 176.578125,
+            "y": 39,
+            "right": 391.421875,
+            "bottom": 226.984375,
+            "width": 214.84375,
+            "height": 187.984375
+          },
+          "controls": 12,
+          "allControlsWithinViewport": true,
+          "allControlsHitTestable": true,
+          "horizontalOverflow": false
+        },
+        {
+          "viewport": [
+            320,
+            740
+          ],
+          "canvas": {
+            "x": 18,
+            "y": 57,
+            "right": 302,
+            "bottom": 305.5,
+            "width": 284,
+            "height": 248.5
+          },
+          "controls": 12,
+          "allControlsWithinViewport": true,
+          "allControlsHitTestable": true,
+          "horizontalOverflow": false
+        },
+        {
+          "viewport": [
+            375,
+            667
+          ],
+          "canvas": {
+            "x": 66.921875,
+            "y": 57,
+            "right": 308.0625,
+            "bottom": 267.984375,
+            "width": 241.140625,
+            "height": 210.984375
+          },
+          "controls": 12,
+          "allControlsWithinViewport": true,
+          "allControlsHitTestable": true,
+          "horizontalOverflow": false
+        },
+        {
+          "viewport": [
+            667,
+            320
+          ],
+          "canvas": {
+            "x": 226.078125,
+            "y": 39,
+            "right": 440.921875,
+            "bottom": 226.984375,
+            "width": 214.84375,
+            "height": 187.984375
+          },
+          "controls": 12,
+          "allControlsWithinViewport": true,
+          "allControlsHitTestable": true,
+          "horizontalOverflow": false
+        }
+      ],
+      "pauseResume": true,
+      "sramBytes": 8192,
+      "errors": []
+    }
+  ],
+  "browser": "149.0.7827.55",
+  "passed": true,
+  "assets": [
+    {
+      "path": "index.html",
+      "status": 200,
+      "type": "text/html; charset=utf-8",
+      "sha256": "ae0c4c1a967165375a9e3271a660a28a2cbd63829d6a2756ebaa0bea5a8d7b8b"
+    },
+    {
+      "path": "style.css",
+      "status": 200,
+      "type": "text/css; charset=utf-8",
+      "sha256": "0b8bb6e6bccd3c156ea3a4a15067e24d6566b634fe0b4b9c767fb920fa9f1817"
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "type": "application/javascript; charset=utf-8",
+      "sha256": "05c6988c93b18054c23393d91a821ddcf32642861b5ac343fd5aac2f0c2b0ded"
+    },
+    {
+      "path": "snes_wasm.wasm",
+      "status": 200,
+      "type": "application/wasm",
+      "sha256": "1d8430c29339c44bec974d8a0fe746be1a1a64f7e71459da7201db7acbe1228f"
+    },
+    {
+      "path": "shionari.sfc",
+      "status": 200,
+      "type": "application/octet-stream",
+      "sha256": "fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343"
+    }
+  ]
+}
