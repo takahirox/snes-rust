@@ -116,9 +116,9 @@ Physical iOS Safari, Android Chrome, assistive technology and subjective usabili
 comparison were not performed. Chromium mobile emulation is the required
 pre-merge evidence and does not establish physical-device behavior.
 
-After merge, verify the actual new `main` GitHub Pages run and published
-<https://takahirox.github.io/snes-rust/> with both sources, auto-play and dismissal
-at desktop/mobile viewport sizes. Record that run, URL and observed results;
-create a separate task Issue on failure when invoked. This is pending because
-this node is authorized only to implement and commit, without pushing, opening a
-PR, merging or posting comments. There is no background monitoring.
+The implementation node left deployment verification pending for the merge
+stage. The merge stage subsequently verified the new `main` GitHub Pages run
+and the published app with both sources, auto-play and dismissal at desktop,
+portrait and landscape sizes. See the [post-merge verification record](issue-122-post-merge-validation.md)
+for the actual run, URL, results and screenshots. All required checks passed;
+no follow-up Issue was needed. There is no background monitoring.

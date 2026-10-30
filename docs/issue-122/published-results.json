@@ -1,0 +1,139 @@
+{
+  "url": "https://takahirox.github.io/snes-rust/",
+  "checkedAt": "2026-10-30T08:17:31.546Z",
+  "browser": "149.0.7827.55",
+  "results": [
+    {
+      "viewport": {
+        "name": "desktop",
+        "width": 1280,
+        "height": 900,
+        "mobile": false
+      },
+      "status": "passed",
+      "assets": {
+        "index.html": "84a071837fcd7991c7a63fc205ece81838d59d07d9741468bbe897b7fb08e388",
+        "app.js": "37480ca0b85a9ef1af988bb737603b7c4f944ff41d6a7b42afcf61cc657087f5",
+        "style.css": "fdccfb3bf0f7f8304e564e01fab75cacee708b086fc3b760ef76ac0d777b914f"
+      },
+      "frames": 258,
+      "audio": "running; unlock requested within user gestures",
+      "errors": [],
+      "requests": [
+        {
+          "url": "https://takahirox.github.io/snes-rust/",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/style.css",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/app.js",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/snes_wasm.wasm",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/shionari.sfc",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/shionari.sfc",
+          "method": "GET"
+        }
+      ],
+      "touchButtonsTested": 0
+    },
+    {
+      "viewport": {
+        "name": "portrait",
+        "width": 320,
+        "height": 740,
+        "mobile": true
+      },
+      "status": "passed",
+      "assets": {
+        "index.html": "84a071837fcd7991c7a63fc205ece81838d59d07d9741468bbe897b7fb08e388",
+        "app.js": "37480ca0b85a9ef1af988bb737603b7c4f944ff41d6a7b42afcf61cc657087f5",
+        "style.css": "fdccfb3bf0f7f8304e564e01fab75cacee708b086fc3b760ef76ac0d777b914f"
+      },
+      "frames": 431,
+      "audio": "running; unlock requested within user gestures",
+      "errors": [],
+      "requests": [
+        {
+          "url": "https://takahirox.github.io/snes-rust/",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/style.css",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/app.js",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/snes_wasm.wasm",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/shionari.sfc",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/shionari.sfc",
+          "method": "GET"
+        }
+      ],
+      "touchButtonsTested": 12
+    },
+    {
+      "viewport": {
+        "name": "landscape",
+        "width": 667,
+        "height": 320,
+        "mobile": true
+      },
+      "status": "passed",
+      "assets": {
+        "index.html": "84a071837fcd7991c7a63fc205ece81838d59d07d9741468bbe897b7fb08e388",
+        "app.js": "37480ca0b85a9ef1af988bb737603b7c4f944ff41d6a7b42afcf61cc657087f5",
+        "style.css": "fdccfb3bf0f7f8304e564e01fab75cacee708b086fc3b760ef76ac0d777b914f"
+      },
+      "frames": 432,
+      "audio": "running; unlock requested within user gestures",
+      "errors": [],
+      "requests": [
+        {
+          "url": "https://takahirox.github.io/snes-rust/",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/style.css",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/app.js",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/snes_wasm.wasm",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/shionari.sfc",
+          "method": "GET"
+        },
+        {
+          "url": "https://takahirox.github.io/snes-rust/shionari.sfc",
+          "method": "GET"
+        }
+      ],
+      "touchButtonsTested": 12
+    }
+  ]
+}
