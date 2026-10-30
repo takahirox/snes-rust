@@ -9,7 +9,8 @@ const red = [255,0,0,255], green = [0,255,0,255], blue = [0,0,255,255], white = 
 async function upload(page, name) {
   const buffer = readFileSync(new URL(`../../.cache/pseudo-hires/pseudo-hires-${name}.sfc`, import.meta.url));
   await page.locator('#rom').setInputFiles({ name: `pseudo-hires-${name}.sfc`, mimeType: 'application/octet-stream', buffer });
-  await expect(page.locator('#status')).toContainText('loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
 }
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -44,7 +45,7 @@ test('SETINI: real canvas/Wasm phases, 256→512→256, reset and replacement', 
     const instantiate = WebAssembly.instantiate;
     WebAssembly.instantiate = async (...args) => { const r = await instantiate(...args); window.testCore = r.instance.exports; return r; };
   });
-  await page.goto('/'); await expect(page.locator('#status')).toContainText('Open a local');
+  await page.goto('/'); await expect(page.locator('#status')).toHaveText('Ready');
   await upload(page,'switch'); await page.locator('#play').click(); await checkFrame(page,false);
   await page.keyboard.down('KeyX'); // Guest changes only SETINI, in VBlank after joypad completion.
   await checkFrame(page,true);

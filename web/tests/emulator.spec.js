@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
-async function load(page, buffer = fixture, name = 'smoke.sfc') {
+async function load(page, buffer = fixture, name = 'smoke.sfc', wait = true) {
   await page.locator('#rom').setInputFiles({ name, mimeType: 'application/octet-stream', buffer });
+  if (wait) await expect(page.locator('#rom')).toBeEnabled();
 }
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -17,12 +18,12 @@ test.beforeEach(async ({ page }) => {
     Object.defineProperty(navigator, 'getGamepads', { value: () => window.testPads ?? [] });
   });
   await page.goto('/');
-  await expect(page.locator('#status')).toContainText('Open a local');
+  await expect(page.locator('#status')).toHaveText('Ready');
 });
 test('real wasm renders frames, reads keyboard/gamepad, produces audio and pauses/resets', async ({ page }) => {
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   const uploads = []; page.on('request', (r) => { if (r.method() !== 'GET') uploads.push(r.url()); });
-  await load(page); await page.locator('#play').click();
+  await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   const marker = () => page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.framebuffer(), 256 * 224 * 4).some((v, i) => i % 4 === 0 && v > 0));
   await expect.poll(marker).toBe(true);
   await page.keyboard.down('ArrowRight');
@@ -44,7 +45,7 @@ test('real wasm renders frames, reads keyboard/gamepad, produces audio and pause
   expect(errors).toEqual([]); expect(uploads).toEqual([]); await expect(page.locator('#error')).toBeEmpty();
 });
 for (const control of ['sound', 'scale']) test(`keyboard releases held buttons after focus moves to ${control}`, async ({ page }) => {
-  await load(page); await page.locator('#play').click();
+  await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   await page.keyboard.down('ArrowRight');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(1);
   if (control === 'sound') await page.locator('#sound').click();
@@ -63,12 +64,12 @@ test('SRAM survives reset, page reload, and copier-header ROM identity', async (
   await page.evaluate(() => { new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79; });
   await page.locator('#reset').click();
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
-  await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
+  await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
   await load(page, Buffer.concat([Buffer.alloc(512), fixture]), 'with-header.smc');
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
 });
 test('failed SRAM writes block cartridge changes until the save can be recovered', async ({ page }) => {
-  await load(page); await expect(page.locator('#status')).toContainText('smoke.sfc loaded');
+  await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   await page.evaluate(() => {
     new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79;
     window.originalSetItem = Storage.prototype.setItem;
@@ -85,11 +86,11 @@ test('failed SRAM writes block cartridge changes until the save can be recovered
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
   await load(page, other, 'other.sfc');
-  await expect(page.locator('#status')).toContainText('other.sfc loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#error')).toBeEmpty();
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0);
-  await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
-  await load(page); await expect(page.locator('#status')).toContainText('smoke.sfc loaded');
+  await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
+  await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
   // Storage can become unavailable during asynchronous file reading/hashing,
   // after the initial save succeeded but before the machine is replaced.
@@ -98,7 +99,7 @@ test('failed SRAM writes block cartridge changes until the save can be recovered
     crypto.subtle.digest = async (...args) => { await new Promise((resolve) => { window.releaseHash = resolve; }); return digest(...args); };
     window.originalSetItem = Storage.prototype.setItem;
   });
-  await load(page, other, 'other.sfc');
+  await load(page, other, 'other.sfc', false);
   await expect.poll(() => page.evaluate(() => typeof window.releaseHash)).toBe('function');
   await page.evaluate(() => {
     new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x48;
@@ -110,12 +111,12 @@ test('failed SRAM writes block cartridge changes until the save can be recovered
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x48);
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
   await page.locator('#reset').click(); await expect(page.locator('#error')).toBeEmpty();
-  await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
-  await load(page); await expect(page.locator('#status')).toContainText('loaded');
+  await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
+  await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x48);
 });
 test('reset and Play keep SRAM persistence failures visible and retain the save', async ({ page }) => {
-  await load(page); await expect(page.locator('#status')).toContainText('loaded');
+  await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   await page.evaluate(() => {
     new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79;
     window.originalSetItem = Storage.prototype.setItem;
@@ -132,8 +133,8 @@ test('reset and Play keep SRAM persistence failures visible and retain the save'
   await expect(page.locator('#error')).toContainText('Could not persist SRAM');
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
   await page.locator('#reset').click(); await expect(page.locator('#error')).toBeEmpty();
-  await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
-  await load(page); await expect(page.locator('#status')).toContainText('loaded');
+  await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
+  await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
 });
 test('invalid cartridges report errors without crashing the browser', async ({ page }) => {
@@ -143,10 +144,10 @@ test('invalid cartridges report errors without crashing the browser', async ({ p
 });
 for (const failure of ['read', 'base64', 'size']) {
   test(`failed SRAM restoration (${failure}) preserves persisted bytes until retry`, async ({ page }) => {
-    await load(page); await expect(page.locator('#status')).toContainText('loaded');
+    await load(page); await expect(page.locator('#status')).toHaveText('Playing');
     await page.evaluate(() => { new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79; });
     await page.locator('#reset').click();
-    await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
+    await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
     await page.evaluate((failure) => {
       window.saveKey = Object.keys(localStorage).find((k) => k.startsWith('snes-rust:sram:'));
       window.validSave = localStorage.getItem(window.saveKey);
@@ -177,8 +178,8 @@ for (const failure of ['read', 'base64', 'size']) {
     await expect(page.locator('#error')).toBeEmpty(); await expect(page.locator('#play')).toBeEnabled();
     expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
     await page.locator('#reset').click();
-    await page.reload(); await expect(page.locator('#status')).toContainText('Open a local');
-    await load(page); await expect(page.locator('#status')).toContainText('loaded');
+    await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
+    await load(page); await expect(page.locator('#status')).toHaveText('Playing');
     expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
   });
 }

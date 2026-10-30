@@ -6,6 +6,7 @@ use std::cell::RefCell;
 struct State {
     input: Vec<u8>,
     machine: Option<Machine>,
+    prepared: Option<Machine>,
     error: Vec<u8>,
     audio: Vec<f32>,
 }
@@ -41,6 +42,38 @@ pub extern "C" fn load_rom() -> u32 {
     perform(|s| {
         let m = Machine::new(&s.input)?;
         s.machine = Some(m);
+        s.audio.clear();
+        Ok(())
+    })
+}
+/// Validate a candidate without replacing the inserted cartridge. Its battery
+/// save must also restore successfully before commit_rom makes it current.
+#[no_mangle]
+pub extern "C" fn prepare_rom() -> u32 {
+    perform(|s| {
+        s.prepared = None;
+        s.prepared = Some(Machine::new(&s.input)?);
+        Ok(())
+    })
+}
+#[no_mangle]
+pub extern "C" fn prepared_sram_len() -> usize {
+    STATE.with(|s| {
+        s.borrow()
+            .prepared
+            .as_ref()
+            .filter(|m| m.bus.cart.battery)
+            .map_or(0, |m| m.bus.cart.sram.len())
+    })
+}
+#[no_mangle]
+pub extern "C" fn commit_rom(restore: u32) -> u32 {
+    perform(|s| {
+        let candidate = s.prepared.as_mut().ok_or("No prepared cartridge")?;
+        if restore != 0 {
+            candidate.load_sram(&s.input)?;
+        }
+        s.machine = s.prepared.take();
         s.audio.clear();
         Ok(())
     })
@@ -164,4 +197,34 @@ pub extern "C" fn peek(address: u32) -> u32 {
             .as_ref()
             .map_or(0, |m| m.bus.peek(address & 0xffffff) as u32)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cartridge_commit_preserves_inserted_machine_until_save_restores() {
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            *s = State::default();
+            s.input = include_bytes!("../../../tests/roms/smoke.bin").to_vec();
+        });
+        assert_eq!(load_rom(), 1);
+        STATE.with(|s| s.borrow_mut().machine.as_mut().unwrap().bus.cart.sram[3] = 0x79);
+        assert_eq!(prepare_rom(), 1);
+        assert!(prepared_sram_len() > 0);
+        STATE.with(|s| s.borrow_mut().input = vec![0; 3]);
+        assert_eq!(commit_rom(1), 0);
+        STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            assert_eq!(s.machine.as_ref().unwrap().bus.cart.sram[3], 0x79);
+            s.input = vec![0x48; s.prepared.as_ref().unwrap().bus.cart.sram.len()];
+        });
+        assert_eq!(commit_rom(1), 1);
+        STATE.with(|s| assert_eq!(s.borrow().machine.as_ref().unwrap().bus.cart.sram[3], 0x48));
+        assert_eq!(commit_rom(0), 0);
+        assert_eq!(prepare_rom(), 0); // SRAM bytes are not a valid ROM.
+        STATE.with(|s| assert_eq!(s.borrow().machine.as_ref().unwrap().bus.cart.sram[3], 0x48));
+    }
 }

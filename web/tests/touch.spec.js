@@ -1,3 +1,4 @@
+import { selectDemo } from './cartridge.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
@@ -21,9 +22,8 @@ async function boot(page, diagnostic = true) {
   await page.goto('/'); await expect(page.locator('#demo')).toBeEnabled();
   if (diagnostic) {
     await page.locator('#rom').setInputFiles({ name: 'controller-probe.sfc', mimeType: 'application/octet-stream', buffer: probe });
-    await expect(page.locator('#status')).toContainText('loaded');
-    await page.locator('#play').tap();
-  } else await page.locator('#demo').tap();
+    await expect(page.locator('#status')).toHaveText('Playing');
+  } else await selectDemo(page);
   await expect(page.locator('#status')).toHaveText('Playing');
 }
 async function fingers(page) {
@@ -43,7 +43,7 @@ async function layout(page) {
   const result = await page.evaluate(() => {
     const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
     return { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight,
-      screen: rect(document.querySelector('canvas')), actions: [...document.querySelectorAll('#demo, .file, #play')].map(rect), buttons: [...document.querySelectorAll('[data-button]')].map(button => {
+      screen: rect(document.querySelector('canvas')), actions: [...document.querySelectorAll('#change-cartridge, #current-game, #play')].map(rect), buttons: [...document.querySelectorAll('[data-button]')].map(button => {
         const r = rect(button), hit = document.elementFromPoint(r.x + r.width/2, r.y + r.height/2);
         return { ...r, label: button.ariaLabel, hit: hit === button };
       }) };
@@ -62,6 +62,9 @@ async function layout(page) {
 
 test('all twelve touch buttons reach real guest auto-read registers with their SNES bits', async ({ page }) => {
   await boot(page); const touch = await fingers(page); await layout(page);
+  await page.locator('#change-cartridge').tap(); await page.locator('h1').tap();
+  await expect(page.locator('#cartridge-picker')).toBeHidden();
+  await expect(page.locator('#status')).toHaveText('Playing');
   for (const [name, mask] of Object.entries(masks)) {
     await touch.down(name); await expect.poll(() => controller(page), { message: name }).toBe(mask);
     await touch.up(); await expect.poll(() => controller(page)).toBe(0);
@@ -134,10 +137,10 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }
 }
 
 for (const viewport of [{ width: 375, height: 667 }, { width: 360, height: 640 }]) {
-  test(`one-tap demo keeps every touch control in view at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+  test(`demo selection keeps every touch control in view at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page, false); await layout(page);
-    await page.locator('#demo').tap(); await expect(page.locator('#status')).toHaveText('Paused'); await layout(page);
-    await page.locator('#demo').tap(); await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
+    await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Paused'); await layout(page);
+    await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
     expect(await page.evaluate(() => scrollY)).toBe(0);
   });
 }
@@ -152,8 +155,8 @@ test('Shionari title advances into its real story with mobile A touch', async ({
   await touch.down('A'); await expect.poll(scene).not.toBe(title); await touch.up();
   await page.waitForTimeout(1000); expect(await scene()).not.toBe(title);
   await page.setViewportSize({ width: 667, height: 320 }); await layout(page);
-  await page.locator('#demo').tap(); await expect(page.locator('#status')).toHaveText('Paused');
-  await page.locator('#demo').tap(); await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Paused');
+  await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Playing');
 });
 
 

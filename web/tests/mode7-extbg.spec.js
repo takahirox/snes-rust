@@ -20,10 +20,11 @@ test('Mode 7 EXTBG: CPU-built BG2, priority, transparency and BG1 direct color i
     };
   });
   await page.goto('/');
-  await expect(page.locator('#status')).toContainText('Open a local');
+  await expect(page.locator('#status')).toHaveText('Ready');
   const buffer = readFileSync(new URL('../../.cache/mode7-extbg/mode7-extbg.sfc', import.meta.url));
   await page.locator('#rom').setInputFiles({ name:'mode7-extbg.sfc', mimeType:'application/octet-stream', buffer });
-  await expect(page.locator('#status')).toContainText('loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
   await page.locator('#play').click();
   // Poll real framebuffer/canvas observations; hosts never write emulator state.
   // Three observations separated by animation callbacks check stable displayed output.

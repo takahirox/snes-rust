@@ -18,10 +18,11 @@ test('Mode 7 scroll: CPU shared latch results and independent offsets in Wasm/ca
     };
   });
   await page.goto('/');
-  await expect(page.locator('#status')).toContainText('Open a local');
+  await expect(page.locator('#status')).toHaveText('Ready');
   const buffer = readFileSync(new URL('../../.cache/mode7-scroll/mode7-scroll.sfc', import.meta.url));
   await page.locator('#rom').setInputFiles({ name:'mode7-scroll.sfc', mimeType:'application/octet-stream', buffer });
-  await expect(page.locator('#status')).toContainText('loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
   await page.locator('#play').click();
   const results = [
     0x34,0x12,0, 0x34,0x12,0, 0x34,0x12,0, 0x34,0x12,0,

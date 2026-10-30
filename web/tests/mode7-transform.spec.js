@@ -18,11 +18,12 @@ for (const variant of ['fractional','clipped']) for (const layer of ['bg1','bg2'
       };
     });
     await page.goto('/');
-    await expect(page.locator('#status')).toContainText('Open a local');
+    await expect(page.locator('#status')).toHaveText('Ready');
     const name = `${variant}-${layer}.sfc`;
     const buffer = readFileSync(new URL(`../../.cache/mode7-transform/${name}`, import.meta.url));
     await page.locator('#rom').setInputFiles({ name, mimeType:'application/octet-stream', buffer });
-    await expect(page.locator('#status')).toContainText('loaded');
+    await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
     await page.locator('#play').click();
     const points = variant === 'fractional' ? [[0,red],[7,red],[8,green],[15,green]] : [[0,red],[1,red],[2,green],[7,green]];
     for (let observation = 0; observation < 3; observation++) {

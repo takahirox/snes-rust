@@ -19,10 +19,11 @@ for (const selector of [6,7]) {
       };
     });
     await page.goto('/');
-    await expect(page.locator('#status')).toContainText('Open a local');
+    await expect(page.locator('#status')).toHaveText('Ready');
     const buffer = readFileSync(new URL(`../../.cache/obj-sizes/obj-sizes-${selector}.sfc`, import.meta.url));
     await page.locator('#rom').setInputFiles({ name:`obj-sizes-${selector}.sfc`, mimeType:'application/octet-stream', buffer });
-    await expect(page.locator('#status')).toContainText('loaded');
+    await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
     // Literal crops of the original cartridge image, never PPU helper output.
     const vectors = [
       [24,24,1], [25,24,4], [31,31,1], [32,32,7],

@@ -1,3 +1,4 @@
+import { selectDemo } from './cartridge.js';
 import { test, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -56,7 +57,7 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
     };
   });
   await page.goto(`${origin}${prefix}`);
-  await expect(page.locator('#status')).toHaveText('Open a local SNES ROM or load the demo to begin');
+  await expect(page.locator('#status')).toHaveText('Ready');
   await expect(page.locator('#rom')).toBeEnabled();
   await expect(page.locator('canvas')).toHaveCSS('image-rendering', 'pixelated');
   await loadDemo(page);
@@ -65,8 +66,7 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
     name: 'smoke.sfc', mimeType: 'application/octet-stream',
     buffer: readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url)),
   });
-  await expect(page.locator('#play')).toBeEnabled();
-  await page.locator('#play').click();
+  await expect(page.locator('#status')).toHaveText('Playing');
   await page.keyboard.down('ArrowRight');
   await expect.poll(() => page.evaluate(() => pagesCore.peek(0x11))).toBe(1);
   await page.keyboard.up('ArrowRight');
@@ -87,16 +87,14 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
 });
 
 async function loadDemo(page) {
-  // If already running, pause first: the primary action resumes rather than reloading.
-  if (await page.locator('#demo').textContent() === 'Pause demo') await page.locator('#demo').click();
-  await page.locator('#demo').click();
+  await selectDemo(page);
   await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#play')).toBeEnabled();
   expect(await page.evaluate(() => [pagesCore.battery(), pagesCore.sram_len()])).toEqual([1, 8192]);
 }
 async function localRom(page, buffer = fixture) {
   await page.locator('#rom').setInputFiles({ name: 'local.sfc', mimeType: 'application/octet-stream', buffer });
-  await expect(page.locator('#status')).toContainText('local.sfc loaded');
+  await expect(page.locator('#status')).toHaveText('Playing');
 }
 async function boot(page) {
   await page.addInitScript(() => {
@@ -202,8 +200,9 @@ test('failed saves protect both demo and local cartridges, including same-demo r
     window.originalSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = () => { throw new DOMException('Storage full', 'QuotaExceededError'); };
   });
+  await page.locator('#play').click();
   for (const source of ['demo', 'local']) {
-    if (source === 'demo') await page.locator('#demo').click();
+    if (source === 'demo') await selectDemo(page);
     else await page.locator('#rom').setInputFiles({ name: 'local.sfc', mimeType: 'application/octet-stream', buffer: fixture });
     await expect(page.locator('#error')).toContainText('Could not persist SRAM');
     expect(await marker(page)).toBe(0x79);
@@ -212,7 +211,7 @@ test('failed saves protect both demo and local cartridges, including same-demo r
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
   await localRom(page); await setMarker(page, 0x26);
   await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('Storage full', 'QuotaExceededError'); }; });
-  await page.locator('#demo').click();
+  await selectDemo(page);
   await expect(page.locator('#error')).toContainText('Could not persist SRAM');
   expect(await marker(page)).toBe(0x26);
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; });
@@ -231,7 +230,7 @@ for (const failure of ['read', 'base64', 'size']) test(`failed demo restore (${f
     window.originalGetItem = Storage.prototype.getItem;
     if (failure === 'read') Storage.prototype.getItem = () => { throw new DOMException('Storage unavailable', 'SecurityError'); };
   }, { saveKey, failure });
-  await page.locator('#demo').click();
+  await selectDemo(page);
   await expect(page.locator('#error')).toContainText('Save could not be restored');
   await expect(page.locator('#play')).toBeDisabled(); await expect(page.locator('#reset')).toBeDisabled();
   await page.evaluate(() => {
@@ -239,7 +238,7 @@ for (const failure of ['read', 'base64', 'size']) test(`failed demo restore (${f
     document.getElementById('reset').dispatchEvent(new Event('click'));
     window.dispatchEvent(new Event('pagehide'));
   });
-  await page.locator('#demo').click();
+  await selectDemo(page);
   await page.locator('#rom').setInputFiles({ name: 'local.sfc', mimeType: 'application/octet-stream', buffer: fixture });
   await expect(page.locator('#error')).toContainText('Save could not be restored');
   expect(await page.evaluate(saveKey => localStorage.getItem(saveKey), saveKey)).toBe(await page.evaluate(() => persistedSave));
@@ -257,7 +256,7 @@ test('demo download errors and corrupt bytes preserve the previous playable cart
     { status: 200, body: fixture, message: 'Demo download does not match the published ROM' },
   ]) {
     await page.route('**/shionari.sfc', route => route.fulfill({ status: response.status, contentType: 'application/octet-stream', body: response.body }));
-    await page.locator('#demo').click();
+    await selectDemo(page);
     await expect(page.locator('#error')).toContainText(response.message);
     await expect(page.locator('#status')).toHaveText('Paused');
     await expect(page.locator('#play')).toBeEnabled(); expect(await marker(page)).toBe(0x79);
@@ -292,7 +291,7 @@ test('demo loading reports progress, accepts binary MIME types and rechecks savi
   await boot(page); await localRom(page); await setMarker(page, 0x79);
   let pending;
   await page.route('**/shionari.sfc', route => { pending = route; });
-  await page.locator('#demo').click();
+  await selectDemo(page);
   await expect(page.locator('#status')).toHaveText('Loading 潮鳴りの密室 / Shionari no Misshitsu…');
   for (const id of ['demo', 'rom', 'play', 'reset']) await expect(page.locator(`#${id}`)).toBeDisabled();
   await expect.poll(() => Boolean(pending)).toBe(true);
@@ -316,3 +315,43 @@ test('demo loading reports progress, accepts binary MIME types and rechecks savi
   }
   await localRom(page); expect(await marker(page)).toBe(0x48);
 });
+
+for (const destination of ['demo', 'local']) for (const failure of ['read', 'base64', 'size']) {
+  test(`switching to ${destination}: failed ${failure} restore retains the inserted machine and both saves until retry`, async ({ page }) => {
+    await boot(page);
+    const localKey = `snes-rust:sram:${createHash('sha256').update(fixture).digest('hex')}`;
+    const targetKey = destination === 'demo' ? saveKey : localKey;
+    const oldKey = destination === 'demo' ? localKey : saveKey;
+    if (destination === 'demo') await localRom(page); else await loadDemo(page);
+    await setMarker(page, 0x79);
+    const oldName = await page.locator('#current-game').textContent();
+    const valid = Buffer.alloc(destination === 'demo' ? 8192 : 1024 << fixture[0x7fd8]);
+    valid[3] = 0x48;
+    await page.evaluate(({ targetKey, valid, failure }) => {
+      window.targetSave = valid;
+      localStorage.setItem(targetKey, failure === 'base64' ? '%invalid%' : failure === 'size' ? btoa('short') : valid);
+      window.targetBefore = localStorage.getItem(targetKey);
+      window.originalGetItem = Storage.prototype.getItem;
+      if (failure === 'read') Storage.prototype.getItem = function (key) {
+        if (key === targetKey) throw new DOMException('Storage unavailable', 'SecurityError');
+        return window.originalGetItem.call(this, key);
+      };
+    }, { targetKey, valid: valid.toString('base64'), failure });
+    if (destination === 'demo') await selectDemo(page);
+    else await page.locator('#rom').setInputFiles({ name: 'local.sfc', mimeType: 'application/octet-stream', buffer: fixture });
+    await expect(page.locator('#error')).toContainText('Save could not be restored');
+    await expect(page.locator('#current-game')).toHaveText(oldName);
+    expect(await marker(page)).toBe(0x79);
+    await expect(page.locator('#play')).toBeDisabled();
+    await page.evaluate(() => { Storage.prototype.getItem = originalGetItem; window.dispatchEvent(new Event('pagehide')); });
+    expect(await page.evaluate(targetKey => localStorage.getItem(targetKey), targetKey)).toBe(await page.evaluate(() => targetBefore));
+    expect(await page.evaluate(oldKey => atob(localStorage.getItem(oldKey)).charCodeAt(3), oldKey)).toBe(0x79);
+    await page.evaluate(targetKey => localStorage.setItem(targetKey, targetSave), targetKey);
+    await page.locator('#retry-save').click();
+    await expect(page.locator('#status')).toHaveText('Playing');
+    await expect(page.locator('#error')).toBeEmpty();
+    expect(await marker(page)).toBe(0x48);
+    if (destination === 'demo') await localRom(page); else await loadDemo(page);
+    expect(await marker(page)).toBe(0x79);
+  });
+}

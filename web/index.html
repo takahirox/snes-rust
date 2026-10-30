@@ -37,15 +37,15 @@
     </header>
     <section class="player" aria-label="SNES player">
       <div class="screen"><canvas tabindex="0" width="256" height="224" aria-label="Emulated SNES display"></canvas><span id="placeholder">Ready when you are</span></div>
-      <div class="game-entry" role="group" aria-label="Game selection">
-        <div class="entry-options">
-          <div class="demo-option">
-            <button id="demo" class="primary" aria-describedby="demo-caption" disabled>Try demo</button>
-            <p id="demo-caption" lang="ja">潮鳴りの密室</p>
-          </div>
-          <label class="file">Open ROM <input id="rom" type="file" disabled accept=".sfc,.smc" aria-label="Open ROM"></label>
+      <div class="game-entry" role="group" aria-label="Cartridge slot">
+        <div class="cartridge-value"><span id="cartridge-label">Inserted cartridge</span><p id="current-game" aria-labelledby="cartridge-label" title="None">None</p></div>
+        <button id="change-cartridge" popovertarget="cartridge-picker" aria-haspopup="dialog" disabled>Change cartridge</button>
+        <div id="cartridge-picker" popover role="dialog" aria-labelledby="cartridge-title">
+          <h2 id="cartridge-title">Cartridges</h2>
+          <button id="demo" autofocus disabled>Bundled demo — <span lang="ja">潮鳴りの密室</span></button>
+          <button id="open-local" disabled>Open local ROM…</button>
         </div>
-        <p id="current-game" hidden></p>
+        <input id="rom" type="file" hidden disabled accept=".sfc,.smc" aria-label="Open local ROM">
       </div>
       <div class="toolbar" role="group" aria-label="Playback controls">
         <button id="play" disabled>Play</button>
