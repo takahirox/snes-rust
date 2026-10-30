@@ -26,7 +26,7 @@ test('one activation unlocks audio before a delayed fetch; duplicate activations
   let pending, requests = 0;
   await page.route('**/shionari.sfc', route => { requests++; pending = route; });
   expect(await page.evaluate(() => launchMetrics.resumes.length)).toBe(0);
-  await expect(page.locator('#demo')).toHaveText('Play demo');
+  await expect(page.locator('#demo')).toHaveText('Try demo');
   await page.locator('#demo').click();
   await expect(page.locator('#status')).toContainText('Loading'); await expect(page.locator('#demo')).toBeDisabled();
   expect(await page.evaluate(() => launchMetrics.resumes)).toEqual([{ active: true, loads: 0 }]);

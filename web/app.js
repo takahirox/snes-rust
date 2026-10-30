@@ -60,7 +60,7 @@ $('retry-save').addEventListener('click', () => { restoreSave(); if (!restorePen
 function flushAudio() { for (const source of sources) source.stop(); sources.clear(); nextAudio = 0; }
 function updatePlayback() {
   $('play').textContent = playing ? 'Pause' : 'Play';
-  $('demo').textContent = activeDemo ? (restorePending ? 'Restore save first' : playing ? 'Pause demo' : 'Resume demo') : 'Play demo';
+  $('demo').textContent = activeDemo ? (restorePending ? 'Restore save first' : playing ? 'Pause demo' : 'Resume demo') : 'Try demo';
   document.body.classList.toggle('has-cartridge', loaded);
   for (const button of touchButtons) button.disabled = !playing;
 }
@@ -144,8 +144,8 @@ async function loadCartridge(name, read, local = false) {
     // load_rom validates before replacing the old machine, leaving it intact on error.
     copyInput(data); check(core.load_rom()); key = `snes-rust:sram:${hash}`; loaded = true; activeDemo = !local;
     $('placeholder').hidden = true;
-    $('game-title').textContent = local ? name : '潮鳴りの密室';
-    $('game-subtitle').textContent = local ? 'Local cartridge · stays in this browser' : 'Shionari no Misshitsu';
+    $('current-game').textContent = name;
+    $('current-game').hidden = false;
     if (core.battery() && core.sram_len()) restoreSave();
     $('status').textContent = restorePending ? `${name} loaded — restore save before playing` : `${name} loaded — click Play`; draw();
   } catch (e) {

@@ -4,8 +4,9 @@ body { margin: 0; }
 main { max-width: 1160px; margin: auto; padding: max(22px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
 header, nav { display: flex; align-items: center; gap: 24px; }
 header { justify-content: space-between; margin-bottom: 28px; }
-h1 { font-size: 21px; letter-spacing: -.04em; margin: 0; }
-h2 { font-size: 26px; line-height: 1.3; margin: 6px 0; }
+.app-identity { display: flex; align-items: baseline; gap: 12px; }
+h1 { font-size: 28px; line-height: 1.2; letter-spacing: -.04em; margin: 0; }
+.app-identity p { margin: 0; font-size: 13px; color: #697078; }
 p { margin: 8px 0; }
 button, select, .file { font: inherit; border: 1px solid #c9cdce; border-radius: 8px; background: #fff; color: inherit; padding: 10px 16px; }
 button, .file, summary { cursor: pointer; touch-action: manipulation; }
@@ -22,10 +23,12 @@ button:hover:enabled, .file:hover { background: #edf0ec; }
 canvas { display: block; width: 768px; height: auto; aspect-ratio: 256 / 224; max-width: 100%; object-fit: fill; image-rendering: pixelated; background: #10161b; }
 #placeholder { position: absolute; color: #aab4bb; font-size: 14px; pointer-events: none; }
 #placeholder[hidden] { display: none; }
-.game-info { display: flex; flex-direction: column; gap: 12px; }
-.game-title { margin-bottom: 12px; }
-.eyebrow { color: #64746a; font-size: 10px; letter-spacing: .14em; font-weight: 650; }
-#game-subtitle { color: #697078; font-size: 14px; }
+.game-entry { min-width: 0; }
+.entry-options { display: grid; gap: 12px; align-items: start; }
+.demo-option { display: grid; min-width: 0; }
+#demo-caption, #current-game { color: #697078; font-size: 12px; line-height: 1.5; }
+#demo-caption { margin: 4px 0 0; text-align: center; }
+#current-game { margin: 12px 0 0; overflow-wrap: anywhere; }
 .toolbar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .toolbar button, .sound { padding: 7px 12px; font-size: 13px; }
 .sound { display: flex; align-items: center; gap: 5px; }
@@ -42,18 +45,16 @@ a { color: #285e4b; }
 @media (max-width: 760px), (pointer: coarse), (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
   main { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
   header { margin-bottom: 12px; gap: 10px; }
-  h1 { font-size: 18px; }
+  .app-identity { display: block; flex-shrink: 0; }
+  h1 { font-size: 20px; }
+  .app-identity p { font-size: 10px; line-height: 1.2; }
   nav { gap: 12px; }
   summary { font-size: 11px; }
   .player { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .screen { padding: 6px; border-radius: 8px; }
   canvas { width: 100% !important; }
-  .game-info { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .game-title { flex: 1 0 100%; margin: 0; }
-  h2 { font-size: 20px; margin: 0; }
-  .eyebrow { display: none; }
-  #game-subtitle { margin: 2px 0 4px; font-size: 12px; }
-  .game-info button, .file { flex: 1; padding: 10px 12px; }
+  .entry-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .entry-options button, .file { padding: 10px 12px; }
   .toolbar { gap: 4px; }
   .toolbar button, .sound { padding: 7px 8px; }
   #status { flex: 1 0 100%; margin: 2px 0 0; }
@@ -72,10 +73,11 @@ a { color: #285e4b; }
   .system { min-width: 72px !important; font-size: 12px; }
   .left-controls .system { justify-self: end; }
   .right-controls .system { justify-self: start; }
-  body.has-cartridge .game-title { display: none; }
+  body.has-cartridge #demo-caption, #current-game { display: none; }
   @media (orientation: portrait) {
-    /* Reserve the header, actions, 44px controls and gaps before sizing video. */
-    body.has-cartridge canvas { width: min(100%, max(1px, calc((100svh - 432px - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))) * 256 / 224))) !important; }
+    /* Reserve the header, entry metadata, actions and 44px controls before sizing video. */
+    canvas { width: min(100%, max(1px, calc((100svh - 480px - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))) * 256 / 224))) !important; }
+    body.has-cartridge canvas { width: min(100%, max(1px, calc((100svh - 440px - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))) * 256 / 224))) !important; }
   }
 }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
@@ -85,13 +87,14 @@ a { color: #285e4b; }
   .screen { grid-area: 1 / 2; padding: 0; background: transparent; }
   /* The center column already excludes safe-area padding and both clusters.
      Constrain width only so height follows the same 256:224 aspect ratio. */
-  canvas { width: min(100%, calc((100svh - 120px - max(6px, env(safe-area-inset-top)) - max(6px, env(safe-area-inset-bottom))) * 256 / 224)) !important; height: auto; }
+  canvas { width: min(100%, calc((100svh - 132px - max(6px, env(safe-area-inset-top)) - max(6px, env(safe-area-inset-bottom))) * 256 / 224)) !important; height: auto; }
+  body:not(.has-cartridge) canvas { width: min(100%, calc((100svh - 152px - max(6px, env(safe-area-inset-top)) - max(6px, env(safe-area-inset-bottom))) * 256 / 224)) !important; }
   .touch-controls { display: contents; }
   .left-controls { grid-area: 1 / 1 / 4 / 2; }
   .right-controls { grid-area: 1 / 3 / 4 / 4; }
-  .game-info { grid-area: 2 / 2; justify-content: center; flex-wrap: nowrap; }
-  .game-title { display: none; }
-  .game-info button, .file { font-size: 12px; padding: 6px 8px; }
+  .game-entry { grid-area: 2 / 2; }
+  #demo-caption, #current-game { display: none; }
+  .entry-options button, .file { font-size: 12px; padding: 6px 8px; }
   .toolbar { grid-area: 3 / 2; justify-content: center; gap: 2px; }
   .toolbar button, .sound { padding: 3px 5px; font-size: 11px; }
   #fullscreen { display: none; }

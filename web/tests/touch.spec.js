@@ -42,15 +42,16 @@ async function fingers(page) {
 async function layout(page) {
   const result = await page.evaluate(() => {
     const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
-    return { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth,
-      screen: rect(document.querySelector('canvas')), buttons: [...document.querySelectorAll('[data-button]')].map(button => {
+    return { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight,
+      screen: rect(document.querySelector('canvas')), actions: [...document.querySelectorAll('#demo, .file, #play')].map(rect), buttons: [...document.querySelectorAll('[data-button]')].map(button => {
         const r = rect(button), hit = document.elementFromPoint(r.x + r.width/2, r.y + r.height/2);
         return { ...r, label: button.ariaLabel, hit: hit === button };
       }) };
   });
   expect(result.scrollWidth).toBe(result.width);
+  expect(result.scrollHeight).toBe(result.height);
   expect(result.buttons).toHaveLength(12);
-  for (const r of [result.screen, ...result.buttons]) {
+  for (const r of [result.screen, ...result.actions, ...result.buttons]) {
     expect(r.x, r.label).toBeGreaterThanOrEqual(0); expect(r.y, r.label).toBeGreaterThanOrEqual(0);
     expect(r.right, r.label).toBeLessThanOrEqual(result.width); expect(r.bottom, r.label).toBeLessThanOrEqual(result.height);
   }
@@ -162,7 +163,7 @@ for (const viewport of [{ width: 844, height: 390 }, { width: 568, height: 320 }
     const session = await page.context().newCDPSession(page);
     await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, bottom: 21, top: 0 } });
     await boot(page); const result = await layout(page);
-    for (const r of [result.screen, ...result.buttons]) {
+    for (const r of [result.screen, ...result.actions, ...result.buttons]) {
       expect(r.x).toBeGreaterThanOrEqual(44); expect(r.right).toBeLessThanOrEqual(viewport.width - 44);
       expect(r.bottom).toBeLessThanOrEqual(viewport.height - 21);
     }
