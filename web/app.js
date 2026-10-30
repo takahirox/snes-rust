@@ -7,7 +7,7 @@ let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastT
 let keyboard = 0;
 let operationError = '', persistenceError = '', restorePending = false, loading = false;
 const demoName = '潮鳴りの密室 / Shionari no Misshitsu';
-const demoHash = '3cb02d07e3bf2bc3bf470311b4046ffb061ee7f8aa7b844e551b4144f0826b42';
+const demoHash = 'fec1f087f5cc6fbac6f073821b6212188d7b77a2e8191fa82f6056f80fb75343';
 const sources = new Set();
 // Pace by the confirmed 714732-master-clock NTSC non-interlaced field pair.
 const frameMilliseconds = 1000 * 714732 / 2 / 21477272;
