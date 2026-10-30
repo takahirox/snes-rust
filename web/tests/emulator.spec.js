@@ -37,7 +37,9 @@ test('real wasm renders frames, reads keyboard/gamepad, produces audio and pause
   await page.locator('#play').click(); await expect(page.locator('#status')).toHaveText('Paused');
   const paused = await page.locator('canvas').evaluate((c) => c.toDataURL());
   await page.waitForTimeout(100); expect(await page.locator('canvas').evaluate((c) => c.toDataURL())).toBe(paused);
+  await page.getByText('Help / Controls', { exact: true }).click();
   await page.locator('#scale').selectOption('3'); await expect(page.locator('canvas')).toHaveCSS('width', '768px');
+  await page.getByText('Help / Controls', { exact: true }).click();
   await page.locator('#reset').click(); await expect(page.locator('#status')).toContainText('SRAM preserved');
   expect(errors).toEqual([]); expect(uploads).toEqual([]); await expect(page.locator('#error')).toBeEmpty();
 });
@@ -46,7 +48,7 @@ for (const control of ['sound', 'scale']) test(`keyboard releases held buttons a
   await page.keyboard.down('ArrowRight');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(1);
   if (control === 'sound') await page.locator('#sound').click();
-  else await page.locator('#scale').focus();
+  else { await page.getByText('Help / Controls', { exact: true }).click(); await page.locator('#scale').focus(); }
   await expect(page.locator(`#${control}`)).toBeFocused();
   await page.keyboard.up('ArrowRight');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(0);

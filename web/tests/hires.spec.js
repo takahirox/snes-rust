@@ -57,11 +57,13 @@ for (const mode of [5,6]) test(`Mode ${mode}: real canvas/Wasm 256→512→256, 
   // Detach old JS views explicitly; subsequent draws must reacquire Wasm memory.
   await page.evaluate(() => testCore.memory.grow(1));
   await checkFrame(page,512,mode);
+  await page.getByText('Help / Controls', { exact: true }).click();
   await page.locator('#scale').selectOption('3');
   await expect(page.locator('canvas')).toHaveCSS('width','768px');
   expect((await snapshot(page)).shape).toBeCloseTo(256/224,3);
   await page.keyboard.up('KeyX'); await checkFrame(page,256,mode);
   await page.locator('#scale').selectOption('2');
+  await page.getByText('Help / Controls', { exact: true }).click();
   await page.keyboard.down('KeyX'); await checkFrame(page,512,mode);
   await page.locator('#reset').click(); await page.keyboard.up('KeyX');
   let s=await snapshot(page); expect([s.width,s.height,s.len,s.canvasWidth]).toEqual([256,224,256*224*4,256]);

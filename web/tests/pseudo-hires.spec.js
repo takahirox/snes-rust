@@ -49,8 +49,10 @@ test('SETINI: real canvas/Wasm phases, 256→512→256, reset and replacement', 
   await page.keyboard.down('KeyX'); // Guest changes only SETINI, in VBlank after joypad completion.
   await checkFrame(page,true);
   await page.evaluate(() => testCore.memory.grow(1)); await checkFrame(page,true);
+  await page.getByText('Help / Controls', { exact: true }).click();
   await page.locator('#scale').selectOption('3');
   await expect(page.locator('canvas')).toHaveCSS('width','768px');
+  await page.getByText('Help / Controls', { exact: true }).click();
   expect((await snapshot(page)).shape).toBeCloseTo(256/224,3);
   await page.keyboard.up('KeyX'); await checkFrame(page,false);
   await page.keyboard.down('KeyX'); await checkFrame(page,true);
