@@ -782,4 +782,5 @@ context; a program legitimately waiting forever is bounded by the frame limit.
 ## Contributing
 
 Follow the [development flow](docs/development-flow.md),
+[test and CI performance principles](docs/development-flow.md#test-and-ci-performance-principles),
 [review guidelines](docs/review-guidelines.md), and [agent guidance](AGENTS.md).

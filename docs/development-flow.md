@@ -47,6 +47,8 @@ Runtime and browser tooling is now configured. Follow the [README validation
 commands](../README.md#validate), including source-built hardware fixtures when
 changing emulation behavior. Do not run incompletely audited external games in
 CI or include their binaries. Report optional game checks separately.
+Use the [test and CI performance principles](#test-and-ci-performance-principles)
+when selecting or changing validation.
 
 For templates and documentation, inspect Markdown structure, template syntax,
 links (including anchors), whitespace, and consistency. Use available tooling
@@ -56,6 +58,56 @@ diff for accidental scope changes. No runtime tests, hardware/device checks, or
 deployed-site verification are required for a documentation-only change like this
 collaboration setup. If tooling is added for a future Issue, use the actual
 documented commands appropriate to that change.
+
+### Test and CI performance principles
+
+**Detect the required failures at the lightest appropriate layer, without
+redundant execution.** Preserve required correctness, regressions and meaningful
+integration coverage when redistributing checks. These principles guide future
+test/CI work; they do not change current checks or introduce a new merge gate.
+
+1. **Prefer the lightest meaningful layer.** Use Rust unit tests for calculations,
+   branches and broad data combinations. Use native CPU-executed guests and
+   source-built ROM suites for machine integration, and Wasm/Playwright checks
+   for browser boundaries such as canvas output, Web Audio, controls and saves.
+   Add assertions that detect concrete defects, rather than mirror implementation.
+2. **Choose combinations deliberately.** Cover distinct cartridge mappings,
+   PPU/DSP paths and browser states with representative cases. Exhaust combinations
+   where interactions require it, rather than multiplying every ROM, mode,
+   viewport and input path. Retain required regressions and integration evidence.
+3. **Match validation to the change.** Documentation-only changes need Markdown,
+   link/anchor, consistency and whitespace checks. UI changes need relevant
+   production-build and browser checks; core/runtime changes need applicable
+   Rust, source-built ROM and Wasm/browser checks from [README](../README.md#validate).
+   CI/build changes need validation of the affected jobs and produced artifacts.
+   Use focused checks for fast feedback and full applicable regression checks
+   before merge; focused runs do not replace mandatory pre-merge validation.
+   Keep optional user-supplied game investigations separate. Pages calls
+   [Emulator checks](../.github/workflows/ci.yml) before deploying on `main`;
+   local subpath smoke tests run before merge, while genuinely required live-site
+   verification belongs in separately recorded post-merge work.
+4. **Reuse work and avoid duplicate execution.** Reuse builds, verified downloads
+   and fixtures with keys covering toolchain, dependencies and source inputs,
+   preserving isolation and hash/provenance checks. Keep the deliberate repeated
+   fresh cleared-game builds that verify reproducibility. CI currently caches npm
+   downloads, and [Pages](../.github/workflows/pages.yml) reuses the checks workflow
+   and validated site artifact. Non-`main` push and PR triggers can still overlap:
+   future CI work should avoid equivalent runs for the same revision and cancel
+   superseded checks when safe, preserving Pages deployment ordering. Measure
+   resource use before adding parallelism; Playwright currently uses one worker.
+5. **Review coverage and cost together.** Ask which additional defect a test
+   catches, whether existing coverage already provides that confidence, and what
+   execution and maintenance cost it adds. Watch repeated compiler/browser setup,
+   large ROM fixtures, long emulation loops and Cartesian-product growth. Remove
+   duplication without weakening meaningful assertions or required coverage.
+6. **Maintain an execution-time budget.** No normal-CI performance baseline or
+   target is documented yet. Establish one from actual runs during test/CI
+   performance work, monitor growth and investigate overruns. Track elapsed
+   feedback time, total runner/computation time and queue time separately. The
+   current core/browser job timeouts (20/10 minutes) are limits, not measured
+   baselines or targets. Revisit validation structure and duplication as cost
+   grows while retaining required confidence; this documentation change requires
+   no new benchmark, hardware purchase or timing gate.
 
 ## 3. Create a Pull Request for the Issue
 
