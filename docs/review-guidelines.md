@@ -41,6 +41,13 @@ and unperformed checks, with reasons.
 
 Review applicable interface changes against the [UI/UX principles](../README.md#uiux).
 
+Apply the [test and CI performance principles](development-flow.md#test-and-ci-performance-principles):
+review additional defect coverage, overlap with existing checks, and execution
+and maintenance cost together. Ask:
+
+> Does this change provide sufficient confidence with the lightest appropriate
+> validation, without redundant execution?
+
 Choose checks appropriate to the changed files and available tooling. Runtime and browser checks are documented in the [README](../README.md#validate). For documentation and
 templates, check syntax, links, whitespace, and consistency as described in
 [available validation](development-flow.md#available-validation). Do not demand
