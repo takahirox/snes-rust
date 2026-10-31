@@ -46,8 +46,9 @@ and cleared games remain test-only under the existing provenance decisions.
   download with `Hash mismatch for spcasm`. The expected archive hash remains
   `979b0fbe19830ffb49d2f187a5512044b7514914f1d289686c340ffd1d6a6e63`.
   No mismatching assembler was extracted or executed, and the pin was not changed.
-  The required SPC700 source gate therefore could not run; this is a remaining
-  validation blocker. The independent CPU and HDMA gates above passed.
+  The required SPC700 source gate therefore could not run locally. This blocker
+  was subsequently cleared by the passing CI run recorded below. The independent
+  local CPU and HDMA gates above passed.
 - `SNES_TEST_PORT=18085 npm --prefix web test -- --grep-invert '301 seconds'`:
   all 105 Chromium tests passed (6.7 minutes), including both bundled games,
   cleared-game playthroughs, audio drift/stalls, Pages artifact/hash/subpath/MIME
@@ -69,13 +70,58 @@ as Reset via `web/tests/playback.js`. Their exact fresh-frame, pixel, 256/512
 canvas, native/Wasm and replay assertions are retained. Pages tests also verify
 reset autoplay and SRAM for both bundled games under `/snes-rust/`.
 
-## Follow-up after merge
+## Review and merge
 
-Required by Issue #128 and not performed here: after the new `main` GitHub Pages
-deployment, record its workflow run and live URL, then check desktop and mobile
-labels, selector geometry, Reset from playing/paused, video/input/audio and
-404/CSP/MIME/runtime errors. This is post-merge work and does not block pre-merge
-approval. No push, PR, merge or GitHub comment was performed by this node.
+[CI run 41201065831](https://github.com/takahirox/snes-rust/actions/runs/41201065831)
+passed on PR head `6281cf0fbd1a18c08139946ba68fae9328dfebe2`, including formatting,
+warning-denying Clippy, Rust tests, reproducible ROM builds, pinned assemblers,
+CPU/SPC700 suites, HDMA, production build and all 105 applicable browser tests.
+The upstream review approved this head without findings and reported a passing
+production build and 81 review-run browser tests.
+
+The merge node confirmed these CI jobs, corrected the stale draft-blocker text
+in the PR description and marked it ready. Immediately before merging, it read
+Issue #128 from GitHub and confirmed it was open. GitHub merged
+[PR #129](https://github.com/takahirox/snes-rust/pull/129) using the expected head
+SHA and the merge-commit method, producing
+`3404d8e353a8eacd1485dac97a1efd58d30612c7` without bypassing checks or reviews.
+
+## Post-merge verification
+
+The new main [Pages workflow](https://github.com/takahirox/snes-rust/actions/runs/41201907059)
+passed its core, browser and deployment jobs for merge commit
+`3404d8e353a8eacd1485dac97a1efd58d30612c7`. The merger then checked the
+[live app](https://takahirox.github.io/snes-rust/) using Chromium 149 and genuine
+production Wasm on 2026-10-31.
+
+Fresh isolated contexts at desktop 1280×900, narrow portrait 320×740 and short
+landscape 667×320 each passed:
+
+- Initial **Insert cartridge**, **Insert a cartridge**, **None** and disabled
+  Reset assertions; the placeholder disappeared after insertion.
+- Both bundled games and a locally selected MIT diagnostic autoplayed. Each
+  cartridge reset from both playing and paused states: 18 successful resets
+  overall, all followed by advancing frames and the single **Pause** button.
+- Battery-backed SRAM markers survived every reset. The diagnostic's reset
+  frame marker was zero before subsequent frame progress, and keyboard input
+  worked after both resets. Actual Chromium touch events also worked and
+  released correctly on both mobile viewports; all twelve buttons remained.
+- Screen, canvas, cartridge slot, selector and toolbar bounding boxes matched
+  their initial geometry after every reset. The diagnostic rendered nonblank
+  256×224 video.
+- Each reset stopped all previous audio sources and cleared queued core audio.
+  Web Audio was running and scheduled new buffers after every reset, with at
+  most six sources and 85.3 ms scheduling lead (limits: twelve and 150 ms).
+- No observed console, request, HTTP, CSP or runtime errors, and no app error or
+  audio-recovery warning in these successful flows.
+
+All six published assets returned HTTP 200 with appropriate MIME types, including
+`application/wasm`. Live HTML, JavaScript, CSS and both ROM hashes matched this
+checkpoint's source bytes; the live Wasm initialized and executed successfully.
+The first harness attempt timed out after five seconds while downloading the
+4 MiB Yonaki ROM. Repeating with a 30-second network-load allowance passed all
+three viewports; reset and input assertions retained their original timeouts.
+These checks verified audio activation and scheduling, not physical audibility.
 
 Optional physical iOS Safari/Android Chrome and qualitative first-time visitor
 checks were not performed. Optional user-supplied external-game replays remain
