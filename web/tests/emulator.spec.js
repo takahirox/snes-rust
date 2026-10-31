@@ -41,7 +41,7 @@ test('real wasm renders frames, reads keyboard/gamepad, produces audio and pause
   await page.getByText('Help / Controls', { exact: true }).click();
   await page.locator('#scale').selectOption('3'); await expect(page.locator('canvas')).toHaveCSS('width', '768px');
   await page.getByText('Help / Controls', { exact: true }).click();
-  await page.locator('#reset').click(); await expect(page.locator('#status')).toContainText('SRAM preserved');
+  await page.locator('#reset').click(); await expect(page.locator('#status')).toHaveText('Playing');
   expect(errors).toEqual([]); expect(uploads).toEqual([]); await expect(page.locator('#error')).toBeEmpty();
 });
 for (const control of ['sound', 'scale']) test(`keyboard releases held buttons after focus moves to ${control}`, async ({ page }) => {
@@ -123,9 +123,11 @@ test('reset and Play keep SRAM persistence failures visible and retain the save'
     Storage.prototype.setItem = () => { throw new DOMException('Storage unavailable', 'SecurityError'); };
   });
   await page.locator('#reset').click();
-  await expect(page.locator('#status')).toContainText('SRAM preserved');
+  await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#error')).toContainText('Could not persist SRAM');
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+  await page.locator('#play').click();
+  await expect(page.locator('#status')).toHaveText('Paused');
   await page.locator('#play').click();
   await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#error')).toContainText('Could not persist SRAM');

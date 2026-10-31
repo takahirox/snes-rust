@@ -1,5 +1,6 @@
 // Optional investigation only: the game's full build/license audit is pending.
 // Supply local ROMs after reviewing tests/roms/PROVENANCE.md. CI never fetches them.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { replay } from './game-replay.js';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -25,7 +26,7 @@ async function loadGame(page, game) {
   await page.goto('/'); await expect(page.locator('#status')).toHaveText('Ready');
   await page.locator('#rom').setInputFiles({ name: 'game.sfc', mimeType: 'application/octet-stream', buffer });
   await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+  await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
 }
 for (const game of cases) {
   test(`${game.name}: 301 seconds of recorded inputs`, async ({ page }, testInfo) => {

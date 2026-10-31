@@ -1,4 +1,5 @@
 // Original MIT CPU guest and literal EXTBG observations for Issue #61.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -24,7 +25,7 @@ test('Mode 7 EXTBG: CPU-built BG2, priority, transparency and BG1 direct color i
   const buffer = readFileSync(new URL('../../.cache/mode7-extbg/mode7-extbg.sfc', import.meta.url));
   await page.locator('#rom').setInputFiles({ name:'mode7-extbg.sfc', mimeType:'application/octet-stream', buffer });
   await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+  await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
   await page.locator('#play').click();
   // Poll real framebuffer/canvas observations; hosts never write emulator state.
   // Three observations separated by animation callbacks check stable displayed output.

@@ -1,4 +1,5 @@
 // Original MIT CPU guests and literal screen-row observations, Issue #65.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -29,7 +30,7 @@ for (const variant of ['normal','flipped']) for (const layer of ['bg1','bg2']) {
     const buffer = readFileSync(new URL(`../../.cache/mode7-row/${name}`, import.meta.url));
     await page.locator('#rom').setInputFiles({ name, mimeType:'application/octet-stream', buffer });
     await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+    await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
     await page.locator('#play').click();
     for (let observation = 0; observation < 3; observation++) {
       await expect.poll(() => page.evaluate(points => {

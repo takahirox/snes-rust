@@ -11,7 +11,7 @@ async function entryActions(page) {
   const slot = page.getByRole('group', { name: 'Cartridge slot', exact: true });
   await expect(slot).toBeVisible();
   await expect(slot.getByText('Inserted cartridge', { exact: true })).toBeVisible();
-  await expect(slot.getByRole('button', { name: 'Change cartridge', exact: true })).toBeVisible();
+  await expect(slot.getByRole('button', { name: 'Insert cartridge', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: /潮鳴り|Shionari|BUNDLED ADVENTURE/ })).toHaveCount(0);
   await expect(page.locator('#current-game')).toBeVisible();
 }
@@ -22,7 +22,7 @@ const geometry = page => page.locator('canvas, .game-entry, #change-cartridge, #
 test('generic emulator identity, stable cartridge slot and preserved legal disclosure', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await ready(page); await entryActions(page);
-  await expect(page.locator('#placeholder')).toHaveText('Ready when you are');
+  await expect(page.locator('#placeholder')).toHaveText('Insert a cartridge');
   await expect(page.locator('#current-game')).toHaveText('None');
   const areas = await page.locator('.screen, .game-entry').evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().width));
   expect(areas[0]).toBeGreaterThan(areas[1] * 2);

@@ -172,7 +172,7 @@ test('Shionari skips its opening to the title and keyboard A starts the warehous
   await page.waitForTimeout(100);
   expect(await scene(page)).toBe(paused);
   await page.locator('#reset').click();
-  await expect(page.locator('#status')).toContainText('SRAM preserved');
+  await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#error')).toBeEmpty();
   expect(errors).toEqual([]);
   expect(requests.every(url => url.startsWith(`${origin}${prefix}`))).toBe(true);
@@ -213,6 +213,13 @@ test('Yonaki plays from the title through name entry into the prologue, with its
   await testInfo.attach('Yonaki prologue', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
   // Its SRAM uses its own key; Shionari's save is untouched and reselecting does not reload.
   expect(await marker(page)).not.toBe(0x79);
+  await setMarker(page, 0x26);
+  await page.locator('#play').click();
+  await page.locator('#reset').click();
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  expect(await marker(page)).toBe(0x26);
+  await expect.poll(() => lit(page), { timeout: 10000 }).toBe(true);
   await selectDemo(page, 'demo-yonaki'); await expect(page.locator('#status')).toHaveText('Playing');
   await loadDemo(page); expect(await marker(page)).toBe(0x79);
   const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('snes-rust:sram:')).sort());
@@ -225,6 +232,9 @@ test('demo battery SRAM survives reset/reload, shares local identity and stays i
   await boot(page); await loadDemo(page);
   await setMarker(page, 0x79);
   await page.locator('#reset').click(); expect(await marker(page)).toBe(0x79);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  await expect.poll(() => lit(page), { timeout: 10000 }).toBe(true);
   await page.reload(); await expect(page.locator('#demo')).toBeEnabled(); await loadDemo(page);
   expect(await marker(page)).toBe(0x79);
   // A local copy with a copier header is the same game/save, not a second key.

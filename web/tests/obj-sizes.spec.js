@@ -1,4 +1,5 @@
 // Original MIT CPU-built OBJ fixtures and actual Wasm/canvas vectors for #55.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -23,7 +24,7 @@ for (const selector of [6,7]) {
     const buffer = readFileSync(new URL(`../../.cache/obj-sizes/obj-sizes-${selector}.sfc`, import.meta.url));
     await page.locator('#rom').setInputFiles({ name:`obj-sizes-${selector}.sfc`, mimeType:'application/octet-stream', buffer });
     await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+    await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
     // Literal crops of the original cartridge image, never PPU helper output.
     const vectors = [
       [24,24,1], [25,24,4], [31,31,1], [32,32,7],

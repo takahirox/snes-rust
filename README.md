@@ -44,7 +44,7 @@ checks for the previous app passed on 2026-10-22; see the
 demo still requires the post-merge verification below.
 
 Two original Japanese games created by takahirox with AI assistance are
-bundled. Choose one under **Change cartridge** to load and start it; each is
+bundled. Choose one under **Insert cartridge** to load and start it; each is
 downloaded unmodified from the same site and checked against its pinned SHA-256:
 
 | Picker button | File | Size | SHA-256 |
@@ -73,7 +73,7 @@ npm --prefix web run build
 npm --prefix web run serve
 ```
 
-Open <http://127.0.0.1:8080>. Use **Change cartridge** to choose a bundled demo
+Open <http://127.0.0.1:8080>. Use **Insert cartridge** to choose a bundled demo
 or a lawfully obtained ordinary NTSC LoROM or HiROM `.sfc`/`.smc` file with **Open local ROM…**.
 Both sources start automatically after validation and save restoration. Local
 files stay client-side; the selected demo is the only ROM fetched, from the same origin.
@@ -86,9 +86,10 @@ shoulders, Start/Select, D-pad and left stick. Phones have all twelve SNES touch
 buttons, below the screen in portrait and beside it in landscape. Multi-touch
 supports diagonals and combined buttons.
 Help / Controls contains the keyboard map and scale setting; About / Legal
-contains the game notice. Audio activates on the cartridge choice or Play
-gesture; Sound toggles playback and retries blocked audio. Pause stops queued
-audio. A hidden tab pauses. The canvas supports integer scaling and preserves
+contains the game notice. Audio activates on cartridge choice, Play or Reset;
+Sound toggles playback and retries blocked audio. Pause stops queued audio.
+Reset restarts the inserted game and immediately plays, preserving SRAM.
+A hidden tab pauses. The canvas supports integer scaling and preserves
 pixel edges.
 
 SRAM for battery-backed cartridges is stored locally under the SHA-256 of the

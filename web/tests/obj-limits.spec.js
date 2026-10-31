@@ -1,4 +1,5 @@
 // Original MIT CPU guests and literal OBJ survivors for Issue #57.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -26,7 +27,7 @@ for (const mode of [0,1,2,3]) {
     const buffer = readFileSync(new URL(`../../.cache/obj-limits/obj-limits-${mode}.sfc`, import.meta.url));
     await page.locator('#rom').setInputFiles({ name:`obj-limits-${mode}.sfc`, mimeType:'application/octet-stream', buffer });
     await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+    await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
     await page.locator('#play').click();
     const flags = [0,0x40,0x80,0xc0][mode];
     const expected = vectors[mode].map(([,color]) => color);
