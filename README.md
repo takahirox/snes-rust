@@ -43,15 +43,19 @@ checks for the previous app passed on 2026-10-22; see the
 [Pages verification record](docs/issue-9-validation.md)). Publication of the new
 demo still requires the post-merge verification below.
 
-The sole bundled demo is **潮鳴りの密室 / Shionari no Misshitsu**, an original
-Japanese adventure created by takahirox with AI assistance. Choose
-**Change cartridge → Bundled demo — 潮鳴りの密室** to load and start it. The unmodified 524,288-byte
-`demos/shionari.sfc` is downloaded from the same site; its SHA-256 is
-`1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca`.
-The maintainer authorizes distribution of the complete binary and embedded
+Two original Japanese games created by takahirox with AI assistance are
+bundled. Choose one under **Change cartridge** to load and start it; each is
+downloaded unmodified from the same site and checked against its pinned SHA-256:
+
+| Picker button | File | Size | SHA-256 |
+| --- | --- | ---: | --- |
+| Bundled demo — 潮鳴りの密室 (Shionari no Misshitsu, adventure) | `demos/shionari.sfc` | 524,288 | `1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca` |
+| Bundled demo — 夜鳴き鐘 (Yonaki Kane, sound novel) | `demos/yonaki.sfc` | 4,194,304 | `e8782a44c18a3cd8487d4a42687e5aa975dbbc4b750dbef9cf240e4236bd5925` |
+
+The maintainer authorizes distribution of the complete binaries and embedded
 assets in this repository and its official public demo. **All rights reserved**
 to the extent legally protectable; the emulator's MIT license does not cover the
-game. See the [ROM-specific provenance and distribution notice](demos/NOTICE.md)
+games. See the [ROM-specific provenance and distribution notice](demos/NOTICE.md)
 for the exact permission, authorship and known asset notices. Castle/Memory and
 diagnostic fixtures are test-only and were never shipped in the browser app.
 
@@ -69,10 +73,10 @@ npm --prefix web run build
 npm --prefix web run serve
 ```
 
-Open <http://127.0.0.1:8080>. Use **Change cartridge** to choose the bundled demo
+Open <http://127.0.0.1:8080>. Use **Change cartridge** to choose a bundled demo
 or a lawfully obtained ordinary NTSC LoROM or HiROM `.sfc`/`.smc` file with **Open local ROM…**.
 Both sources start automatically after validation and save restoration. Local
-files stay client-side; the demo is the only ROM fetched, from the same origin.
+files stay client-side; the selected demo is the only ROM fetched, from the same origin.
 The static production output is `web/dist`; the local server serves the same
 assets as GitHub Pages.
 
@@ -92,7 +96,7 @@ ROM after removing any copier header. Reset clears volatile machine state and
 controllers, preserving SRAM. Changing cartridges restores the new game’s own
 saved SRAM before replacing the inserted machine. Dismissing the picker or cancelling the file chooser keeps
 the current game running. Selecting the already inserted demo leaves playback
-unchanged. Use the shared Play/Pause control for playback and Reset to start again
+unchanged. Each demo keeps its own save. Use the shared Play/Pause control for playback and Reset to start again
 while preserving SRAM. Opening the identical game locally
 (including a copier-header variant) shares the same save identity as the demo.
 Saves are persisted every five seconds, on pause/reset/ROM changes and on page
@@ -341,13 +345,16 @@ npm --prefix web test -- tests/pages.spec.js
 ```
 
 It inspects the actual `web/dist`, serves it strictly under `/snes-rust/`, checks
-HTML/CSS/JavaScript/Wasm/ROM responses, the pinned demo hash and real Wasm
+HTML/CSS/JavaScript/Wasm/ROM responses, both pinned demo hashes and real Wasm
 initialization. It starts Shionari with keyboard input, skips the opening
 prologue to a stable title background, verifies the menu starts the warehouse
 story, and checks battery-save retention,
 source switching and failed-save/restore protection. It also plays the checked-in
 MIT diagnostic through local file selection. See the [Issue #110 validation
 record](docs/issue-110-validation.md) for bounded assertions and actual results.
+It also plays Yonaki Kane from its title through name entry into the prologue
+and checks that both demos keep separate saves ([Issue #126
+record](docs/issue-126-validation.md)).
 It rejects unexpected files, symlinks, root-path or remote requests, HTTP failures
 and browser/CSP errors. The diagnostic and test evidence are outside the public
 artifact.
@@ -371,10 +378,10 @@ checks separately, without production deployment permissions. Production runs
 share a concurrency group to prevent overlapping deployments.
 
 The Pages artifact contains exactly `index.html`, `app.js`, `style.css`,
-`snes_wasm.wasm` and the pinned `shionari.sfc`. Rebuilding clears stale output,
+`snes_wasm.wasm` and the pinned `shionari.sfc` and `yonaki.sfc`. Rebuilding clears stale output,
 and the smoke test enforces this allowlist before upload. Relative URLs, including
 `fetch('snes_wasm.wasm')`, work
-under the project subpath, as does `fetch('shionari.sfc')`. Generated `web/dist`
+under the project subpath, as do the demo fetches. Generated `web/dist`
 stays ignored by Git. No other ROMs, firmware, `.srm` saves, source/download
 caches or test evidence are published. Saves on the public origin are
 separate from saves on localhost and remain in that browser's local storage.
