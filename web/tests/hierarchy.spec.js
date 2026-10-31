@@ -32,7 +32,7 @@ test('generic emulator identity, stable cartridge slot and preserved legal discl
   await expect(page.getByRole('link', { name: 'ROM provenance and distribution notice' })).toHaveAttribute('href', 'https://github.com/takahirox/snes-rust/blob/main/demos/NOTICE.md');
 });
 
-test('keyboard picker offers two sources; Escape, outside click and file cancellation preserve gameplay and held input', async ({ page }) => {
+test('keyboard picker offers three sources; Escape, outside click and file cancellation preserve gameplay and held input', async ({ page }) => {
   await page.addInitScript(() => {
     const instantiate = WebAssembly.instantiate;
     WebAssembly.instantiate = async (...args) => { const r = await instantiate(...args); window.testCore = r.instance.exports; return r; };
@@ -45,14 +45,16 @@ test('keyboard picker offers two sources; Escape, outside click and file cancell
   await page.locator('#change-cartridge').focus(); await page.keyboard.press('Enter');
   const picker = page.getByRole('dialog', { name: 'Cartridges' });
   await expect(picker).toBeVisible();
-  await expect(picker.getByRole('button')).toHaveCount(2);
+  await expect(picker.getByRole('button')).toHaveCount(3);
   await expect(page.locator('#demo')).toBeFocused();
   await expect(page.locator('#demo')).toHaveAccessibleName('Bundled demo — 潮鳴りの密室');
+  await expect(page.locator('#demo-yonaki')).toHaveAccessibleName('Bundled demo — 夜鳴き鐘');
   await expect(page.locator('#open-local')).toHaveAccessibleName('Open local ROM…');
   await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => testCore.peek(0x11))).toBe(1);
   await page.keyboard.up('ArrowRight');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(0);
+  await page.keyboard.press('Tab'); await expect(page.locator('#demo-yonaki')).toBeFocused();
   await page.keyboard.press('Tab'); await expect(page.locator('#open-local')).toBeFocused();
   await page.keyboard.press('Escape'); await expect(picker).toBeHidden();
   await expect(page.locator('#change-cartridge')).toBeFocused();

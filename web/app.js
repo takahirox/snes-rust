@@ -4,12 +4,17 @@ const context = canvas.getContext('2d', { alpha: false });
 let image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
 let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
-let keyboard = 0, activeDemo = false;
+let keyboard = 0, activeDemo = '';
 const virtualPointers = new Map(), virtualKeys = new Map();
 const touchButtons = [...document.querySelectorAll('[data-button]')];
 let operationError = '', persistenceError = '', restorePending = false, loading = false, pendingCartridge;
-const demoName = '潮鳴りの密室 / Shionari no Misshitsu';
-const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
+// Bundled demos by picker button id; each is fetched from the same origin and pinned.
+const demos = {
+  demo: { file: 'shionari.sfc', name: '潮鳴りの密室 / Shionari no Misshitsu', size: 524288, hash: '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca' },
+  'demo-yonaki': { file: 'yonaki.sfc', name: '夜鳴き鐘 / Yonaki Kane', size: 4194304, hash: 'e8782a44c18a3cd8487d4a42687e5aa975dbbc4b750dbef9cf240e4236bd5925' },
+};
+const demoButtons = Object.keys(demos).map($);
+function enableSources(enabled) { for (const button of [$('rom'), $('open-local'), $('change-cartridge'), ...demoButtons]) button.disabled = !enabled; }
 const sources = new Set();
 // Pace by the confirmed 714732-master-clock NTSC non-interlaced field pair.
 const frameMilliseconds = 1000 * 714732 / 2 / 21477272;
@@ -132,10 +137,10 @@ function animate(time) {
   } catch (e) { pause(); report(e); }
 }
 // Both sources use the same identity, core validation and battery-save lifecycle.
-async function loadCartridge(name, read, local = false) {
+async function loadCartridge(name, read, demo) {
   if (loading || restorePending) return;
   loading = true;
-  $('rom').disabled = true; $('demo').disabled = true; $('open-local').disabled = true; $('change-cartridge').disabled = true;
+  enableSources(false);
   $('play').disabled = true; $('reset').disabled = true;
   try {
     if (!pause()) return;
@@ -144,14 +149,14 @@ async function loadCartridge(name, read, local = false) {
     $('status').textContent = `Loading ${name}…`;
     let data = new Uint8Array(await read());
     if (data.length > 4 * 1024 * 1024 + 512) throw new Error('Maximum ROM size is 4 MiB plus a copier header');
-    if (local && data.length % 1024 === 512) data = data.subarray(512);
+    if (!demo && data.length % 1024 === 512) data = data.subarray(512);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
     const hash = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
-    if (!local && (data.length !== 524288 || hash !== demoHash)) throw new Error('Demo download does not match the published ROM');
+    if (demo && (data.length !== demo.size || hash !== demo.hash)) throw new Error('Demo download does not match the published ROM');
     // Reading/hashing is asynchronous: save again at the replacement boundary.
     if (!pause()) return;
     copyInput(data); check(core.prepare_rom());
-    pendingCartridge = { key: `snes-rust:sram:${hash}`, name, activeDemo: !local };
+    pendingCartridge = { key: `snes-rust:sram:${hash}`, name, activeDemo: demo ? demo.file : '' };
     restoreSave();
     if (restorePending) $('status').textContent = 'Restore save before changing cartridge';
   } catch (e) {
@@ -159,7 +164,7 @@ async function loadCartridge(name, read, local = false) {
     report(e);
   } finally {
     loading = false;
-    $('rom').disabled = !core; $('demo').disabled = !core; $('open-local').disabled = !core; $('change-cartridge').disabled = !core;
+    enableSources(Boolean(core));
     $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
     updatePlayback();
   }
@@ -182,21 +187,22 @@ $('rom').addEventListener('change', async (event) => {
       if (!/\.(sfc|smc)$/i.test(file.name)) throw new Error('Choose an .sfc or .smc cartridge image');
       if (file.size > 4 * 1024 * 1024 + 512) throw new Error('Maximum ROM size is 4 MiB plus a copier header');
       return file.arrayBuffer();
-    }, true);
+    });
   } finally { event.target.value = ''; }
 });
-$('demo').addEventListener('click', async () => {
+for (const button of demoButtons) button.addEventListener('click', async () => {
   if (loading || !core) return;
   closePicker();
   if (restorePending) { $('retry-save').focus(); return; }
   void activateAudio();
+  const demo = demos[button.id];
   // Reselecting the inserted demo never reloads or changes playback state.
-  if (activeDemo) { canvas.focus({ preventScroll: true }); return; }
-  await loadCartridge(demoName, async () => {
-    const response = await fetch('shionari.sfc', { mode: 'same-origin', redirect: 'error' });
+  if (activeDemo === demo.file) { canvas.focus({ preventScroll: true }); return; }
+  await loadCartridge(demo.name, async () => {
+    const response = await fetch(demo.file, { mode: 'same-origin', redirect: 'error' });
     if (!response.ok) throw new Error(`Demo download failed: HTTP ${response.status}`);
     return response.arrayBuffer();
-  });
+  }, demo);
 });
 $('play').addEventListener('click', togglePlayback);
 $('reset').addEventListener('click', () => { if (!loaded || restorePending || loading) return; pause(); try { check(core.reset()); draw(); clearError(); $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
@@ -282,5 +288,5 @@ window.addEventListener('pagehide', save);
 try {
   const response = await fetch('snes_wasm.wasm'); if (!response.ok) throw new Error(`Wasm download failed: HTTP ${response.status}`);
   const result = await WebAssembly.instantiate(await response.arrayBuffer(), {}); core = result.instance.exports;
-  $('status').textContent = 'Ready'; $('rom').disabled = false; $('demo').disabled = false; $('open-local').disabled = false; $('change-cartridge').disabled = false; requestAnimationFrame(animate);
-} catch (e) { report(e); $('status').textContent = 'Emulator unavailable'; $('rom').disabled = true; $('demo').disabled = true; $('open-local').disabled = true; $('change-cartridge').disabled = true; }
+  $('status').textContent = 'Ready'; enableSources(true); requestAnimationFrame(animate);
+} catch (e) { report(e); $('status').textContent = 'Emulator unavailable'; enableSources(false); }

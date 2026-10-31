@@ -6,8 +6,9 @@ import { once } from 'node:events';
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 
 const dist = new URL('../dist/', import.meta.url);
-const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream' };
+const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream', 'yonaki.sfc': 'application/octet-stream' };
 const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
+const yonakiHash = 'e8782a44c18a3cd8487d4a42687e5aa975dbbc4b750dbef9cf240e4236bd5925';
 const saveKey = `snes-rust:sram:${demoHash}`;
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const prefix = '/snes-rust/';
@@ -24,6 +25,9 @@ test.beforeAll(async () => {
   const rom = readFileSync(new URL('shionari.sfc', dist));
   expect(rom.length).toBe(524288);
   expect(createHash('sha256').update(rom).digest('hex')).toBe(demoHash);
+  const yonaki = readFileSync(new URL('yonaki.sfc', dist));
+  expect(yonaki.length).toBe(4194304);
+  expect(createHash('sha256').update(yonaki).digest('hex')).toBe(yonakiHash);
   server = createServer((request, response) => {
     const path = new URL(request.url, 'http://localhost').pathname;
     const name = path === prefix ? 'index.html' : path.slice(prefix.length);
@@ -75,7 +79,8 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
   await expect(page.locator('#status')).toHaveText('Paused');
   await expect(page.locator('#error')).toBeEmpty();
   expect(errors).toEqual([]);
-  const expectedPaths = Object.keys(assets).map((name) => `${origin}${prefix}${name === 'index.html' ? '' : name}`).sort();
+  // Only the selected demo is downloaded.
+  const expectedPaths = Object.keys(assets).filter((name) => name !== 'yonaki.sfc').map((name) => `${origin}${prefix}${name === 'index.html' ? '' : name}`).sort();
   expect(requests.map((request) => request.url).sort()).toEqual(expectedPaths);
   expect(requests.every((request) => request.method === 'GET')).toBe(true);
   expect(responses.map((response) => response.url).sort()).toEqual(expectedPaths);
@@ -86,8 +91,8 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
   }
 });
 
-async function loadDemo(page) {
-  await selectDemo(page);
+async function loadDemo(page, id) {
+  await selectDemo(page, id);
   await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#play')).toBeEnabled();
   expect(await page.evaluate(() => [pagesCore.battery(), pagesCore.sram_len()])).toEqual([1, 8192]);
@@ -172,6 +177,48 @@ test('Shionari skips its opening to the title and keyboard A starts the warehous
   expect(errors).toEqual([]);
   expect(requests.every(url => url.startsWith(`${origin}${prefix}`))).toBe(true);
   expect(requests.filter(url => url.endsWith('.sfc'))).toEqual([`${origin}${prefix}shionari.sfc`]);
+});
+
+test('Yonaki plays from the title through name entry into the prologue, with its own save', async ({ page }, testInfo) => {
+  const errors = [], requests = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('requestfailed', request => errors.push(request.url()));
+  page.on('response', response => { if (!response.ok()) errors.push(`${response.status()} ${response.url()}`); });
+  page.on('request', request => requests.push(request.url()));
+  await boot(page); await loadDemo(page); await setMarker(page, 0x79);
+  await loadDemo(page, 'demo-yonaki');
+  await expect(page.locator('#current-game')).toHaveText('夜鳴き鐘 / Yonaki Kane');
+  await page.locator('canvas').click();
+  // The title fades in after a short black boot, then stays still.
+  await expect.poll(() => lit(page), { timeout: 10000 }).toBe(true);
+  await page.waitForTimeout(2500);
+  const title = await scene(page);
+  await page.waitForTimeout(500);
+  expect(await scene(page)).toBe(title);
+  await testInfo.attach('Yonaki title', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  await tapA(page); // New Game opens name entry.
+  await expect.poll(() => scene(page)).not.toBe(title);
+  await page.waitForTimeout(500);
+  const names = await scene(page);
+  await testInfo.attach('Yonaki name entry', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  // Start accepts the default family name, then the heroine's given name.
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.down('Enter'); await page.waitForTimeout(100); await page.keyboard.up('Enter'); await page.waitForTimeout(400);
+  }
+  await expect.poll(() => scene(page), { timeout: 10000 }).not.toBe(names);
+  await page.waitForTimeout(3000);
+  const story = await scene(page);
+  expect([title, names]).not.toContain(story);
+  await testInfo.attach('Yonaki prologue', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  // Its SRAM uses its own key; Shionari's save is untouched and reselecting does not reload.
+  expect(await marker(page)).not.toBe(0x79);
+  await selectDemo(page, 'demo-yonaki'); await expect(page.locator('#status')).toHaveText('Playing');
+  await loadDemo(page); expect(await marker(page)).toBe(0x79);
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('snes-rust:sram:')).sort());
+  expect(keys).toEqual([saveKey, `snes-rust:sram:${yonakiHash}`].sort());
+  expect(errors).toEqual([]);
+  expect(requests.filter(url => url.endsWith('.sfc'))).toEqual([`${origin}${prefix}shionari.sfc`, `${origin}${prefix}yonaki.sfc`, `${origin}${prefix}shionari.sfc`]);
 });
 
 test('demo battery SRAM survives reset/reload, shares local identity and stays isolated from another ROM', async ({ page }) => {
@@ -274,7 +321,7 @@ test('demo download errors and corrupt bytes preserve the previous playable cart
 });
 
 test('Pages server rejects unpublished paths and CSP rejects remote ROM connections', async ({ page, request }) => {
-  for (const path of ['/shionari.sfc', '/snes-rust/smoke.bin', '/snes-rust/castle.sfc', '/snes-rust/memory.sfc', '/snes-rust/.cache/save.srm', '/snes-rust/demos/shionari.sfc']) {
+  for (const path of ['/shionari.sfc', '/snes-rust/smoke.bin', '/snes-rust/castle.sfc', '/snes-rust/memory.sfc', '/snes-rust/.cache/save.srm', '/snes-rust/demos/shionari.sfc', '/snes-rust/demos/yonaki.sfc']) {
     expect((await request.get(`${origin}${path}`)).status(), path).toBe(404);
   }
   await boot(page);
