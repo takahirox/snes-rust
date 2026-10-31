@@ -1,4 +1,5 @@
 // Original MIT CPU/DMA guest. Literal edges and hash shared with native snapshot.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -23,7 +24,7 @@ test('raster CPU and DMA: native/Wasm frame hash, exact edges, live canvas and r
   const buffer = readFileSync(new URL('../../.cache/raster/raster.sfc', import.meta.url));
   await page.locator('#rom').setInputFiles({ name:'raster.sfc', mimeType:'application/octet-stream', buffer });
   await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+  await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
   // Actual Wasm ABI runs exactly three frames, without host register mutation.
   for (let attempt = 0; attempt < 2; attempt++) {
     const snapshot = await page.evaluate(rows => {

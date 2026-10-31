@@ -205,7 +205,15 @@ for (const button of demoButtons) button.addEventListener('click', async () => {
   }, demo);
 });
 $('play').addEventListener('click', togglePlayback);
-$('reset').addEventListener('click', () => { if (!loaded || restorePending || loading) return; pause(); try { check(core.reset()); draw(); clearError(); $('status').textContent = 'Reset — SRAM preserved'; } catch (e) { report(e); } });
+$('reset').addEventListener('click', () => {
+  if (!loaded || restorePending || loading) return;
+  pause();
+  try {
+    check(core.reset()); draw(); clearError();
+    void activateAudio(); start();
+    if (playing) canvas.focus({ preventScroll: true });
+  } catch (e) { report(e); }
+});
 $('sound').addEventListener('change', () => { flushAudio(); $('audio-status').textContent = ''; if ($('sound').checked) void activateAudio(); });
 $('scale').addEventListener('change', () => { const scale = Number($('scale').value); canvas.style.width = `${256 * scale}px`; });
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {

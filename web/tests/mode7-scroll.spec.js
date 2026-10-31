@@ -1,4 +1,5 @@
 // Original MIT CPU guest and literal Mode 7 scroll observations for Issue #59.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -22,7 +23,7 @@ test('Mode 7 scroll: CPU shared latch results and independent offsets in Wasm/ca
   const buffer = readFileSync(new URL('../../.cache/mode7-scroll/mode7-scroll.sfc', import.meta.url));
   await page.locator('#rom').setInputFiles({ name:'mode7-scroll.sfc', mimeType:'application/octet-stream', buffer });
   await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+  await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
   await page.locator('#play').click();
   const results = [
     0x34,0x12,0, 0x34,0x12,0, 0x34,0x12,0, 0x34,0x12,0,

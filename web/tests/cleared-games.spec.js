@@ -1,3 +1,4 @@
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -44,7 +45,7 @@ async function load(page, name) {
   await page.goto('/'); await expect(page.locator('#status')).toHaveText('Ready');
   await page.locator('#rom').setInputFiles({ name: `${name}.sfc`, mimeType: 'application/octet-stream', buffer });
   await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+  await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
 }
 async function evidence(testInfo, result) {
   const path = testInfo.outputPath('result.json');
@@ -313,7 +314,7 @@ test('cleared Memory Game plays music and finite effects through gesture-activat
   await page.waitForTimeout(100);
   expect(await audible()).toBe(pathCount);
   await page.locator('#reset').click();
-  await page.locator('#play').click();
+  await expect(page.locator('#play')).toHaveText('Pause');
   await expect.poll(state).toBe(2);
   await page.waitForTimeout(300);
   expect(await audible()).toBe(pathCount);
@@ -366,9 +367,12 @@ test('cleared Memory Game bounds real Web Audio queues and drift across stalls a
     await page.locator('#play').click();
     await expect.poll(() => page.evaluate(() => audioSchedule.starts)).toBeGreaterThan(before + 10);
   }
-  await page.locator('#reset').click();
-  expect(await page.evaluate(() => activeAudioSources())).toBe(0);
-  await page.locator('#play').click();
+  const stopped = await page.evaluate(() => {
+    document.getElementById('reset').click();
+    return activeAudioSources();
+  });
+  expect(stopped).toBe(0); // Inspect the flush before the next animation frame.
+  await expect(page.locator('#play')).toHaveText('Pause');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x7e2c1e))).toBe(2);
   const sound = await page.evaluate(() => window.gameAudioBuffers ?? 0);
   await page.waitForTimeout(200);

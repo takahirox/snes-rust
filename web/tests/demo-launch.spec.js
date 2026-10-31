@@ -44,8 +44,8 @@ test('gesture unlocks audio before delayed fetch; concurrent and repeated demo c
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(frames);
   await page.locator('#play').click(); await expect(page.locator('#play')).toHaveText('Play');
   await selectDemo(page); await expect(page.locator('#status')).toHaveText('Paused');
-  await page.locator('#reset').click(); await expect(page.locator('#status')).toContainText('SRAM preserved');
-  await page.locator('#play').click(); await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#reset').click(); await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
   expect(requests).toBe(1); expect(await page.evaluate(() => launchMetrics.loads)).toBe(1);
   await expect(page.getByRole('button', { name: /Pause demo|Resume demo|Try demo/ })).toHaveCount(0);
 });

@@ -1,4 +1,5 @@
 // Original MIT CPU-built Mode 5/6 fixtures and output checks for Issue #49.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ const green = [0,255,0,255], blue = [0,0,255,255];
 async function upload(page, mode, suffix = '') {
   await page.locator('#rom').setInputFiles({ name: `hires-${mode}${suffix}.sfc`, mimeType: 'application/octet-stream', buffer: fixture(mode, suffix) });
   await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+  await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
 }
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -66,7 +67,7 @@ for (const mode of [5,6]) test(`Mode ${mode}: real canvas/Wasm 256→512→256, 
   await page.locator('#scale').selectOption('2');
   await page.getByText('Help / Controls', { exact: true }).click();
   await page.keyboard.down('KeyX'); await checkFrame(page,512,mode);
-  await page.locator('#reset').click(); await page.keyboard.up('KeyX');
+  await resetAndPause(page); await page.keyboard.up('KeyX');
   let s=await snapshot(page); expect([s.width,s.height,s.len,s.canvasWidth]).toEqual([256,224,256*224*4,256]);
   expect(s.first).toEqual([0,0,0,0]); expect(s.canvasFirst).toEqual([0,0,0,0]);
   await page.locator('#play').click(); await checkFrame(page,256,mode);

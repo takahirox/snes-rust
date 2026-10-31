@@ -1,4 +1,5 @@
 // Original MIT CPU-built SETINI guests and actual Wasm/canvas checks for #53.
+import { resetAndPause } from './playback.js';
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ async function upload(page, name) {
   const buffer = readFileSync(new URL(`../../.cache/pseudo-hires/pseudo-hires-${name}.sfc`, import.meta.url));
   await page.locator('#rom').setInputFiles({ name: `pseudo-hires-${name}.sfc`, mimeType: 'application/octet-stream', buffer });
   await expect(page.locator('#status')).toHaveText('Playing');
-  await page.locator('#reset').click(); // Pause at a fresh frame origin for hardware/replay assertions.
+  await resetAndPause(page); // Fresh frame origin for hardware/replay assertions.
 }
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -57,7 +58,7 @@ test('SETINI: real canvas/Wasm phases, 256→512→256, reset and replacement', 
   expect((await snapshot(page)).shape).toBeCloseTo(256/224,3);
   await page.keyboard.up('KeyX'); await checkFrame(page,false);
   await page.keyboard.down('KeyX'); await checkFrame(page,true);
-  await page.locator('#reset').click(); await page.keyboard.up('KeyX');
+  await resetAndPause(page); await page.keyboard.up('KeyX');
   const s = await snapshot(page);
   expect([s.width,s.height,s.len,s.canvasWidth,s.canvasHeight]).toEqual([256,224,256*224*4,256,224]);
   expect(s.rows[0].pixels[0]).toEqual([0,0,0,0]); expect(s.rows[0].canvas[0]).toEqual([0,0,0,0]);

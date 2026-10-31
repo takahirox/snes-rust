@@ -71,6 +71,26 @@ test('all twelve touch buttons reach real guest auto-read registers with their S
   }
 });
 
+test('Reset releases captured touch and keyboard input, then accepts all twelve buttons without Play', async ({ page }) => {
+  await boot(page); const touch = await fingers(page);
+  await page.keyboard.down('ArrowRight'); await touch.down('B');
+  await expect.poll(() => controller(page)).toBe(0x100 | 0x8000);
+  await page.locator('#reset').click();
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  await expect(page.locator('[data-button].pressed')).toHaveCount(0);
+  await expect.poll(() => controller(page)).toBe(0);
+  await touch.up(); await page.keyboard.up('ArrowRight');
+  for (const [name, mask] of Object.entries(masks)) {
+    await touch.down(name); await expect.poll(() => controller(page), { message: name }).toBe(mask);
+    await touch.up(); await expect.poll(() => controller(page)).toBe(0);
+  }
+  await page.evaluate(() => { window.testPads = [{ mapping: 'standard', axes: [1, 0], buttons: [] }]; });
+  await expect.poll(() => controller(page)).toBe(0x100);
+  await page.evaluate(() => { window.testPads = []; });
+  await expect.poll(() => controller(page)).toBe(0);
+});
+
 test('multi-touch diagonals, shoulders and independent keyboard/gamepad overlap', async ({ page }) => {
   await boot(page); const touch = await fingers(page);
   await page.locator('canvas').tap(); await page.keyboard.down('ArrowRight');
