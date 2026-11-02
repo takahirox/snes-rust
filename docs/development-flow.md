@@ -100,11 +100,12 @@ test/CI work; they do not change current checks or introduce a new merge gate.
    execution and maintenance cost it adds. Watch repeated compiler/browser setup,
    large ROM fixtures, long emulation loops and Cartesian-product growth. Remove
    duplication without weakening meaningful assertions or required coverage.
-6. **Maintain an execution-time budget.** No normal-CI performance baseline or
-   target is documented yet. Establish one from actual runs during test/CI
-   performance work, monitor growth and investigate overruns. Track elapsed
+6. **Maintain an execution-time budget.** The [Issue #136 timing record](issue-136-validation.md)
+   provides initial browser measurements and runner variability; no performance
+   target is defined yet. Use actual runs during test/CI performance work to
+   monitor growth and investigate overruns. Track elapsed
    feedback time, total runner/computation time and queue time separately. The
-   current core/browser job timeouts (20/10 minutes) are limits, not measured
+   current core/browser job timeouts (20/15 minutes) are limits, not measured
    baselines or targets. Revisit validation structure and duplication as cost
    grows while retaining required confidence; this documentation change requires
    no new benchmark, hardware purchase or timing gate.
