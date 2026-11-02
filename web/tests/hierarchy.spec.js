@@ -15,7 +15,7 @@ async function entryActions(page) {
   await expect(page.getByRole('heading', { name: /潮鳴り|Shionari|BUNDLED ADVENTURE/ })).toHaveCount(0);
   await expect(page.locator('#current-game')).toBeVisible();
 }
-const geometry = page => page.locator('canvas, .game-entry, #change-cartridge, #play, #reset, .sound, #fullscreen').evaluateAll(nodes => nodes.map(n => {
+const geometry = page => page.locator('canvas, .game-entry, #change-cartridge, #play, #reset, #volume-control, #fullscreen').evaluateAll(nodes => nodes.map(n => {
   const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
 }));
 

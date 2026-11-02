@@ -3,7 +3,7 @@ const canvas = document.querySelector('canvas');
 const context = canvas.getContext('2d', { alpha: false });
 let image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
-let core, loaded = false, playing = false, key = '', audio, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
+let core, loaded = false, playing = false, key = '', audio, masterGain, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
 let keyboard = 0, activeDemo = '';
 const virtualPointers = new Map(), virtualKeys = new Map();
 const touchButtons = [...document.querySelectorAll('[data-button]')];
@@ -19,6 +19,38 @@ const sources = new Set();
 // Pace by the confirmed 714732-master-clock NTSC non-interlaced field pair.
 const frameMilliseconds = 1000 * 714732 / 2 / 21477272;
 const audioLead = .04, maxAudioLead = .15, maxSources = 12;
+// Browser-wide preference, independent of cartridge/SRAM identity. Zero is mute;
+// retain the last audible level so both slider-zero and the button can restore it.
+const volumeKey = 'snes-rust:volume';
+let volume = 100, lastNonzeroVolume = 100;
+try {
+  const saved = JSON.parse(localStorage.getItem(volumeKey));
+  if (saved && Number.isInteger(saved.volume) && saved.volume >= 0 && saved.volume <= 100 &&
+      Number.isInteger(saved.lastNonzeroVolume) && saved.lastNonzeroVolume > 0 && saved.lastNonzeroVolume <= 100) {
+    volume = saved.volume; lastNonzeroVolume = volume || saved.lastNonzeroVolume;
+  }
+} catch { /* Audio preferences must never block gameplay when storage is unavailable. */ }
+function updateVolume() {
+  $('volume').value = volume;
+  $('volume').setAttribute('aria-valuetext', volume ? `${volume}%` : '0% (muted)');
+  $('mute').setAttribute('aria-label', volume ? 'Mute' : 'Unmute');
+  $('mute').setAttribute('aria-pressed', String(volume === 0));
+  $('volume-control').classList.toggle('muted', volume === 0);
+}
+function setVolume(value) {
+  volume = value;
+  if (volume) lastNonzeroVolume = volume;
+  updateVolume();
+  if (masterGain) {
+    // One shared stage affects sources already scheduled as well as future ones.
+    masterGain.gain.cancelScheduledValues(audio.currentTime);
+    masterGain.gain.setTargetAtTime(volume / 100, audio.currentTime, .005);
+  }
+  try { localStorage.setItem(volumeKey, JSON.stringify({ volume, lastNonzeroVolume })); } catch { /* Best effort. */ }
+  $('audio-status').textContent = '';
+  if (volume) void activateAudio();
+}
+updateVolume();
 const keys = { ArrowUp: 0x800, ArrowDown: 0x400, ArrowLeft: 0x200, ArrowRight: 0x100, KeyZ: 0x8000, KeyX: 0x80, KeyA: 0x4000, KeyS: 0x40, KeyQ: 0x20, KeyW: 0x10, Enter: 0x1000, ShiftLeft: 0x2000, ShiftRight: 0x2000 };
 const held = new Set();
 const bytes = (pointer, length) => new Uint8Array(core.memory.buffer, pointer, length);
@@ -91,25 +123,31 @@ function togglePlayback(event) {
   if (playing && event?.detail > 0) canvas.focus({ preventScroll: true });
 }
 async function activateAudio() {
-  if (!$('sound').checked) return;
+  if (!volume) return;
+  const blocked = () => volume && audio.state !== 'running' ? 'Sound blocked. Adjust volume or unmute to retry.' : '';
   try {
     audio ??= new AudioContext({ sampleRate: 32000 });
+    if (!masterGain) {
+      const gain = audio.createGain();
+      gain.gain.setValueAtTime(volume / 100, audio.currentTime);
+      gain.connect(audio.destination); masterGain = gain;
+    }
     // Call resume during the activation gesture, before any asynchronous ROM read.
     const resumed = audio.resume();
-    $('audio-status').textContent = audio.state === 'running' ? '' : 'Sound blocked. Toggle Sound to retry or mute.';
+    $('audio-status').textContent = blocked();
     await resumed;
-    $('audio-status').textContent = audio.state === 'running' ? '' : 'Sound blocked. Toggle Sound to retry or mute.';
-  } catch (e) { $('audio-status').textContent = `Sound unavailable: ${e.message}. Toggle Sound to retry or mute.`; }
+    $('audio-status').textContent = blocked();
+  } catch (e) { $('audio-status').textContent = volume ? `Sound unavailable: ${e.message}. Adjust volume or unmute to retry.` : ''; }
 }
 function queueAudio() {
-  if (!audio || audio.state !== 'running' || !$('sound').checked) return;
+  if (!masterGain || audio.state !== 'running') return;
   const count = core.audio_len(); if (!count) return;
   const samples = new Float32Array(core.memory.buffer, core.audio_buffer(), count);
   const buffer = audio.createBuffer(2, count / 2, 32000);
   for (let channel = 0; channel < 2; channel++) { const data = buffer.getChannelData(channel); for (let i = 0; i < data.length; i++) data[i] = samples[i * 2 + channel]; }
   const now = audio.currentTime;
   if (nextAudio < now || nextAudio + buffer.duration > now + maxAudioLead || sources.size >= maxSources) { flushAudio(); nextAudio = now + audioLead; }
-  const source = audio.createBufferSource(); source.buffer = buffer; source.connect(audio.destination); sources.add(source);
+  const source = audio.createBufferSource(); source.buffer = buffer; source.connect(masterGain); sources.add(source);
   source.onended = () => sources.delete(source); source.start(nextAudio); nextAudio += buffer.duration;
 }
 function buttons() {
@@ -214,7 +252,8 @@ $('reset').addEventListener('click', () => {
     if (playing) canvas.focus({ preventScroll: true });
   } catch (e) { report(e); }
 });
-$('sound').addEventListener('change', () => { flushAudio(); $('audio-status').textContent = ''; if ($('sound').checked) void activateAudio(); });
+$('mute').addEventListener('click', () => setVolume(volume ? 0 : lastNonzeroVolume));
+$('volume').addEventListener('input', () => setVolume(Number($('volume').value)));
 $('scale').addEventListener('change', () => { const scale = Number($('scale').value); canvas.style.width = `${256 * scale}px`; });
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {
   if (!keys[event.code] || !playing) return;

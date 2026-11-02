@@ -165,7 +165,7 @@ test('Reset in a hidden document does not advance frames or auto-play on visibil
 });
 
 for (const failure of ['rejected', 'pending', 'unavailable']) test(`Reset retries ${failure} audio in the gesture and starts video without waiting`, async ({ page }) => {
-  await page.locator('#sound').uncheck(); await load(page);
+  await page.locator('#mute').click(); await load(page);
   await page.locator('#play').click();
   await page.evaluate(failure => {
     if (failure === 'unavailable') window.AudioContext = class { constructor() { throw new Error('Audio device unavailable'); } };
@@ -180,7 +180,7 @@ for (const failure of ['rejected', 'pending', 'unavailable']) test(`Reset retrie
       };
     }
   }, failure);
-  await page.locator('#sound').check();
+  await page.locator('#mute').click();
   const frames = await page.evaluate(() => resetMetrics.frames);
   await page.locator('#reset').click();
   await expect(page.locator('#status')).toHaveText('Playing');
