@@ -1,0 +1,186 @@
+{
+  "browser": "Chromium via Playwright 1.61.1",
+  "method": "Matched live pre/post GainNode analyser RMS; original emulator samples; already-queued probe blocks frame generation for 40 ms",
+  "results": [
+    {
+      "test": "local: real queued stereo output attenuates at 0/25/50/100 without interrupting frames",
+      "measurement": {
+        "evidence": [
+          {
+            "value": 100,
+            "input": 0.02559750210051836,
+            "output": 0.02559750210051836,
+            "ratio": 1,
+            "gain": 1
+          },
+          {
+            "value": 50,
+            "input": 0.02559750210051836,
+            "output": 0.01279875105025918,
+            "ratio": 0.5,
+            "gain": 0.5
+          },
+          {
+            "value": 25,
+            "input": 0.02559750210051836,
+            "output": 0.00639937552512959,
+            "ratio": 0.25,
+            "gain": 0.25
+          },
+          {
+            "value": 0,
+            "input": 0.02559750210051836,
+            "output": 0,
+            "ratio": 0,
+            "gain": 0
+          },
+          {
+            "value": 100,
+            "input": 0.02559750210051836,
+            "output": 0.02559750210051836,
+            "ratio": 1,
+            "gain": 1
+          }
+        ],
+        "metrics": {
+          "frames": 34,
+          "starts": 34,
+          "invalid": 0,
+          "gains": 1,
+          "connections": 34,
+          "resumes": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        }
+      }
+    },
+    {
+      "test": "demo: real queued stereo output attenuates at 0/25/50/100 without interrupting frames",
+      "measurement": {
+        "evidence": [
+          {
+            "value": 100,
+            "input": 0.05709815569242138,
+            "output": 0.05709815569242138,
+            "ratio": 1,
+            "gain": 1
+          },
+          {
+            "value": 50,
+            "input": 0.020069144452337873,
+            "output": 0.010034572226168936,
+            "ratio": 0.5,
+            "gain": 0.5
+          },
+          {
+            "value": 25,
+            "input": 0.034769005662670244,
+            "output": 0.008692251415667561,
+            "ratio": 0.25,
+            "gain": 0.25
+          },
+          {
+            "value": 0,
+            "input": 0.03447177389842399,
+            "output": 0,
+            "ratio": 0,
+            "gain": 0
+          },
+          {
+            "value": 100,
+            "input": 0.029172408245434957,
+            "output": 0.029172408245434957,
+            "ratio": 1,
+            "gain": 1
+          }
+        ],
+        "metrics": {
+          "frames": 140,
+          "starts": 140,
+          "invalid": 0,
+          "gains": 1,
+          "connections": 140,
+          "resumes": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        }
+      }
+    },
+    {
+      "test": "demo-yonaki: real queued stereo output attenuates at 0/25/50/100 without interrupting frames",
+      "measurement": {
+        "evidence": [
+          {
+            "value": 100,
+            "input": 0.0352972501367193,
+            "output": 0.0352972501367193,
+            "ratio": 1,
+            "gain": 1
+          },
+          {
+            "value": 50,
+            "input": 0.0460731679031229,
+            "output": 0.02303658395156145,
+            "ratio": 0.5,
+            "gain": 0.5
+          },
+          {
+            "value": 25,
+            "input": 0.05733837632212777,
+            "output": 0.014334594080531943,
+            "ratio": 0.25,
+            "gain": 0.25
+          },
+          {
+            "value": 0,
+            "input": 0.03131701197021929,
+            "output": 0,
+            "ratio": 0,
+            "gain": 0
+          },
+          {
+            "value": 100,
+            "input": 0.037296162544378335,
+            "output": 0.037296162544378335,
+            "ratio": 1,
+            "gain": 1
+          }
+        ],
+        "metrics": {
+          "frames": 261,
+          "starts": 261,
+          "invalid": 0,
+          "gains": 1,
+          "connections": 261,
+          "resumes": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        }
+      }
+    },
+    {
+      "test": "gain changes reach already queued sound while no new frame or source can run",
+      "measurement": {
+        "pending": 3,
+        "frames": 0,
+        "starts": 0,
+        "input": 0.02559750210051836,
+        "output": 0.006434918106944553,
+        "ratio": 0.2513885175856375,
+        "gain": 0.25056350231170654
+      }
+    }
+  ]
+}

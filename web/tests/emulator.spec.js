@@ -44,11 +44,11 @@ test('real wasm renders frames, reads keyboard/gamepad, produces audio and pause
   await page.locator('#reset').click(); await expect(page.locator('#status')).toHaveText('Playing');
   expect(errors).toEqual([]); expect(uploads).toEqual([]); await expect(page.locator('#error')).toBeEmpty();
 });
-for (const control of ['sound', 'scale']) test(`keyboard releases held buttons after focus moves to ${control}`, async ({ page }) => {
+for (const control of ['volume', 'scale']) test(`keyboard releases held buttons after focus moves to ${control}`, async ({ page }) => {
   await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   await page.keyboard.down('ArrowRight');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(1);
-  if (control === 'sound') await page.locator('#sound').click();
+  if (control === 'volume') await page.locator('#volume').focus();
   else { await page.getByText('Help / Controls', { exact: true }).click(); await page.locator('#scale').focus(); }
   await expect(page.locator(`#${control}`)).toBeFocused();
   await page.keyboard.up('ArrowRight');

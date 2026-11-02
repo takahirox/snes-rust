@@ -50,7 +50,7 @@ test('gesture unlocks audio before delayed fetch; concurrent and repeated demo c
   await expect(page.getByRole('button', { name: /Pause demo|Resume demo|Try demo/ })).toHaveCount(0);
 });
 
-for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pending']) test(`${source}: audio ${failure} leaves gameplay running and Sound can recover`, async ({ page }) => {
+for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pending']) test(`${source}: audio ${failure} leaves gameplay running and audio controls can recover`, async ({ page }) => {
   await page.evaluate(failure => {
     const resume = AudioContext.prototype.resume;
     window.recoverAudio = () => { AudioContext.prototype.resume = resume; };
@@ -71,7 +71,8 @@ for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pend
   await expect(page.locator('#audio-status')).toContainText('Sound');
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
   await page.evaluate(() => recoverAudio());
-  await page.locator('#sound').uncheck(); await page.locator('#sound').check();
+  if (source === 'demo') { await page.locator('#mute').click(); await page.locator('#mute').click(); }
+  else { await page.locator('#volume').focus(); await page.keyboard.press('ArrowLeft'); }
   await expect(page.locator('#audio-status')).toBeEmpty();
   await expect.poll(() => page.evaluate(() => testAudio.state)).toBe('running');
 });
