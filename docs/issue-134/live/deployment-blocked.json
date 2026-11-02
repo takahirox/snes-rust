@@ -1,0 +1,78 @@
+{
+  "timestamp": "2026-11-02T09:04:26.244Z",
+  "url": "https://takahirox.github.io/snes-rust/",
+  "merge_commit": "b22d34d8126bfc6aee12c91c0ca9cc2bce3b32a8",
+  "deployment": "https://github.com/takahirox/snes-rust/actions/runs/41416164519",
+  "deployment_result": "cancelled: browser job exceeded 10m; deploy skipped",
+  "assets": [
+    {
+      "name": "index.html",
+      "status": 200,
+      "mime": "text/html; charset=utf-8",
+      "matches_reviewed_source": false,
+      "sha256": "81a7418eeb99ff0e21287f8b6ad2ca0328209a7095d9926336fdc5e70c73554f"
+    },
+    {
+      "name": "app.js",
+      "status": 200,
+      "mime": "application/javascript; charset=utf-8",
+      "matches_reviewed_source": false,
+      "sha256": "3ee446ab39ad92a6fb80a93393352b33808118c17baf618c142b1296f8954bdc"
+    },
+    {
+      "name": "style.css",
+      "status": 200,
+      "mime": "text/css; charset=utf-8",
+      "matches_reviewed_source": false,
+      "sha256": "fdccfb3bf0f7f8304e564e01fab75cacee708b086fc3b760ef76ac0d777b914f"
+    }
+  ],
+  "viewports": [
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "controls": {
+        "old_sound_checkbox": 1,
+        "mute_button": 0,
+        "volume_slider": 0
+      },
+      "status": "Ready",
+      "errors": [],
+      "failedResponses": [],
+      "screenshot": "1280-deployment-blocked.png"
+    },
+    {
+      "viewport": {
+        "width": 320,
+        "height": 740
+      },
+      "controls": {
+        "old_sound_checkbox": 1,
+        "mute_button": 0,
+        "volume_slider": 0
+      },
+      "status": "Ready",
+      "errors": [],
+      "failedResponses": [],
+      "screenshot": "320-deployment-blocked.png"
+    },
+    {
+      "viewport": {
+        "width": 667,
+        "height": 320
+      },
+      "controls": {
+        "old_sound_checkbox": 1,
+        "mute_button": 0,
+        "volume_slider": 0
+      },
+      "status": "Ready",
+      "errors": [],
+      "failedResponses": [],
+      "screenshot": "667-deployment-blocked.png"
+    }
+  ],
+  "result": "blocked: new app was not published; live volume/mute/attenuation verification remains pending"
+}

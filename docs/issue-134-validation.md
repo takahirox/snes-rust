@@ -88,8 +88,10 @@ Optional physical iOS Safari/Android Chrome and headphone listening were not
 performed. User-supplied external-game replays remain excluded by the documented
 `--grep-invert '301 seconds'` command.
 
-After merge, Issue 134 requires checking the new main Pages deployment at
-desktop, portrait and landscape sizes for visible controls, mute/live volume,
-and page errors, recording the deployment run and live evidence. That check is
-pending and belongs after merge. This node does not push, open a PR, merge or
-comment on GitHub.
+The later merge node merged PR #135 and inspected the resulting Pages run and
+public app. Deployment was skipped after the production browser job exceeded
+its 10-minute limit; the public site still shows the old Sound checkbox.
+New-version live mute/volume verification remains pending under follow-up task
+[#136](https://github.com/takahirox/snes-rust/issues/136). See the
+[post-merge record](issue-134-post-merge.md) for the merge, failed deployment,
+three actual public-site screenshots and browser evidence.
