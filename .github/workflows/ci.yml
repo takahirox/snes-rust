@@ -45,7 +45,9 @@ jobs:
         run: python3 tools/ppu-test.py --bass "$PWD/.cache/tools/bass-untech/bass/out/bass-untech"
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Issue #136: the same 122-test suite took 6.1m on the PR runner and
+    # was cancelled after ~8.5m on Pages. Allow setup and slower runners.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -69,7 +71,7 @@ jobs:
       - run: npm --prefix web run build
       - run: npx playwright install --with-deps chromium
         working-directory: web
-      - run: npm test -- --grep-invert '301 seconds'
+      - run: npm test -- --grep-invert '301 seconds' --reporter=list
         working-directory: web
       - uses: actions/upload-pages-artifact@v3
         if: inputs.upload-pages-artifact && github.event_name == 'push' && github.ref == 'refs/heads/main'
