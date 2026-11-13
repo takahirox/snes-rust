@@ -43,6 +43,9 @@ List useful additional checks separately from mandatory acceptance, or write
 
 Record checks possible only after merge only when this Issue needs them; otherwise
 write "None." For example, a merge-triggered deployment can only be verified after
-merge. Report required checks as pending until performed; pre-merge validation
-does not prove publication succeeded. See the
-[review guidance](https://github.com/takahirox/snes-rust/blob/main/docs/review-guidelines.md#check-pre-merge-acceptance-and-post-merge-verification).
+merge. Close the implemented Issue after successful merge, then record required
+checks and evidence, keeping pending or environment-blocked results explicit.
+Closure does not claim those checks passed. Follow the
+[post-merge guidance](https://github.com/takahirox/snes-rust/blob/main/docs/development-flow.md#6-perform-post-merge-verification-only-if-required)
+for evidence and new linked defect Issues; do not reopen this Issue solely for
+post-merge follow-up.

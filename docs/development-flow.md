@@ -119,9 +119,11 @@ accurately, including reasons. Choose checks appropriate to the changed files an
 actual repository tooling; unrelated runtime suites are not required for
 templates or documentation alone.
 
-Only claim to close an Issue when the implementation fully addresses it. Identify
-partial work explicitly and leave its Issue open. Report mandatory pre-merge
-validation, optional checks, and required post-merge verification separately.
+Use and preserve `Closes #N` when the implementation fully addresses the Issue
+and its applicable mandatory pre-merge checks are satisfied. Identify intentional
+partial work and its remaining scope explicitly; link its parent Issue without
+automatically closing it. Report mandatory pre-merge validation, optional checks,
+and required post-merge verification separately.
 Pending post-merge verification does not make an otherwise complete implementation
 partial, but must remain reported as pending until performed.
 
@@ -141,13 +143,41 @@ from fixable findings instead of repeatedly requesting code fixes.
 Approve and merge into `main` when the implementation and mandatory pre-merge
 checks are sufficient and no blocking review findings remain. Respect the
 repository's current merge settings and the workflow's authorization.
+Missing implementation, mandatory pre-merge tests, required protections and
+genuinely necessary pre-merge human acceptance remain blockers.
+
+After successful merge, close the original implemented Issue, normally through
+`Closes #N`. Do not remove that reference, keep the Issue open, or withhold
+approval solely because post-merge-only verification is pending. ProjectWeave
+publication adds the closing reference and its merge/close stages close the
+Issue; asking review to undo this solely for pending post-merge checks creates
+repeated Review → Fix → Publish → Review loops.
 
 ## 6. Perform post-merge verification only if required
 
-Perform any separately recorded required post-merge checks, then report actual
-results, failures, and needed follow-up. Pre-merge validation does not prove that
-deployment or publication succeeded. No post-merge verification is required for
-this templates/documentation-only collaboration setup.
+After merging and closing the original Issue, perform any separately recorded
+required post-merge checks. Record the affected revision, environment, commands
+or steps, and actual results with supporting links/logs in the merged PR, closed
+Issue, or a linked validation report. Report unperformed, pending or
+environment-blocked checks honestly, with reasons; Issue closure does not claim
+they passed. Pre-merge validation does not prove deployment or publication
+succeeded. An unavailable test environment alone is not evidence of a product
+defect.
+
+If verification finds an actual defect, first check for an existing equivalent
+Issue. Reuse it or create a new linked Issue with reproduction steps, affected
+revision, expected and actual behavior, evidence, and links to the original
+Issue and PR. Do not reopen the original Issue solely for post-merge follow-up.
+
+Require these checks only when the actual change needs them. Documentation-only
+work requires no routine manual approval, physical-device testing, heavyweight
+model downloads or deployment gates, and this documentation/template change
+requires no post-merge verification. Existing verification requirements remain
+in force.
+
+This lifecycle supersedes older instructions to keep an implemented Issue open
+solely for post-merge verification. Preserve historical test outcomes and evidence
+as recorded; this guidance does not turn pending or failed results into passes.
 
 This flow and the templates adapt the
 [GitWeave development flow](https://github.com/takahirox/gitweave/blob/main/docs/development-flow.md)

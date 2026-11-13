@@ -413,11 +413,18 @@ load/play the demo with input and a local battery save, and record actual result
 with no 404/CSP/MIME/console errors. This new deployment verification is pending;
 the historical Issue #9 result does not establish publication of Shionari.
 Confirm later `main` pushes can republish. A passing local build does not establish publication,
-and this check cannot block pre-merge approval. If setup or
-the live site fails after merge, create a new Issue with the `task` label linking
-[#7](https://github.com/takahirox/snes-rust/issues/7), the run, failing URL,
-reproduction, actual/expected behavior and logs; fix it through the normal
-Issue → PR flow without reopening #7. An agent can perform that follow-up only
+and this check cannot block pre-merge approval or closure of the implemented
+Issue after successful merge. Record evidence in the merged PR, closed Issue or
+linked validation report under the
+[post-merge guidance](docs/development-flow.md#6-perform-post-merge-verification-only-if-required).
+Report pending or environment-blocked checks honestly; an unavailable environment
+alone is not evidence of a product defect. If an actual setup or live-site defect
+is found, check for an equivalent Issue first; reuse it or create a new Issue with
+the `task` label linking the original Issue/PR (including
+[#7](https://github.com/takahirox/snes-rust/issues/7) where relevant), affected
+revision, run, failing URL, reproduction, actual/expected behavior and logs. Fix
+it through the normal Issue → PR flow without reopening the original Issue solely
+for post-merge follow-up. An agent can perform that follow-up only
 when invoked/authorized after push; no background monitoring is implied.
 
 ## Optional game validation
