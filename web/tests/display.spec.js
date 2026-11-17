@@ -62,9 +62,26 @@ async function geometry(page) {
   expect(rects[0][2] / rects[0][3]).toBeCloseTo(256 / 224, 3);
 }
 
+test('fresh browser defaults to CRT without storing a preference', async ({ page }) => {
+  await boot(page);
+  await expect(page.locator('#display')).toHaveValue('crt');
+  expect(await page.evaluate(() => localStorage.getItem('snes-rust:display'))).toBeNull();
+  await local(page);
+  await expect(page.locator('.crt-display')).toBeVisible();
+  const before = await page.evaluate(() => videoMetrics.frames);
+  await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before + 2);
+  await page.reload();
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await expect(page.locator('#display')).toHaveValue('crt');
+  await local(page);
+  await expect(page.locator('.crt-display')).toBeVisible();
+  expect(page.displayErrors).toEqual([]);
+});
+
 test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel bytes', async ({ page }) => {
   await boot(page); await local(page);
-  await expect(page.locator('.crt-display')).toHaveCount(0);
+  await expect(page.locator('.crt-display')).toBeVisible();
+  await choose(page, 'pixel');
   await page.getByText('Help / Controls', { exact: true }).click();
   const select = page.getByRole('combobox', { name: 'Display', exact: true });
   await expect(select).toHaveValue('pixel'); await select.focus();
@@ -240,7 +257,7 @@ for (const preference of ['crt', 'pixel', 'corrupt', 'denied']) {
       } else localStorage.setItem('snes-rust:display', preference);
     }, preference);
     await boot(page); await expect(page.locator('#placeholder')).toBeVisible();
-    await expect(page.locator('#display')).toHaveValue(preference === 'crt' ? 'crt' : 'pixel');
+    await expect(page.locator('#display')).toHaveValue(preference === 'pixel' ? 'pixel' : 'crt');
     await local(page); await choose(page, 'crt'); await choose(page, 'pixel');
     await expect(page.locator('#error')).toBeEmpty(); expect(page.displayErrors).toEqual([]);
   });
