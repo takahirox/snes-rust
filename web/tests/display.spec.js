@@ -70,6 +70,13 @@ test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel
   await expect(select).toHaveValue('pixel'); await select.focus();
   const before = await page.evaluate(() => {
     new Uint8Array(videoCore.memory.buffer, videoCore.sram_buffer(), videoCore.sram_len())[3] = 0x79;
+    // Bracket each Display handler in one event dispatch. Audio scheduling may
+    // independently recover from a runner stall between Playwright actions.
+    window.displayStopDeltas = [];
+    const select = document.getElementById('display');
+    let stops;
+    select.addEventListener('change', () => { stops = videoMetrics.stops; }, true);
+    select.addEventListener('change', () => displayStopDeltas.push(videoMetrics.stops - stops));
     return { ...videoMetrics };
   });
   await page.keyboard.press('c');
@@ -85,10 +92,10 @@ test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel
   await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before.frames + 3);
   await expect.poll(() => page.evaluate(() => videoCore.peek(0x11))).toBe(1);
   await page.keyboard.up('ArrowRight');
-  const after = await page.evaluate(() => ({ ...videoMetrics, marker: new Uint8Array(videoCore.memory.buffer, videoCore.sram_buffer(), videoCore.sram_len())[3] }));
+  const after = await page.evaluate(() => ({ ...videoMetrics, displayStopDeltas, marker: new Uint8Array(videoCore.memory.buffer, videoCore.sram_buffer(), videoCore.sram_len())[3] }));
   expect(after.loads).toBe(before.loads); expect(after.resets).toBe(before.resets);
   expect(after.marker).toBe(0x79); expect(after.audio).toBeGreaterThan(before.audio);
-  expect(after.stops).toBe(before.stops);
+  expect(after.displayStopDeltas).toEqual([0, 0, 0, 0, 0]);
   await page.locator('#play').click();
   const hash = await frameHash(page);
   for (const mode of ['pixel', 'crt', 'pixel']) { await choose(page, mode); expect(await frameHash(page)).toBe(hash); }
