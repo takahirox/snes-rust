@@ -24,7 +24,7 @@ for name in ['cc65', 'bass-untech'] + (['spcasm'] if args.spc else []):
     entry = manifest[name]
     archive = cache / f'{name}.tar.gz'
     if not archive.exists():
-        with urllib.request.urlopen(entry['url'], timeout=30) as response:
+        with urllib.request.urlopen(entry['url'], timeout=120) as response:
             data = response.read(50_000_000)
         if hashlib.sha256(data).hexdigest() != entry['sha256']:
             raise SystemExit(f'Hash mismatch for {name}')

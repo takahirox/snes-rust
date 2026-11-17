@@ -113,17 +113,62 @@ for (const source of ['local', 'demo', 'demo-yonaki']) {
 
 test('gain changes reach already queued sound while no new frame or source can run', async ({ page }, testInfo) => {
   await ready(page); await local(page); await measuredLevel(page, 100);
-  await expect.poll(() => page.evaluate(() => pendingSound())).toBeGreaterThan(0);
-  const result = await page.evaluate(() => {
-    const pending = pendingSound(), frames = volumeMetrics.frames, starts = volumeMetrics.starts;
-    const input = document.getElementById('volume'); input.value = '25'; input.dispatchEvent(new Event('input'));
-    // Audio renders on its own thread; prevent rAF from generating new buffers.
-    const until = performance.now() + 40; while (performance.now() < until) {}
-    return { pending, frames: volumeMetrics.frames - frames, starts: volumeMetrics.starts - starts, ...measureVolume() };
+  const result = await page.evaluate(async () => {
+    // Record matched real stereo taps on the audio thread, before the finite
+    // queue expires. Main-thread timing must not decide which samples we see.
+    const ctx = volumeContext;
+    await ctx.audioWorklet.addModule('/queued-volume-probe.js');
+    const probe = new AudioWorkletNode(ctx, 'queued-volume-probe', {
+      numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [1],
+    });
+    inputMeter.connect(probe, 0, 0); outputMeter.connect(probe, 0, 1); probe.connect(ctx.destination);
+    let sampleResolve;
+    const sample = new Promise(resolve => { sampleResolve = resolve; });
+    probe.port.onmessage = event => sampleResolve(event.data);
+    const raf = window.requestAnimationFrame, start = AudioBufferSourceNode.prototype.start;
+    let held = false, callbacks = [], queuedEnd;
+    window.requestAnimationFrame = callback => raf(time => {
+      if (held) callbacks.push(callback); else callback(time);
+    });
+    try {
+      // Suspend at the next real source start, before its scheduled audio time.
+      // This preserves a fresh queued window even if the main thread stalls.
+      await new Promise(resolve => {
+        AudioBufferSourceNode.prototype.start = function (...args) {
+          const result = start.apply(this, args);
+          AudioBufferSourceNode.prototype.start = start;
+          queuedEnd = args[0] + this.buffer.duration; held = true;
+          void ctx.suspend().then(resolve);
+          return result;
+        };
+      });
+      const pending = pendingSound(), frames = volumeMetrics.frames, starts = volumeMetrics.starts;
+      const changedAt = ctx.currentTime;
+      // Production gain uses a 5 ms time constant. Observe after seven constants,
+      // still inside the preserved real-source window; no replacement audio.
+      probe.port.postMessage({ after: changedAt + .035 });
+      const input = document.getElementById('volume'); input.value = '25'; input.dispatchEvent(new Event('input'));
+      await ctx.resume();
+      // Deliberately outlast the entire normal queue. The audio-thread sample
+      // must survive this stall; a live analyser read would now be silent.
+      const began = performance.now(), until = began + 250; while (performance.now() < until) {}
+      const measured = await Promise.race([sample, new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('No non-silent queued audio sample')), 3000))]);
+      return { pending, frames: volumeMetrics.frames - frames, starts: volumeMetrics.starts - starts,
+        changedAt, queuedEnd, stalledMilliseconds: performance.now() - began,
+        liveAfterStall: measureVolume(), ...measured };
+    } finally {
+      probe.disconnect(); inputMeter.disconnect(probe); outputMeter.disconnect(probe);
+      AudioBufferSourceNode.prototype.start = start; window.requestAnimationFrame = raf;
+      held = false; for (const callback of callbacks) raf(callback);
+    }
   });
+  await testInfo.attach('already-queued-output', { body: JSON.stringify(result), contentType: 'application/json' });
   expect(result.pending).toBeGreaterThan(0); expect(result.frames).toBe(0); expect(result.starts).toBe(0);
   expect(result.input).toBeGreaterThan(.00001); expect(result.ratio).toBeCloseTo(.25, 2);
-  await testInfo.attach('already-queued-output', { body: JSON.stringify(result), contentType: 'application/json' });
+  expect(result.channels).toBe(2); expect(result.stalledMilliseconds).toBeGreaterThanOrEqual(250);
+  expect(result.sampledAt).toBeGreaterThanOrEqual(result.changedAt + .035);
+  expect(result.sampledAt).toBeLessThan(result.queuedEnd);
 });
 
 test('native keyboard, mute restore, pause/reset/cartridge/fullscreen and reload share one preference', async ({ page }) => {
