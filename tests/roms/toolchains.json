@@ -20,7 +20,7 @@
   "spcasm": {
     "repository": "https://codeberg.org/filmroellchen/spcasm",
     "commit": "c2d57b7aa8ddd6b22a18424047b8c2d93f0373e7",
-    "url": "https://codeberg.org/filmroellchen/spcasm/archive/c2d57b7aa8ddd6b22a18424047b8c2d93f0373e7.tar.gz",
+    "url": "https://codeberg.org/api/v1/repos/filmroellchen/spcasm/archive/c2d57b7aa8ddd6b22a18424047b8c2d93f0373e7.tar.gz",
     "sha256": "979b0fbe19830ffb49d2f187a5512044b7514914f1d289686c340ffd1d6a6e63",
     "license": "BSD-2-Clause, Copyright (c) 2022 kleines Filmröllchen; dependency versions in archive Cargo.lock",
     "copyright": "kleines Filmröllchen",
