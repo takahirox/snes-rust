@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { setTabHidden } from './playback.js';
 
 const buffer = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const sram = page => page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3]);
@@ -146,22 +147,19 @@ test('Reset guards absent, loading and unresolved save restoration without overw
   await page.locator('#retry-save').click(); await expect(page.locator('#status')).toHaveText('Playing');
 });
 
-test('Reset in a hidden document does not advance frames or auto-play on visibility return', async ({ page }) => {
+test('explicit Reset starts playback even while the document is hidden', async ({ page }) => {
   await load(page);
-  await page.evaluate(() => {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-  });
+  await page.locator('#play').click();
+  await setTabHidden(page, true);
+  await expect(page.locator('#status')).toHaveText('Paused');
   const frames = await page.evaluate(() => resetMetrics.frames);
   await page.locator('#reset').dispatchEvent('click');
-  await page.waitForTimeout(100);
-  expect(await page.evaluate(() => resetMetrics.frames)).toBe(frames);
-  await expect(page.locator('#play')).toHaveText('Play');
-  await expect(page.locator('#status')).toHaveText('Paused');
-  await page.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
-  await page.waitForTimeout(100);
-  expect(await page.evaluate(() => resetMetrics.frames)).toBe(frames);
-  await page.locator('#reset').click(); await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  expect(await page.evaluate(() => resetMetrics.calls)).toBe(1);
+  await setTabHidden(page, false);
+  await expect.poll(() => page.evaluate(() => resetMetrics.frames)).toBeGreaterThan(frames);
+  await expect(page.locator('#status')).toHaveText('Playing');
 });
 
 for (const failure of ['rejected', 'pending', 'unavailable']) test(`Reset retries ${failure} audio in the gesture and starts video without waiting`, async ({ page }) => {

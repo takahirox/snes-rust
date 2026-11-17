@@ -142,8 +142,10 @@ hardware, GPU profiling and real-TV photographic comparison were not performed.
 The new `display.spec.js` covers genuine shader initialization/live presentation,
 keyboard type-ahead and selected state, input/audio/SRAM/focus continuity, exact
 Pixel bytes, 256→512→256 transitions, paused resize, non-integer scaling,
-fullscreen, reset/replacement, hidden-tab pause and retained GPU output on return,
-blocked/corrupt/missing preferences and reload.
+fullscreen, reset/replacement, retained GPU output after the hidden-tab pause
+that existed at the time, and blocked/corrupt/missing preferences and reload.
+[Issue #160](https://github.com/takahirox/snes-rust/issues/160) removed the
+visibility-triggered pause.
 It injects unavailable WebGL, compile/link/draw/error failures and sustained CPU
 rendering and whole-frame workload overload, and uses `WEBGL_lose_context` for loss/restoration/retry.
 Ten repeated mode cycles check balanced shader/program/texture/buffer cleanup
