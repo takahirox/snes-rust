@@ -126,27 +126,31 @@ test('gain changes reach already queued sound while no new frame or source can r
     const sample = new Promise(resolve => { sampleResolve = resolve; });
     probe.port.onmessage = event => sampleResolve(event.data);
     const raf = window.requestAnimationFrame, start = AudioBufferSourceNode.prototype.start;
-    let held = false, callbacks = [], queuedEnd;
+    let held = false, callbacks = [], queuedStart, queuedEnd;
     window.requestAnimationFrame = callback => raf(time => {
       if (held) callbacks.push(callback); else callback(time);
     });
     try {
-      // Suspend at the next real source start, before its scheduled audio time.
-      // This preserves a fresh queued window even if the main thread stalls.
-      await new Promise(resolve => {
-        AudioBufferSourceNode.prototype.start = function (...args) {
-          const result = start.apply(this, args);
-          AudioBufferSourceNode.prototype.start = start;
-          queuedEnd = args[0] + this.buffer.duration; held = true;
-          void ctx.suspend().then(resolve);
+      // Give the next frame batch's real stereo buffers enough lead for the
+      // context to suspend and the gain to settle, even if the queue was thin.
+      await new Promise((resolve, reject) => {
+        AudioBufferSourceNode.prototype.start = function (when, ...args) {
+          queuedStart = Math.max(when, ctx.currentTime) + .1;
+          const result = start.call(this, queuedStart, ...args);
+          queuedEnd = queuedStart + this.buffer.duration;
+          if (!held) {
+            held = true;
+            void ctx.suspend().then(resolve, reject);
+          }
           return result;
         };
       });
+      AudioBufferSourceNode.prototype.start = start;
       const pending = pendingSound(), frames = volumeMetrics.frames, starts = volumeMetrics.starts;
       const changedAt = ctx.currentTime;
       // Production gain uses a 5 ms time constant. Observe after seven constants,
       // still inside the preserved real-source window; no replacement audio.
-      probe.port.postMessage({ after: changedAt + .035 });
+      probe.port.postMessage({ after: Math.max(changedAt + .035, queuedStart) });
       const input = document.getElementById('volume'); input.value = '25'; input.dispatchEvent(new Event('input'));
       await ctx.resume();
       // Deliberately outlast the entire normal queue. The audio-thread sample
@@ -155,7 +159,7 @@ test('gain changes reach already queued sound while no new frame or source can r
       const measured = await Promise.race([sample, new Promise((_, reject) =>
         setTimeout(() => reject(new Error('No non-silent queued audio sample')), 3000))]);
       return { pending, frames: volumeMetrics.frames - frames, starts: volumeMetrics.starts - starts,
-        changedAt, queuedEnd, stalledMilliseconds: performance.now() - began,
+        changedAt, queuedStart, queuedEnd, stalledMilliseconds: performance.now() - began,
         liveAfterStall: measureVolume(), ...measured };
     } finally {
       probe.disconnect(); inputMeter.disconnect(probe); outputMeter.disconnect(probe);
@@ -168,6 +172,7 @@ test('gain changes reach already queued sound while no new frame or source can r
   expect(result.input).toBeGreaterThan(.00001); expect(result.ratio).toBeCloseTo(.25, 2);
   expect(result.channels).toBe(2); expect(result.stalledMilliseconds).toBeGreaterThanOrEqual(250);
   expect(result.sampledAt).toBeGreaterThanOrEqual(result.changedAt + .035);
+  expect(result.sampledAt).toBeGreaterThanOrEqual(result.queuedStart);
   expect(result.sampledAt).toBeLessThan(result.queuedEnd);
 });
 
