@@ -50,11 +50,14 @@ broader license is granted. The repository's MIT license for emulator source cod
 
 - File: `demos/yonaki.sfc` (published unchanged as `yonaki.sfc`).
 - Size: 4,194,304 bytes; headerless ordinary LoROM, 8 KiB battery-backed SRAM.
-- SHA-256: `b0b90ecf9d853f8c975f9c0045712966f114b1463e973a7b91434a97a141c3c7`.
+- SHA-256: `53022b7b4154ec7320f057882e8fdd56ec9d47ea6c6d5133b8a3e0c8737f829e`.
 - Added for [Issue #126](https://github.com/takahirox/snes-rust/issues/126) and updated to the current build for
   [Issue #130](https://github.com/takahirox/snes-rust/issues/130), [Issue #132](https://github.com/takahirox/snes-rust/issues/132) and
   [Issue #138](https://github.com/takahirox/snes-rust/issues/138). Their bodies record
   the maintainer's authorship and distribution authorization.
+- Updated for [Issue #149](https://github.com/takahirox/snes-rust/issues/149): the maintainer's
+  validated snes-roms working-tree build (base commit `6da6766`) sets `DIM_TEXT` to 2 out of 31
+  for subtly dimmed backgrounds while reading. White text is unchanged.
 - The code, story, music, sound effects and SPC700 driver were created for this
   game with AI assistance under the maintainer's direction; instruments are
   synthesised, not sampled. Background photographs and character silhouettes were
