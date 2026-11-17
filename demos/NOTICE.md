@@ -50,7 +50,7 @@ broader license is granted. The repository's MIT license for emulator source cod
 
 - File: `demos/yonaki.sfc` (published unchanged as `yonaki.sfc`).
 - Size: 4,194,304 bytes; headerless ordinary LoROM, 8 KiB battery-backed SRAM.
-- SHA-256: `8f278e81ed3cec85a8d93aa834607572c754587f9bf1c2940baf46fe9b5080cb`.
+- SHA-256: `89110030d3fd97c97c2917420fc74c8c43fde5e6c92a27815c872601bbd07580`.
 - Added for [Issue #126](https://github.com/takahirox/snes-rust/issues/126) and updated to the current build for
   [Issue #130](https://github.com/takahirox/snes-rust/issues/130), [Issue #132](https://github.com/takahirox/snes-rust/issues/132) and
   [Issue #138](https://github.com/takahirox/snes-rust/issues/138). Their bodies record
@@ -61,6 +61,12 @@ broader license is granted. The repository's MIT license for emulator source cod
 - Updated for [Issue #152](https://github.com/takahirox/snes-rust/issues/152): the same working tree
   removes full-background dimming during figure changes, prepares the new composition while the old
   VRAM image stays visible, then transfers the affected columns during V-blank.
+- Updated for [Issue #155](https://github.com/takahirox/snes-rust/issues/155): the same working tree
+  adds eight gradual figure-only dissolve stages, with at least 32 animation frames. It compares
+  the settled/target pictures and transfers only changed tiles while retaining the photo palette,
+  reading dim and text. Larger multi-figure updates take longer. See the
+  [validation and captures](../docs/issue-155-validation.md). Public SFC Kamaitachi no Yoru gameplay
+  informed the pacing; no artwork, ROM data or code from that game is included.
 - The code, story, music, sound effects and SPC700 driver were created for this
   game with AI assistance under the maintainer's direction; instruments are
   synthesised, not sampled. Background photographs and character silhouettes were

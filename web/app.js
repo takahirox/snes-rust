@@ -11,7 +11,7 @@ let operationError = '', persistenceError = '', restorePending = false, loading 
 // Bundled demos by picker button id; each is fetched from the same origin and pinned.
 const demos = {
   demo: { file: 'shionari.sfc', name: '潮鳴りの密室 / Shionari no Misshitsu', size: 524288, hash: '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca' },
-  'demo-yonaki': { file: 'yonaki.sfc', name: '夜鳴き鐘 / Yonaki Kane', size: 4194304, hash: '8f278e81ed3cec85a8d93aa834607572c754587f9bf1c2940baf46fe9b5080cb' },
+  'demo-yonaki': { file: 'yonaki.sfc', name: '夜鳴き鐘 / Yonaki Kane', size: 4194304, hash: '89110030d3fd97c97c2917420fc74c8c43fde5e6c92a27815c872601bbd07580' },
 };
 const demoButtons = Object.keys(demos).map($);
 function enableSources(enabled) { for (const button of [$('rom'), $('open-local'), $('change-cartridge'), ...demoButtons]) button.disabled = !enabled; }
