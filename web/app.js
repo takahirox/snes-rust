@@ -297,7 +297,7 @@ function updatePlayback() {
 function clearInput() { keyboard = 0; held.clear(); clearVirtualInput(); }
 function pause() { playing = false; clearInput(); updatePlayback(); flushAudio(); const saved = save(); if (loaded) $('status').textContent = 'Paused'; return saved; }
 function start() {
-  if (!loaded || restorePending || loading || document.hidden) return;
+  if (!loaded || restorePending || loading) return;
   debt = frameMilliseconds; lastTime = performance.now(); playing = true; updatePlayback(); $('status').textContent = 'Playing';
 }
 function togglePlayback(event) {
@@ -515,7 +515,7 @@ for (const button of touchButtons) {
   });
   button.addEventListener('blur', () => { virtualKeys.delete(button); paintVirtualInput(); });
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) { clearInput(); if (playing) pause(); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
 window.addEventListener('pagehide', save);
 try {
   const response = await fetch('snes_wasm.wasm'); if (!response.ok) throw new Error(`Wasm download failed: HTTP ${response.status}`);

@@ -1,6 +1,7 @@
 import { selectDemo } from './cartridge.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { setTabHidden } from './playback.js';
 
 test.use({ hasTouch: true, isMobile: true, viewport: { width: 320, height: 740 } });
 const masks = { Up: 0x800, Down: 0x400, Left: 0x200, Right: 0x100, A: 0x80, B: 0x8000, X: 0x40, Y: 0x4000, L: 0x20, R: 0x10, Start: 0x1000, Select: 0x2000 };
@@ -116,8 +117,10 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await boot(page); const touch = await fingers(page);
   await touch.down('B'); await touch.move(1, 2, 2); await touch.up(); await expect.poll(() => controller(page)).toBe(0);
   await touch.down('L'); await touch.cancel(); await expect.poll(() => controller(page)).toBe(0);
-  await touch.down('A'); await page.evaluate(() => window.dispatchEvent(new Event('blur')));
-  await expect.poll(() => controller(page)).toBe(0); await touch.up();
+  await page.keyboard.down('ArrowRight'); await touch.down('A');
+  await expect.poll(() => controller(page)).toBe(masks.Right | masks.A);
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await expect.poll(() => controller(page)).toBe(0); await touch.up(); await page.keyboard.up('ArrowRight');
   await touch.down('R'); await page.evaluate(() => {
     const b = document.querySelector('[data-button="16"]');
     // Releasing real capture exercises the platform-generated lost event.
@@ -127,12 +130,25 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await page.getByRole('button', { name: 'SNES Start', exact: true }).focus(); await page.keyboard.down('Space');
   await expect.poll(() => controller(page)).toBe(0x1000);
   await page.locator('#video').tap(); await page.keyboard.up('Space'); await expect.poll(() => controller(page)).toBe(0);
-  await touch.down('Select'); await page.evaluate(() => {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange'));
-  });
-  await expect(page.locator('#status')).toHaveText('Paused'); await touch.up();
-  await page.evaluate(() => { delete document.hidden; }); await page.locator('#play').tap();
+  await page.keyboard.down('ArrowLeft'); await touch.down('Select');
+  await expect.poll(() => controller(page)).toBe(masks.Left | masks.Select);
+  await setTabHidden(page, true);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  await expect(page.locator('[data-button].pressed')).toHaveCount(0);
+  await setTabHidden(page, false);
+  // The guest sees both releases before the original physical inputs are released.
   await expect.poll(() => controller(page)).toBe(0);
+  await touch.up(); await page.keyboard.up('ArrowLeft');
+  await page.keyboard.down('ArrowRight'); await touch.down('B');
+  await page.evaluate(() => {
+    window.testPads = [{ mapping: 'standard', axes: [0, 0], buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: i === 5 })) }];
+  });
+  await expect.poll(() => controller(page)).toBe(masks.Right | masks.B | masks.R);
+  await page.evaluate(() => { window.testPads = []; }); await touch.up(); await page.keyboard.up('ArrowRight');
+  await expect.poll(() => controller(page)).toBe(0);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
 });
 
 for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }]) {

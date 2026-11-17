@@ -11,9 +11,12 @@ persist SRAM. Reset preserves the core's SRAM, redraws the reset frame and
 attempts audio activation during the click without awaiting it. Successful
 visible resets show **Playing** and the common **Pause** button, even when
 previously paused. The canvas receives focus for immediate game input.
-Absent cartridges, loading and unresolved save restoration still guard Reset;
-hidden documents remain paused. Reset failures report an error and remain
-paused. Persistence warnings remain separate from operation errors.
+Absent cartridges, loading and unresolved save restoration still guard Reset.
+Reset failures report an error and remain paused. Persistence warnings remain
+separate from operation errors. At the time of this validation, Reset in a
+hidden document left playback paused.
+[Issue #160](https://github.com/takahirox/snes-rust/issues/160) removed that
+visibility restriction.
 
 No Rust/Wasm hardware source, ROM binary, ROM hash, SRAM identity, dependency or
 published artifact allowlist changed. Both bundled games retain the distribution
