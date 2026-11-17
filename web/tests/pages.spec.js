@@ -63,9 +63,14 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
   await page.goto(`${origin}${prefix}`);
   await expect(page.locator('#status')).toHaveText('Ready');
   await expect(page.locator('#rom')).toBeEnabled();
+  await expect(page.getByRole('link', { name: 'GitHub', exact: true })).toHaveJSProperty('href', 'https://github.com/takahirox/snes-rust');
+  await expect(page.getByRole('combobox', { name: 'Scale', exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Display', exact: true })).toBeVisible();
   await expect(page.locator('#display')).toHaveValue('crt');
   await expect(page.locator('#video')).toHaveCSS('image-rendering', 'pixelated');
   await loadDemo(page);
+  await expect(page.getByRole('combobox', { name: 'Scale', exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Display', exact: true })).toBeVisible();
   await expect(page.locator('.crt-display')).toBeVisible();
   // An original MIT diagnostic is selected locally, never copied into dist.
   await page.locator('#rom').setInputFiles({

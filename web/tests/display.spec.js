@@ -43,7 +43,7 @@ async function local(page, buffer = fixture) {
   await expect(page.locator('#status')).toHaveText('Playing');
 }
 async function choose(page, value) {
-  // Native selector remains in Help; change in one task to compare live state.
+  // Change in one task to compare live state without moving focus from the game.
   await page.evaluate(value => {
     const select = document.getElementById('display'); select.value = value;
     select.dispatchEvent(new Event('change'));
@@ -103,7 +103,6 @@ async function playablePixel(page) {
 test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel bytes', async ({ page }) => {
   await boot(page); await local(page); await choose(page, 'pixel');
   await expect(page.locator('.crt-display')).toHaveCount(0);
-  await page.getByText('Help / Controls', { exact: true }).click();
   const select = page.getByRole('combobox', { name: 'Display', exact: true });
   await expect(select).toHaveValue('pixel'); await select.focus();
   const before = await page.evaluate(() => {
@@ -122,7 +121,6 @@ test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel
   await expect(page.locator('.crt-display')).toBeVisible();
   // Native select type-ahead groups letters within one second on macOS.
   await page.waitForTimeout(1100); await page.keyboard.press('p'); await expect(select).toHaveValue('pixel');
-  await page.getByText('Help / Controls', { exact: true }).click();
   await page.locator('#video').focus(); await page.keyboard.down('ArrowRight');
   const bounds = await page.locator('#video').boundingBox();
   for (const value of ['crt', 'pixel', 'crt']) {
@@ -296,6 +294,8 @@ for (const failure of ['unavailable', 'compile', 'link', 'draw', 'error', 'budge
     await boot(page); await local(page);
     // Exercise automatic startup CRT, without requesting it through settings.
     await expect(page.locator('#display')).toHaveValue('pixel', { timeout: 15000 });
+    await expect(page.locator('#display')).toBeVisible();
+    await expect(page.locator('#display-status')).toBeVisible();
     await expect(page.locator('#display-status')).toContainText('Using Pixel');
     await playablePixel(page);
     // Automatic fallback must not overwrite a preference (or persist a default).
