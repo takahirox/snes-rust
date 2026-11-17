@@ -70,6 +70,13 @@ test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel
   await expect(select).toHaveValue('pixel'); await select.focus();
   const before = await page.evaluate(() => {
     new Uint8Array(videoCore.memory.buffer, videoCore.sram_buffer(), videoCore.sram_len())[3] = 0x79;
+    // Bracket each Display handler in one event dispatch. Audio scheduling may
+    // independently recover from a runner stall between Playwright actions.
+    window.displayStopDeltas = [];
+    const select = document.getElementById('display');
+    let stops;
+    select.addEventListener('change', () => { stops = videoMetrics.stops; }, true);
+    select.addEventListener('change', () => displayStopDeltas.push(videoMetrics.stops - stops));
     return { ...videoMetrics };
   });
   await page.keyboard.press('c');
@@ -85,10 +92,10 @@ test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel
   await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before.frames + 3);
   await expect.poll(() => page.evaluate(() => videoCore.peek(0x11))).toBe(1);
   await page.keyboard.up('ArrowRight');
-  const after = await page.evaluate(() => ({ ...videoMetrics, marker: new Uint8Array(videoCore.memory.buffer, videoCore.sram_buffer(), videoCore.sram_len())[3] }));
+  const after = await page.evaluate(() => ({ ...videoMetrics, displayStopDeltas, marker: new Uint8Array(videoCore.memory.buffer, videoCore.sram_buffer(), videoCore.sram_len())[3] }));
   expect(after.loads).toBe(before.loads); expect(after.resets).toBe(before.resets);
   expect(after.marker).toBe(0x79); expect(after.audio).toBeGreaterThan(before.audio);
-  expect(after.stops).toBe(before.stops);
+  expect(after.displayStopDeltas).toEqual([0, 0, 0, 0, 0]);
   await page.locator('#play').click();
   const hash = await frameHash(page);
   for (const mode of ['pixel', 'crt', 'pixel']) { await choose(page, mode); expect(await frameHash(page)).toBe(hash); }
@@ -258,12 +265,12 @@ for (const demo of ['demo', 'demo-yonaki']) {
     if (demo === 'demo') { await tap('KeyX'); await page.waitForTimeout(1500); await tap('KeyX'); await tap('KeyX'); }
     else { await tap('KeyX'); await tap('KeyX'); await tap('Enter'); await tap('Enter'); }
     if (demo === 'demo-yonaki') {
-      // Wait past the monochrome chapter card for the illustrated prologue.
+      // The chapter card is grayscale; the prologue photo has colored pixels.
+      // Its palette can be only 112 colors in the translucent-figure ROM.
       await expect.poll(() => page.evaluate(() => {
-        const c = videoCore, data = new Uint8Array(c.memory.buffer, c.framebuffer(), c.framebuffer_len()), colors = new Set();
-        for (let i = 0; i < data.length; i += 4) colors.add((data[i] << 16) | (data[i+1] << 8) | data[i+2]);
-        return colors.size;
-      }), { timeout: 15000 }).toBeGreaterThan(128);
+        const c = videoCore, data = new Uint8Array(c.memory.buffer, c.framebuffer(), c.framebuffer_len());
+        return data.some((r, i) => i % 4 === 0 && (r !== data[i+1] || r !== data[i+2]));
+      }), { timeout: 15000 }).toBe(true);
     }
     await page.waitForTimeout(3500); await page.locator('#play').click();
     const hash = await frameHash(page), name = demo === 'demo' ? 'shionari' : 'yonaki';
