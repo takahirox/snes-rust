@@ -73,7 +73,7 @@ class CrtDisplay {
     window.addEventListener('resize', () => this.present());
     let saved;
     try { saved = localStorage.getItem('snes-rust:display'); } catch { /* Best effort. */ }
-    this.choose(saved === 'crt' ? 'crt' : 'pixel');
+    this.choose(saved === 'pixel' ? 'pixel' : 'crt');
   }
   release() {
     const gl = this.gl;
