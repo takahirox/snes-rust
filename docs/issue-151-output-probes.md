@@ -70,3 +70,12 @@ not claimed to be a renderer fix. Issue #157 remains a follow-up for that cause.
 - Web artifact rebuild passes. Its expected file set and the updated Yonaki ROM
   hash remain intact; production source files and both bundled ROMs are unchanged.
 - Required full CI and post-merge Pages/live verification are recorded in the PR.
+
+## Pinned-tool transport budget
+
+The first PR #158 core jobs also reproduced the unrelated 30-second Codeberg
+read timeout after bass built (Issue #159). The existing download call now has
+a 120-second socket timeout. URLs, versions, SHA-256 validation, the 50 MB read
+cap, safe extraction, build selection and CI suites are unchanged. This adds
+no automatic retry loop and does not claim the exact remote-network cause.
+GitHub Actions results for the final revision are recorded in the PR.
