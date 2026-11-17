@@ -63,8 +63,10 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
   await page.goto(`${origin}${prefix}`);
   await expect(page.locator('#status')).toHaveText('Ready');
   await expect(page.locator('#rom')).toBeEnabled();
-  await expect(page.locator('canvas')).toHaveCSS('image-rendering', 'pixelated');
+  await expect(page.locator('#display')).toHaveValue('crt');
+  await expect(page.locator('#video')).toHaveCSS('image-rendering', 'pixelated');
   await loadDemo(page);
+  await expect(page.locator('.crt-display')).toBeVisible();
   // An original MIT diagnostic is selected locally, never copied into dist.
   await page.locator('#rom').setInputFiles({
     name: 'smoke.sfc', mimeType: 'application/octet-stream',
@@ -146,15 +148,15 @@ test('Shionari skips its opening to the title and keyboard A starts the warehous
   await loadDemo(page);
   await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => audioActivations)).toBe(1);
-  await page.locator('canvas').click();
+  await page.locator('#video').click();
   // After a short black boot the opening prologue fades in; A skips it to the title.
   await expect.poll(() => lit(page), { timeout: 10000 }).toBe(true);
-  await testInfo.attach('Shionari opening', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  await testInfo.attach('Shionari opening', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
   await tapA(page);
   // Wait for the title background to finish fading in.
   await page.waitForTimeout(1500);
   const title = await scene(page);
-  await testInfo.attach('Shionari title', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  await testInfo.attach('Shionari title', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
   await page.waitForTimeout(500);
   expect(await scene(page)).toBe(title); // No idle scene transition.
   await tapA(page); // Opens the title menu with New Game selected.
@@ -164,7 +166,7 @@ test('Shionari skips its opening to the title and keyboard A starts the warehous
   await page.waitForTimeout(1000);
   const warehouse = await scene(page);
   expect(warehouse).not.toBe(title);
-  await testInfo.attach('Shionari warehouse story', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  await testInfo.attach('Shionari warehouse story', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
   await testInfo.attach('scene hashes', { body: JSON.stringify({ title, warehouse }), contentType: 'application/json' });
   await page.locator('#play').click();
   await expect(page.locator('#status')).toHaveText('Paused');
@@ -189,19 +191,19 @@ test('Yonaki plays from the title through name entry into the prologue, with its
   await boot(page); await loadDemo(page); await setMarker(page, 0x79);
   await loadDemo(page, 'demo-yonaki');
   await expect(page.locator('#current-game')).toHaveText('夜鳴き鐘 / Yonaki Kane');
-  await page.locator('canvas').click();
+  await page.locator('#video').click();
   // The title fades in after a short black boot, then stays still.
   await expect.poll(() => lit(page), { timeout: 10000 }).toBe(true);
   await page.waitForTimeout(2500);
   const title = await scene(page);
   await page.waitForTimeout(500);
   expect(await scene(page)).toBe(title);
-  await testInfo.attach('Yonaki title', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  await testInfo.attach('Yonaki title', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
   await tapA(page); // New Game opens name entry.
   await expect.poll(() => scene(page)).not.toBe(title);
   await page.waitForTimeout(500);
   const names = await scene(page);
-  await testInfo.attach('Yonaki name entry', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  await testInfo.attach('Yonaki name entry', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
   // Start accepts the default family name, then the heroine's given name.
   for (let i = 0; i < 2; i++) {
     await page.keyboard.down('Enter'); await page.waitForTimeout(100); await page.keyboard.up('Enter'); await page.waitForTimeout(400);
@@ -210,7 +212,7 @@ test('Yonaki plays from the title through name entry into the prologue, with its
   await page.waitForTimeout(3000);
   const story = await scene(page);
   expect([title, names]).not.toContain(story);
-  await testInfo.attach('Yonaki prologue', { body: await page.locator('canvas').screenshot(), contentType: 'image/png' });
+  await testInfo.attach('Yonaki prologue', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
   // Its SRAM uses its own key; Shionari's save is untouched and reselecting does not reload.
   expect(await marker(page)).not.toBe(0x79);
   await setMarker(page, 0x26);

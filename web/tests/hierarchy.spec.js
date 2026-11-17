@@ -15,7 +15,7 @@ async function entryActions(page) {
   await expect(page.getByRole('heading', { name: /潮鳴り|Shionari|BUNDLED ADVENTURE/ })).toHaveCount(0);
   await expect(page.locator('#current-game')).toBeVisible();
 }
-const geometry = page => page.locator('canvas, .game-entry, #change-cartridge, #play, #reset, #volume-control, #fullscreen').evaluateAll(nodes => nodes.map(n => {
+const geometry = page => page.locator('#video, .game-entry, #change-cartridge, #play, #reset, #volume-control, #fullscreen').evaluateAll(nodes => nodes.map(n => {
   const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
 }));
 
@@ -89,7 +89,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 740 
     expect(await geometry(page)).toEqual(initial);
     if (!viewport.safeArea && [1280, 320, 667].includes(viewport.width)) {
       // Capture actual game pixels after the cartridge's black boot interval.
-      await expect.poll(() => page.locator('canvas').evaluate(canvas =>
+      await expect.poll(() => page.locator('#video').evaluate(canvas =>
         canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.some((v, i) => i % 4 !== 3 && v > 0)
       ), { timeout: 10000 }).toBe(true);
       await page.keyboard.press('KeyX', { delay: 100 }); // Skip the opening to the real title scene.
@@ -111,7 +111,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 740 
     await expect(page.locator('#current-game')).toHaveText(name);
     expect(await geometry(page)).toEqual(initial);
     // Check player bounds; errors may extend the page below the fixed player.
-    const targets = page.locator('h1, .app-identity p, canvas, #change-cartridge, #current-game, #play');
+    const targets = page.locator('h1, .app-identity p, #video, #change-cartridge, #current-game, #play');
     for (const target of await targets.all()) await expect(target).toBeInViewport({ ratio: 1 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
   });
@@ -127,7 +127,7 @@ test.describe('mobile first view', () => {
         await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, bottom: 21, top: 0 } });
       }
       await ready(page); await entryActions(page);
-      const targets = page.locator('canvas, #change-cartridge, #current-game, #play, [data-button]');
+      const targets = page.locator('#video, #change-cartridge, #current-game, #play, [data-button]');
       expect(await page.locator('[data-button]').count()).toBe(12);
       for (const target of await targets.all()) {
         await expect(target).toBeInViewport({ ratio: 1 });

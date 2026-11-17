@@ -71,10 +71,14 @@ test('cleared Castle Platformer: controller replay traverses all maps and finish
   const result = await castleProgression(page, route);
   expect(result.frames).toBe(route.frames);
   await evidence(testInfo, result);
-  await page.locator('canvas').screenshot({ path: testInfo.outputPath('credits.png') });
-  await page.evaluate(() => document.querySelector('canvas').getContext('2d')
-    .putImageData(new ImageData(window.castleWinFrame, 256, 224), 0, 0));
-  await page.locator('canvas').screenshot({ path: testInfo.outputPath('you-win.png') });
+  // Replay writes the source canvas directly while paused; refresh the overlay.
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await page.locator('#video').screenshot({ path: testInfo.outputPath('credits.png') });
+  await page.evaluate(() => {
+    document.getElementById('video').getContext('2d').putImageData(new ImageData(window.castleWinFrame, 256, 224), 0, 0);
+    window.dispatchEvent(new Event('resize'));
+  });
+  await page.locator('#video').screenshot({ path: testInfo.outputPath('you-win.png') });
 });
 test('cleared Memory Game: five-minute playthroughs using controller inputs', async ({ page }, testInfo) => {
   test.setTimeout(180000);

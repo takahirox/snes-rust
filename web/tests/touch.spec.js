@@ -93,7 +93,7 @@ test('Reset releases captured touch and keyboard input, then accepts all twelve 
 
 test('multi-touch diagonals, shoulders and independent keyboard/gamepad overlap', async ({ page }) => {
   await boot(page); const touch = await fingers(page);
-  await page.locator('canvas').tap(); await page.keyboard.down('ArrowRight');
+  await page.locator('#video').tap(); await page.keyboard.down('ArrowRight');
   await touch.down('Right'); await touch.down('A', 2); await touch.down('L', 3);
   await expect.poll(() => controller(page)).toBe(0x100 | 0x80 | 0x20);
   await touch.up(); await expect.poll(() => controller(page)).toBe(0x100 | 0x80 | 0x20); // Keyboard still holds Right.
@@ -126,7 +126,7 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await expect.poll(() => controller(page)).toBe(0); await touch.up();
   await page.getByRole('button', { name: 'SNES Start', exact: true }).focus(); await page.keyboard.down('Space');
   await expect.poll(() => controller(page)).toBe(0x1000);
-  await page.locator('canvas').tap(); await page.keyboard.up('Space'); await expect.poll(() => controller(page)).toBe(0);
+  await page.locator('#video').tap(); await page.keyboard.up('Space'); await expect.poll(() => controller(page)).toBe(0);
   await touch.down('Select'); await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange'));
   });
