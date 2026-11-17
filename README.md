@@ -50,7 +50,7 @@ downloaded unmodified from the same site and checked against its pinned SHA-256:
 | Picker button | File | Size | SHA-256 |
 | --- | --- | ---: | --- |
 | Bundled demo — 潮鳴りの密室 (Shionari no Misshitsu, adventure) | `demos/shionari.sfc` | 524,288 | `1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca` |
-| Bundled demo — 夜鳴き鐘 (Yonaki Kane, sound novel) | `demos/yonaki.sfc` | 4,194,304 | `53022b7b4154ec7320f057882e8fdd56ec9d47ea6c6d5133b8a3e0c8737f829e` |
+| Bundled demo — 夜鳴き鐘 (Yonaki Kane, sound novel) | `demos/yonaki.sfc` | 4,194,304 | `8f278e81ed3cec85a8d93aa834607572c754587f9bf1c2940baf46fe9b5080cb` |
 
 The maintainer authorizes distribution of the complete binaries and embedded
 assets in this repository and its official public demo. **All rights reserved**
