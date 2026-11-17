@@ -92,8 +92,9 @@ audio. Volume is shared across cartridges and remembered in this browser. Pause
 stops queued audio.
 Reset restarts the inserted game and immediately plays, preserving SRAM.
 A hidden tab pauses. The canvas supports integer scaling and preserves
-pixel edges. Pixel is the default; CRT adds subtle scanlines and horizontal softness
-without changing gameplay. Display choice is remembered where storage is available.
+pixel edges. CRT is the default for new visitors, adding subtle scanlines and
+horizontal softness without changing gameplay. An explicit Pixel choice remains
+available and is remembered where storage is available.
 CRT is a visual interpretation of a consumer TV, not a hardware-accurate video
 signal simulation. If GPU rendering fails or exceeds the frame budget, Pixel
 continues automatically; choose CRT again to retry. See the
