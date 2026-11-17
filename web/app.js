@@ -73,7 +73,8 @@ class CrtDisplay {
     window.addEventListener('resize', () => this.present());
     let saved;
     try { saved = localStorage.getItem('snes-rust:display'); } catch { /* Best effort. */ }
-    this.choose(saved === 'crt' ? 'crt' : 'pixel');
+    // Only an explicit Pixel preference opts out of the default CRT presentation.
+    this.choose(saved === 'pixel' ? 'pixel' : 'crt');
   }
   release() {
     const gl = this.gl;

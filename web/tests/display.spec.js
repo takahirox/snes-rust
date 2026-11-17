@@ -62,8 +62,41 @@ async function geometry(page) {
   expect(rects[0][2] / rects[0][3]).toBeCloseTo(256 / 224, 3);
 }
 
+test('clean storage starts CRT with a live shader surface and retains the Pixel fallback', async ({ page }) => {
+  await boot(page);
+  expect(await page.evaluate(() => localStorage.getItem('snes-rust:display'))).toBeNull();
+  await expect(page.locator('#display')).toHaveValue('crt');
+  await expect(page.locator('#placeholder')).toBeVisible();
+  await local(page); await geometry(page);
+  await expect(page.locator('.crt-display')).toBeVisible();
+  await expect.poll(() => page.locator('.crt-display').evaluate(c => {
+    const gl = c.getContext('webgl'), pixels = new Uint8Array(c.width * c.height * 4);
+    gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return Boolean(gl.getParameter(gl.CURRENT_PROGRAM)) && pixels.some((v, i) => i % 4 !== 3 && v > 0);
+  })).toBe(true);
+  const before = await page.locator('.crt-display').evaluate(c => c.toDataURL());
+  await expect.poll(() => page.locator('.crt-display').evaluate(c => c.toDataURL())).not.toBe(before);
+  await choose(page, 'pixel'); await playablePixel(page);
+  expect(page.displayErrors).toEqual([]);
+});
+
+async function playablePixel(page) {
+  await expect(page.locator('#display')).toHaveValue('pixel');
+  await expect(page.locator('.crt-display')).toBeHidden();
+  await expect(page.locator('#video')).toBeVisible();
+  await expect.poll(() => page.locator('#video').evaluate(c =>
+    c.getContext('2d').getImageData(0, 0, c.width, c.height).data.some((v, i) => i % 4 !== 3 && v > 0)
+  )).toBe(true);
+  const before = await page.evaluate(() => videoMetrics.frames);
+  await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before + 2);
+  await page.locator('#video').focus(); await page.keyboard.down('ArrowRight');
+  await expect.poll(() => page.evaluate(() => videoCore.peek(0x11))).toBe(1);
+  await page.keyboard.up('ArrowRight');
+  await expect(page.locator('#status')).toHaveText('Playing');
+}
+
 test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel bytes', async ({ page }) => {
-  await boot(page); await local(page);
+  await boot(page); await local(page); await choose(page, 'pixel');
   await expect(page.locator('.crt-display')).toHaveCount(0);
   await page.getByText('Help / Controls', { exact: true }).click();
   const select = page.getByRole('combobox', { name: 'Display', exact: true });
@@ -86,8 +119,11 @@ test('live selection preserves frames, input, audio, SRAM, focus and exact Pixel
   await page.waitForTimeout(1100); await page.keyboard.press('p'); await expect(select).toHaveValue('pixel');
   await page.getByText('Help / Controls', { exact: true }).click();
   await page.locator('#video').focus(); await page.keyboard.down('ArrowRight');
+  const bounds = await page.locator('#video').boundingBox();
   for (const value of ['crt', 'pixel', 'crt']) {
     await choose(page, value); await expect(page.locator('#video')).toBeFocused();
+    expect(await page.locator('#video').boundingBox()).toEqual(bounds);
+    if (value === 'crt') await geometry(page);
   }
   await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before.frames + 3);
   await expect.poll(() => page.evaluate(() => videoCore.peek(0x11))).toBe(1);
@@ -200,13 +236,12 @@ for (const failure of ['unavailable', 'compile', 'link', 'draw', 'error', 'budge
       }
     }, failure);
     await boot(page); await local(page);
-    await page.evaluate(() => { const s = document.getElementById('display'); s.value = 'crt'; s.dispatchEvent(new Event('change')); });
+    // Exercise automatic startup CRT, without requesting it through settings.
     await expect(page.locator('#display')).toHaveValue('pixel', { timeout: 15000 });
     await expect(page.locator('#display-status')).toContainText('Using Pixel');
-    await expect(page.locator('.crt-display')).toBeHidden();
-    const before = await page.evaluate(() => videoMetrics.frames);
-    await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before + 2);
-    await expect(page.locator('#status')).toHaveText('Playing');
+    await playablePixel(page);
+    // Automatic fallback must not overwrite a preference (or persist a default).
+    expect(await page.evaluate(() => localStorage.getItem('snes-rust:display'))).toBeNull();
     await page.evaluate(() => { window.breakGpu = false; });
     await choose(page, 'crt'); await choose(page, 'pixel');
     expect(page.displayErrors).toEqual([]);
@@ -230,29 +265,42 @@ test('context loss exposes Pixel immediately; restoration rebuilds resources on 
   expect(page.displayErrors).toEqual([]);
 });
 
-for (const preference of ['crt', 'pixel', 'corrupt', 'denied']) {
+for (const preference of ['crt', 'pixel', 'corrupt', '', '"pixel"', 'denied', 'unavailable']) {
   test(`display preference ${preference} is robust and independent of SRAM`, async ({ page }) => {
     await page.addInitScript(preference => {
-      if (preference === 'denied') {
+      if (preference === 'unavailable') {
+        Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('Denied', 'SecurityError'); } });
+      } else if (preference === 'denied') {
         const get = Storage.prototype.getItem, set = Storage.prototype.setItem;
         Storage.prototype.getItem = function (key) { if (key === 'snes-rust:display') throw new Error('Denied'); return get.call(this, key); };
         Storage.prototype.setItem = function (key, value) { if (key === 'snes-rust:display') throw new Error('Denied'); return set.call(this, key, value); };
       } else localStorage.setItem('snes-rust:display', preference);
     }, preference);
     await boot(page); await expect(page.locator('#placeholder')).toBeVisible();
-    await expect(page.locator('#display')).toHaveValue(preference === 'crt' ? 'crt' : 'pixel');
-    await local(page); await choose(page, 'crt'); await choose(page, 'pixel');
+    await expect(page.locator('#display')).toHaveValue(preference === 'pixel' ? 'pixel' : 'crt');
+    // A cartridge without SRAM can play while all storage access is denied.
+    const buffer = Buffer.from(fixture);
+    if (preference === 'unavailable') { buffer[0x7fd6] = 0; buffer[0x7fd8] = 0; }
+    await local(page, buffer);
+    if (preference !== 'pixel') await expect(page.locator('.crt-display')).toBeVisible();
+    await choose(page, 'crt'); await choose(page, 'pixel');
     await expect(page.locator('#error')).toBeEmpty(); expect(page.displayErrors).toEqual([]);
   });
 }
 
-test('explicit CRT preference persists across reload', async ({ page }) => {
-  await boot(page); await local(page); await choose(page, 'crt');
-  await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
-  await expect(page.locator('#display')).toHaveValue('crt'); await expect(page.locator('#placeholder')).toBeVisible();
-  await local(page); await expect(page.locator('.crt-display')).toBeVisible();
-  await choose(page, 'pixel'); await page.reload();
-  await expect(page.locator('#display')).toHaveValue('pixel');
+test('explicit Pixel and CRT preferences persist across reloads', async ({ page }) => {
+  await boot(page); await local(page);
+  for (const mode of ['pixel', 'crt']) {
+    await choose(page, mode);
+    expect(await page.evaluate(() => localStorage.getItem('snes-rust:display'))).toBe(mode);
+    await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
+    await expect(page.locator('#display')).toHaveValue(mode);
+    await expect(page.locator('#placeholder')).toBeVisible();
+    await local(page);
+    if (mode === 'crt') await expect(page.locator('.crt-display')).toBeVisible();
+    else { await expect(page.locator('.crt-display')).toHaveCount(0); await playablePixel(page); }
+  }
+  expect(page.displayErrors).toEqual([]);
 });
 
 // Real Wasm games, paused only to make the comparison byte-identical. Switching

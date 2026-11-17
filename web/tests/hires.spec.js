@@ -61,7 +61,7 @@ for (const mode of [5,6]) test(`Mode ${mode}: real canvas/Wasm 256→512→256, 
   await checkFrame(page,512,mode);
   await page.getByText('Help / Controls', { exact: true }).click();
   await page.locator('#scale').selectOption('3');
-  await expect(page.locator('canvas')).toHaveCSS('width','768px');
+  await expect(page.locator('#video')).toHaveCSS('width','768px');
   expect((await snapshot(page)).shape).toBeCloseTo(256/224,3);
   await page.keyboard.up('KeyX'); await checkFrame(page,256,mode);
   await page.locator('#scale').selectOption('2');

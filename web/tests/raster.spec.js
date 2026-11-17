@@ -50,7 +50,7 @@ test('raster CPU and DMA: native/Wasm frame hash, exact edges, live canvas and r
     return [0,70,95,125,200,255].map(x => [...ctx.getImageData(x,100,1,1).data]);
   })).toEqual([colors[0], colors[2], colors[3], colors[4], colors[7], colors[7]]);
   await page.locator('#play').click();
-  await page.locator('canvas').screenshot({ path:testInfo.outputPath('raster.png') });
+  await page.locator('#video').screenshot({ path:testInfo.outputPath('raster.png') });
   expect(errors).toEqual([]);
   await expect(page.locator('#error')).toBeEmpty();
 });

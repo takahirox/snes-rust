@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 const buffer = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const sram = page => page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3]);
 const frame = page => page.evaluate(() => testCore.peek(0x10));
-const geometry = page => page.locator('.screen, canvas, .game-entry, #change-cartridge, .toolbar').evaluateAll(nodes => nodes.map(n => {
+const geometry = page => page.locator('.screen, #video, .game-entry, #change-cartridge, .toolbar').evaluateAll(nodes => nodes.map(n => {
   const { x, y, width, height } = n.getBoundingClientRect(); return { x, y, width, height };
 }));
 
@@ -76,7 +76,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 740 
         await page.locator('#reset').click();
         await expect(page.locator('#status')).toHaveText('Playing');
         await expect(page.getByRole('button', { name: 'Pause', exact: true })).toHaveCount(1);
-        await expect(page.locator('canvas')).toBeFocused();
+        await expect(page.locator('#video')).toBeFocused();
         await expect.poll(() => page.evaluate(() => resetMetrics.frames)).toBeGreaterThan(frames + 3);
         await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(0);
         await page.keyboard.up('ArrowRight');
