@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { selectDemo } from './cartridge.js';
+import { setTabHidden } from './playback.js';
 const rom = readFileSync(new URL('../../demos/shionari.sfc', import.meta.url));
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -95,15 +97,33 @@ test('local choice unlocks audio before the picker and delayed file read, then a
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
 });
 
-test('hidden page finishes loading safely and waits for intentional playback', async ({ page }) => {
+test('a demo selected before hiding restores SRAM and starts without another Play click', async ({ page }) => {
+  const saveKey = `snes-rust:sram:${createHash('sha256').update(rom).digest('hex')}`;
+  const save = Buffer.alloc(8192);
+  save[3] = 0x79;
+  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [saveKey, save.toString('base64')]);
   let pending; await page.route('**/shionari.sfc', route => { pending = route; });
   await selectDemo(page); await expect.poll(() => Boolean(pending)).toBe(true);
-  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')); });
+  await setTabHidden(page, true);
   await pending.fulfill({ status: 200, body: rom });
-  await expect(page.locator('#play')).toBeEnabled(); await expect(page.locator('#play')).toHaveText('Play');
-  expect(await page.evaluate(() => launchMetrics.frames)).toBe(0);
-  await page.evaluate(() => { delete document.hidden; }); await page.locator('#play').click();
   await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toBeEnabled();
+  await expect(page.locator('#play')).toHaveText('Pause');
+  const saved = await page.evaluate(key => {
+    const sram = new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len());
+    const restored = sram[3];
+    sram[3] = 0x48;
+    window.dispatchEvent(new Event('pagehide'));
+    return { restored, persisted: atob(localStorage.getItem(key)).charCodeAt(3) };
+  }, saveKey);
+  expect(saved).toEqual({ restored: 0x79, persisted: 0x48 });
+  const frames = await page.evaluate(() => launchMetrics.frames);
+  await setTabHidden(page, false);
+  await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(frames);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  expect(await page.evaluate(() => launchMetrics.resumes)).toEqual([{ active: true, loads: 0 }]);
+  await expect(page.locator('#error')).toBeEmpty();
 });
 
 test('fullscreen entry and exit preserve playback and SRAM', async ({ page }) => {

@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { selectDemo } from './cartridge.js';
+import { setTabHidden } from './playback.js';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 execFileSync('cargo', ['run', '--quiet', '--locked', '-p', 'snes-core', '--example', 'hires-fixture', '--', '.cache/hires'], { cwd: root });
@@ -13,7 +14,7 @@ if (process.env.UPDATE_CRT_EVIDENCE) mkdirSync(evidence, { recursive: true });
 async function boot(page) {
   await page.addInitScript(() => {
     const instantiate = WebAssembly.instantiate;
-    window.videoMetrics = { frames: 0, resets: 0, loads: 0, stops: 0, masks: [], audio: 0 };
+    window.videoMetrics = { frames: 0, resets: 0, loads: 0, stops: 0, masks: [], audio: 0, maxAudioLead: 0 };
     WebAssembly.instantiate = async (...args) => {
       const r = await instantiate(...args), core = window.videoCore = r.instance.exports;
       return { instance: { exports: { ...core,
@@ -25,7 +26,11 @@ async function boot(page) {
       } } };
     };
     const start = AudioBufferSourceNode.prototype.start, stop = AudioBufferSourceNode.prototype.stop;
-    AudioBufferSourceNode.prototype.start = function (...args) { videoMetrics.audio++; return start.apply(this, args); };
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      videoMetrics.audio++;
+      videoMetrics.maxAudioLead = Math.max(videoMetrics.maxAudioLead, args[0] + this.buffer.duration - this.context.currentTime);
+      return start.apply(this, args);
+    };
     AudioBufferSourceNode.prototype.stop = function (...args) { videoMetrics.stops++; return stop.apply(this, args); };
   });
   const errors = []; page.on('pageerror', e => errors.push(e.message));
@@ -168,18 +173,71 @@ test('CRT handles low/hires transitions, paused resize, non-integer scale, fulls
   await page.locator('#reset').click(); await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('.crt-display')).toBeVisible();
   await local(page); await expect(page.locator('#display')).toHaveValue('crt');
-  await page.evaluate(() => {
-    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-  });
-  await expect(page.locator('#status')).toHaveText('Paused'); const hiddenHash = await frameHash(page);
-  const retained = await page.locator('.crt-display').evaluate(c => c.toDataURL());
-  await page.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
-  await expect(page.locator('#status')).toHaveText('Paused');
-  expect(await frameHash(page)).toBe(hiddenHash);
-  expect(await page.locator('.crt-display').evaluate(c => c.toDataURL())).toBe(retained);
-  await page.locator('#play').click();
   await choose(page, 'pixel'); await expect(page.locator('.crt-display')).toHaveCount(0);
+  expect(page.displayErrors).toEqual([]);
+});
+
+test('playing survives a long background frame gap with bounded video and audio catch-up', async ({ page }) => {
+  await boot(page); await local(page);
+  await expect.poll(() => page.evaluate(() => videoMetrics.audio)).toBeGreaterThan(3);
+  await expect(page.locator('.crt-display')).toBeVisible();
+  await page.evaluate(() => {
+    const request = window.requestAnimationFrame;
+    let offset = 0;
+    // Model the browser withholding callbacks while hidden and delivering a
+    // foreground callback with a timestamp one minute later.
+    window.requestAnimationFrame = callback => request(time => {
+      if (!document.hidden) { callback(time + offset); return; }
+      window.deliverForegroundFrame = () => { offset = 60_000; callback(performance.now() + offset); };
+    });
+  });
+  await setTabHidden(page, true);
+  await expect.poll(() => page.evaluate(() => typeof window.deliverForegroundFrame)).toBe('function');
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  const crt = page.locator('.crt-display');
+  const retained = await crt.evaluate(c => c.toDataURL());
+  await setTabHidden(page, false);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  const catchUp = await page.evaluate(() => {
+    const { frames, audio } = videoMetrics;
+    videoMetrics.maxAudioLead = 0;
+    window.deliverForegroundFrame();
+    return { frames: videoMetrics.frames - frames, audio: videoMetrics.audio - audio, lead: videoMetrics.maxAudioLead };
+  });
+  expect(catchUp.frames).toBeGreaterThan(0);
+  expect(catchUp.frames).toBeLessThanOrEqual(3);
+  expect(catchUp.audio).toBeGreaterThan(0);
+  expect(catchUp.audio).toBeLessThanOrEqual(catchUp.frames);
+  expect(catchUp.lead).toBeLessThanOrEqual(.151);
+  const frames = await page.evaluate(() => videoMetrics.frames);
+  await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(frames);
+  await expect.poll(() => crt.evaluate(c => c.toDataURL())).not.toBe(retained);
+  await expect(crt).toBeVisible();
+  await expect(page.locator('#error')).toBeEmpty();
+  expect(page.displayErrors).toEqual([]);
+});
+
+test('manual pause retains the Wasm framebuffer and CRT output across visibility changes', async ({ page }) => {
+  await boot(page); await local(page);
+  const crt = page.locator('.crt-display');
+  await expect(crt).toBeVisible();
+  await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(3);
+  await page.locator('#play').click();
+  const frames = await page.evaluate(() => videoMetrics.frames), hash = await frameHash(page);
+  const retained = await crt.evaluate(c => c.toDataURL());
+  for (const hidden of [true, false]) {
+    await setTabHidden(page, hidden);
+    await expect(page.locator('#status')).toHaveText('Paused');
+    await expect(page.locator('#play')).toHaveText('Play');
+  }
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await page.evaluate(() => videoMetrics.frames)).toBe(frames);
+  expect(await frameHash(page)).toBe(hash);
+  expect(await crt.evaluate(c => c.toDataURL())).toBe(retained);
+  await expect(page.locator('#status')).toHaveText('Paused');
+  await expect(page.locator('#error')).toBeEmpty();
   expect(page.displayErrors).toEqual([]);
 });
 

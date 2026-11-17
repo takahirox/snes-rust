@@ -32,7 +32,9 @@ picker or asynchronous ROM reads. A second attempt on file selection also helps
 browsers retaining activation there. Rejected or pending sound activation never
 blocks video or input; the Sound control offers retry/mute. Visiting the page,
 opening/dismissing the cartridge picker, and cancelling file selection do not
-start emulation. Hidden pages continue to require intentional Play after loading.
+start emulation. At the time of this validation, hidden pages required a Play
+click after loading. [Issue #160](https://github.com/takahirox/snes-rust/issues/160)
+removed that visibility restriction.
 
 This applies the README principles through grouping, fixed geometry and familiar
 labels, with no new framework or instructional paragraph in the cartridge UI.
