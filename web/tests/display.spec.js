@@ -416,10 +416,27 @@ test('repeated Pixel/CRT choices release GPU resources and reuse one context', a
   expect(page.displayErrors).toEqual([]);
 });
 
-test('CRT pixels retain source orientation, brightness, opacity and canvas capture', async ({ page }) => {
+test('CRT pixels retain source orientation, brightness, opacity and canvas capture', async ({ page }, testInfo) => {
   await boot(page); await local(page);
   await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(10);
   await page.locator('#play').click(); await choose(page, 'crt');
+  let ready;
+  try {
+    await expect.poll(async () => {
+      ready = await page.evaluate(() => {
+        const source = document.getElementById('video'), c = document.querySelector('.crt-display'), gl = c.getContext('webgl');
+        const input = source.getContext('2d').getImageData(0, 0, source.width, source.height).data;
+        const output = new Uint8Array(c.width * c.height * 4);
+        gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, output);
+        return { sourceLit: input.some((v, i) => i % 4 !== 3 && v > 0),
+          outputLit: output.some((v, i) => i % 4 !== 3 && v > 0),
+          contextLost: gl.isContextLost(), width: c.width, height: c.height };
+      });
+      return ready.sourceLit && ready.outputLit && !ready.contextLost;
+    }).toBe(true);
+  } finally {
+    await testInfo.attach('paused-crt-readiness', { body: JSON.stringify(ready), contentType: 'application/json' });
+  }
   const pixels = await page.evaluate(async () => {
     const source = document.getElementById('video'), c = document.querySelector('.crt-display'), gl = c.getContext('webgl');
     const original = source.getContext('2d').getImageData(0, 0, source.width, source.height).data;
