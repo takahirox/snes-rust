@@ -258,12 +258,12 @@ for (const demo of ['demo', 'demo-yonaki']) {
     if (demo === 'demo') { await tap('KeyX'); await page.waitForTimeout(1500); await tap('KeyX'); await tap('KeyX'); }
     else { await tap('KeyX'); await tap('KeyX'); await tap('Enter'); await tap('Enter'); }
     if (demo === 'demo-yonaki') {
-      // Wait past the monochrome chapter card for the illustrated prologue.
+      // The chapter card is grayscale; the prologue photo has colored pixels.
+      // Its palette can be only 112 colors in the translucent-figure ROM.
       await expect.poll(() => page.evaluate(() => {
-        const c = videoCore, data = new Uint8Array(c.memory.buffer, c.framebuffer(), c.framebuffer_len()), colors = new Set();
-        for (let i = 0; i < data.length; i += 4) colors.add((data[i] << 16) | (data[i+1] << 8) | data[i+2]);
-        return colors.size;
-      }), { timeout: 15000 }).toBeGreaterThan(128);
+        const c = videoCore, data = new Uint8Array(c.memory.buffer, c.framebuffer(), c.framebuffer_len());
+        return data.some((r, i) => i % 4 === 0 && (r !== data[i+1] || r !== data[i+2]));
+      }), { timeout: 15000 }).toBe(true);
     }
     await page.waitForTimeout(3500); await page.locator('#play').click();
     const hash = await frameHash(page), name = demo === 'demo' ? 'shionari' : 'yonaki';
