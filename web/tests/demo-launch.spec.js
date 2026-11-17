@@ -71,6 +71,8 @@ for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pend
   }
   await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#audio-status')).toContainText('Sound');
+  await expect(page.locator('#audio-status')).toBeVisible();
+  await expect(page.locator('#audio-status')).toContainText('Adjust volume or unmute to retry.');
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
   await page.evaluate(() => recoverAudio());
   if (source === 'demo') { await page.locator('#mute').click(); await page.locator('#mute').click(); }

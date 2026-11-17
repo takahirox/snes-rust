@@ -84,9 +84,11 @@ Keyboard: arrows move, Z = B, X = A, A = Y, S = X, Q/W = L/R, Enter = Start,
 Shift = Select. Standard gamepads use the corresponding four face buttons,
 shoulders, Start/Select, D-pad and left stick. Phones have all twelve SNES touch
 buttons, below the screen in portrait and beside it in landscape. Multi-touch
-supports diagonals and combined buttons.
-Help / Controls contains the keyboard map, Scale and Display (CRT / Pixel); About / Legal
-contains the game notice. Audio activates on cartridge choice, Play or Reset.
+supports diagonals and combined buttons. Open **Help** for a quick controls
+reference. The header’s **GitHub** link leads to this repository, where this
+README links to the ROM notice.
+
+Audio activates on cartridge choice, Play or Reset.
 The inline mute button and volume slider adjust sound immediately and retry blocked
 audio. Volume is shared across cartridges and remembered in this browser. Pause
 stops queued audio.
@@ -94,7 +96,8 @@ Reset restarts the inserted game and immediately plays, preserving SRAM.
 Switching tabs preserves the Play/Pause state. Browsers may throttle or suspend
 frames and audio while the tab is hidden.
 
-The canvas supports integer scaling and preserves pixel edges. CRT is the
+The header groups **Scale** and **Display** beside the navigation links. Scale
+sets the canvas width to 1×, 2× or 3×, limited by the available space. CRT is the
 default and adds subtle scanlines and horizontal softness without changing
 gameplay. An explicit Pixel or CRT choice is remembered where storage is
 available; missing, invalid or unavailable preferences use CRT.

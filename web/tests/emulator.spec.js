@@ -38,9 +38,11 @@ test('real wasm renders frames, reads keyboard/gamepad, produces audio and pause
   await page.locator('#play').click(); await expect(page.locator('#status')).toHaveText('Paused');
   const paused = await page.locator('#video').evaluate((c) => c.toDataURL());
   await page.waitForTimeout(100); expect(await page.locator('#video').evaluate((c) => c.toDataURL())).toBe(paused);
-  await page.getByText('Help / Controls', { exact: true }).click();
-  await page.locator('#scale').selectOption('3'); await expect(page.locator('#video')).toHaveCSS('width', '768px');
-  await page.getByText('Help / Controls', { exact: true }).click();
+  const scale = page.getByRole('combobox', { name: 'Scale', exact: true });
+  for (const [value, width] of [['1', '256px'], ['2', '512px'], ['3', '768px']]) {
+    await scale.selectOption(value);
+    await expect(page.locator('#video')).toHaveCSS('width', width);
+  }
   await page.locator('#reset').click(); await expect(page.locator('#status')).toHaveText('Playing');
   expect(errors).toEqual([]); expect(uploads).toEqual([]); await expect(page.locator('#error')).toBeEmpty();
 });
@@ -48,8 +50,7 @@ for (const control of ['volume', 'scale']) test(`keyboard releases held buttons 
   await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   await page.keyboard.down('ArrowRight');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(1);
-  if (control === 'volume') await page.locator('#volume').focus();
-  else { await page.getByText('Help / Controls', { exact: true }).click(); await page.locator('#scale').focus(); }
+  await page.locator(`#${control}`).focus();
   await expect(page.locator(`#${control}`)).toBeFocused();
   await page.keyboard.up('ArrowRight');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(0);
@@ -77,7 +78,9 @@ test('failed SRAM writes block cartridge changes until the save can be recovered
   });
   const other = Buffer.from(fixture); other[0x7fc0] ^= 1;
   await load(page, other, 'other.sfc');
-  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Could not persist SRAM');
+  await expect(page.getByRole('alert')).toContainText('Keep this tab open to retain the current save.');
   await expect(page.locator('#status')).toHaveText('Paused');
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
   await expect(page.locator('#rom')).toBeEnabled();
