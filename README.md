@@ -85,14 +85,19 @@ Shift = Select. Standard gamepads use the corresponding four face buttons,
 shoulders, Start/Select, D-pad and left stick. Phones have all twelve SNES touch
 buttons, below the screen in portrait and beside it in landscape. Multi-touch
 supports diagonals and combined buttons.
-Help / Controls contains the keyboard map and scale setting; About / Legal
+Help / Controls contains the keyboard map, Scale and Display (Pixel / CRT); About / Legal
 contains the game notice. Audio activates on cartridge choice, Play or Reset.
 The inline mute button and volume slider adjust sound immediately and retry blocked
 audio. Volume is shared across cartridges and remembered in this browser. Pause
 stops queued audio.
 Reset restarts the inserted game and immediately plays, preserving SRAM.
 A hidden tab pauses. The canvas supports integer scaling and preserves
-pixel edges.
+pixel edges. Pixel is the default; CRT adds subtle scanlines and horizontal softness
+without changing gameplay. Display choice is remembered where storage is available.
+CRT is a visual interpretation of a consumer TV, not a hardware-accurate video
+signal simulation. If GPU rendering fails or exceeds the frame budget, Pixel
+continues automatically; choose CRT again to retry. See the
+[display comparisons and validation](docs/issue-142-validation.md).
 
 SRAM for battery-backed cartridges is stored locally under the SHA-256 of the
 ROM after removing any copier header. Reset clears volatile machine state and
