@@ -453,7 +453,7 @@ async function toggleFullscreen() {
     }
   } catch {
     if (document.fullscreenElement !== presentation) {
-      fullscreenStatus.textContent = 'Fullscreen is unavailable. Continue here or try a browser with element fullscreen support.';
+      fullscreenStatus.textContent = 'Fullscreen unavailable. Try another browser.';
     }
   }
 }
@@ -467,7 +467,8 @@ document.addEventListener('fullscreenchange', () => {
   // Keep focus and assistive technology inside the fullscreen presentation.
   for (const element of playerChrome) element.inert = active;
   clearVirtualInput();
-  (active ? canvas : fullscreenButton).focus({ preventScroll: true });
+  if (active) canvas.focus({ preventScroll: true });
+  else fullscreenButton.focus();
 });
 const help = $('help');
 document.addEventListener('pointerdown', (event) => {

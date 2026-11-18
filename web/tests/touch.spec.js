@@ -365,15 +365,18 @@ test('Shionari title advances into its real story with mobile A touch', async ({
 });
 
 
-for (const viewport of [{ width: 844, height: 390 }, { width: 568, height: 320 }]) {
+for (const viewport of [{ width: 844, height: 390 }, { width: 568, height: 320 }, { width: 424, height: 320 }]) {
   test(`safe-area insets preserve landscape geometry and controls at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const session = await page.context().newCDPSession(page);
-    await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, bottom: 21, top: 0 } });
+    const insets = { left: 44, right: 44, top: 8, bottom: 21 };
+    await session.send('Emulation.setSafeAreaInsetsOverride', { insets });
     await boot(page); const result = await layout(page);
     for (const r of [result.screen, ...result.actions, ...result.buttons]) {
-      expect(r.x).toBeGreaterThanOrEqual(44); expect(r.right).toBeLessThanOrEqual(viewport.width - 44);
-      expect(r.bottom).toBeLessThanOrEqual(viewport.height - 21);
+      expect(r.x, r.label).toBeGreaterThanOrEqual(insets.left);
+      expect(r.right, r.label).toBeLessThanOrEqual(viewport.width - insets.right);
+      expect(r.y, r.label).toBeGreaterThanOrEqual(insets.top);
+      expect(r.bottom, r.label).toBeLessThanOrEqual(viewport.height - insets.bottom);
     }
     expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
   });

@@ -28,6 +28,7 @@ button:hover:enabled { background: #edf0ec; }
 .screen { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; overflow: hidden; background: #10161b; border-radius: 12px; padding: 12px; min-width: 0; }
 .video-frame { position: relative; width: var(--video-width, 768px); max-width: 100%; }
 #video { display: block; width: 100%; height: auto; aspect-ratio: 256 / 224; object-fit: fill; image-rendering: pixelated; background: #10161b; }
+#video:focus-visible, #video:focus-visible + .crt-display { outline: 3px solid #306e59; outline-offset: var(--video-outline-offset, 3px); }
 #placeholder { position: absolute; color: #aab4bb; font-size: 14px; pointer-events: none; }
 #placeholder[hidden] { display: none; }
 /* Fixed slot geometry: names and status never resize the playback area. */
@@ -50,8 +51,11 @@ button:hover:enabled { background: #edf0ec; }
 #fullscreen, #exit-fullscreen { -webkit-tap-highlight-color: transparent; }
 .mute-mark, .muted .sound-waves { display: none; }
 .muted .mute-mark { display: initial; }
-#status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 100%; margin: 0 0 0 auto; color: #4c6256; font-size: 13px; }
-#fullscreen-status { flex-basis: 100%; margin: 0; color: #805511; font-size: 13px; }
+#status, #fullscreen-status { min-width: 0; max-width: 100%; margin: 0 0 0 auto; font-size: 13px; }
+#status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4c6256; }
+/* Reuse the toolbar status space when fullscreen is unavailable. */
+#status:has(+ #fullscreen-status:not(:empty)) { display: none; }
+#fullscreen-status { color: #805511; }
 #fullscreen-status:empty { position: absolute; }
 #error { color: #a32f29; white-space: pre-wrap; }
 #audio-status, #display-status { color: #805511; }
@@ -67,7 +71,7 @@ button:hover:enabled { background: #edf0ec; }
   #change-cartridge { font-size: 12px; padding: 10px; }
   .toolbar { grid-row: 2; gap: 4px; }
   .toolbar button { padding: 7px 8px; }
-  #status { flex: 1 0 100%; margin: 2px 0 0; }
+  #status, #fullscreen-status { flex: 1 0 100%; margin: 2px 0 0; }
   .touch-controls { grid-row: 4; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .left-controls, .right-controls { display: grid; justify-items: center; gap: 8px; }
   .touch-controls button, .dpad { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
@@ -114,7 +118,7 @@ button:hover:enabled { background: #edf0ec; }
   /* Center Help between the two 132px controller columns and their 10px gaps. */
   .controls-reference { left: 50%; right: auto; transform: translateX(-50%); width: min(320px, calc(100% - 284px)); }
   .player { grid-template-columns: 132px minmax(0, 1fr) 132px; grid-template-rows: minmax(0, 1fr) auto auto; gap: 6px 10px; }
-  .screen { grid-area: 1 / 2; padding: 0; background: transparent; }
+  .screen { grid-area: 1 / 2; padding: 0; background: transparent; --video-outline-offset: -3px; }
   /* Cap Scale to the center column and available height while keeping the aspect ratio. */
   .video-frame { max-width: min(100%, calc(max(1px, 100svh - 152px - max(6px, env(safe-area-inset-top)) - max(6px, env(safe-area-inset-bottom))) * 256 / 224)); }
   .touch-controls { display: contents; }
@@ -131,7 +135,7 @@ button:hover:enabled { background: #edf0ec; }
   .toolbar button { padding: 3px; font-size: 10px; }
   #volume { width: 58px; }
   #play { width: 34px; }
-  #status { font-size: 10px; text-align: center; margin: 0; }
+  #status, #fullscreen-status { font-size: 10px; text-align: center; margin: 0; }
 }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 640px) {
   header { column-gap: 6px; }
@@ -142,9 +146,14 @@ button:hover:enabled { background: #edf0ec; }
   #change-cartridge { white-space: normal; line-height: 1.3; }
 }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 480px) {
+  /* Leave room for the wrapped toolbar above the bottom safe-area inset. */
+  header { margin-bottom: 2px; }
+  nav a, summary { padding-block: 3px; }
+  .player { row-gap: 3px; }
   .game-entry { grid-template-columns: minmax(0, 1fr); justify-items: stretch; }
   .cartridge-value { text-align: center; }
   #status { flex-basis: auto; }
+  #fullscreen-status { flex-basis: 120px; }
   .controls-reference { padding-inline: 6px; overflow-wrap: anywhere; }
   .controls-reference dl { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 4px; }
 }
@@ -164,13 +173,12 @@ button:hover:enabled { background: #edf0ec; }
   padding: 0;
   border-radius: 0;
   background: transparent;
+  --video-outline-offset: -3px;
 }
 .game-presentation:fullscreen .video-frame {
   width: min(100cqw, calc(100cqh * 256 / 224));
   max-width: none;
 }
-.game-presentation:fullscreen #video:focus-visible,
-.game-presentation:fullscreen #video:focus-visible + .crt-display { outline: 3px solid #306e59; outline-offset: -3px; }
 .game-presentation:fullscreen .touch-controls { display: none; }
 
 @media (pointer: coarse) {
