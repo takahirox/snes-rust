@@ -444,6 +444,9 @@ const help = $('help');
 document.addEventListener('pointerdown', (event) => {
   if (help.open && !help.contains(event.target)) help.open = false;
 });
+help.addEventListener('focusout', (event) => {
+  if (!help.contains(event.relatedTarget)) help.open = false;
+});
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {
   const target = event.target;
   const inHelp = target.closest?.('#help');

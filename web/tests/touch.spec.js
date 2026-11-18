@@ -317,6 +317,41 @@ test('short landscape Help scrolls by keyboard and gameplay resumes from its tog
   }
 });
 
+test('tabbing out of Help leaves playback controls unobscured at 424×320', async ({ page }) => {
+  await page.setViewportSize({ width: 424, height: 320 });
+  await boot(page);
+  const help = page.locator('summary');
+  const reference = page.getByRole('group', { name: 'Controls reference' });
+  await help.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await expect(reference).toBeFocused();
+  await expect(reference).toBeVisible();
+
+  for (const control of [
+    page.getByRole('link', { name: 'GitHub' }),
+    page.getByRole('combobox', { name: 'Scale' }),
+    page.getByRole('combobox', { name: 'Display' }),
+    page.locator('#video'),
+    page.locator('#change-cartridge'),
+  ]) {
+    await page.keyboard.press('Tab');
+    await expect(control).toBeFocused();
+  }
+
+  for (const name of ['Pause', 'Reset']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await page.keyboard.press('Tab');
+    await expect(button).toBeFocused();
+    await expect(button).toHaveCSS('outline-style', 'solid');
+    expect(await button.evaluate(el => {
+      const { x, y, width, height } = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+    }), `${name} is unobscured`).toBe(true);
+  }
+  await expect(reference).toBeHidden();
+});
+
 test('Shionari title advances into its real story with mobile A touch', async ({ page }) => {
   await boot(page, false); const touch = await fingers(page);
   const scene = () => page.evaluate(async () => {
