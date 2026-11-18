@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { selectDemo } from './cartridge.js';
 
-async function fullscreenLayout(page, touch, safeArea) {
-  const layout = await page.locator(':fullscreen').evaluate(el => {
+async function gameplayLayout(page, { touch, safeArea, fullscreen = true }) {
+  const layout = await page.locator(fullscreen ? ':fullscreen' : '.player').evaluate((el, fullscreen) => {
     const rect = node => node.getBoundingClientRect().toJSON();
     const hit = node => {
       const { x, y, width, height } = rect(node);
@@ -14,17 +14,22 @@ async function fullscreenLayout(page, touch, safeArea) {
       screen: rect(el.querySelector('.screen')), video: rect(video), exit: { ...rect(exit), hit: hit(exit) },
       buttons: [...el.querySelectorAll('[data-button]')].filter(node => node.getClientRects().length)
         .map(node => ({ ...rect(node), hit: hit(node), name: node.ariaLabel })),
-      scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight, background: getComputedStyle(el).backgroundColor,
+      scrollWidth: (fullscreen ? el : document.documentElement).scrollWidth,
+      scrollHeight: el.scrollHeight, background: getComputedStyle(el).backgroundColor,
     };
-  });
+  }, fullscreen);
   const { viewport, screen, video, exit, buttons } = layout;
   expect(layout.scrollWidth).toBe(viewport.width);
-  expect(layout.scrollHeight).toBe(viewport.height);
-  expect(layout.background).toBe('rgb(0, 0, 0)');
+  if (fullscreen) {
+    expect(layout.scrollHeight).toBe(viewport.height);
+    expect(layout.background).toBe('rgb(0, 0, 0)');
+    expect(video.width).toBeCloseTo(Math.min(screen.width, screen.height * 256 / 224), 1);
+    expect(video.x - screen.x).toBeCloseTo((screen.width - video.width) / 2, 1);
+    expect(video.y - screen.y).toBeCloseTo((screen.height - video.height) / 2, 1);
+  } else {
+    expect(video.width, 'usable normal player image').toBeGreaterThanOrEqual(72);
+  }
   expect(video.width / video.height).toBeCloseTo(256 / 224, 3);
-  expect(video.width).toBeCloseTo(Math.min(screen.width, screen.height * 256 / 224), 1);
-  expect(video.x - screen.x).toBeCloseTo((screen.width - video.width) / 2, 1);
-  expect(video.y - screen.y).toBeCloseTo((screen.height - video.height) / 2, 1);
   expect(buttons).toHaveLength(touch ? 12 : 0);
   if (!touch) {
     expect(screen.width).toBe(viewport.width);
@@ -33,7 +38,7 @@ async function fullscreenLayout(page, touch, safeArea) {
     return;
   }
   const insets = safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 };
-  for (const r of [video, exit, ...buttons]) {
+  for (const r of [video, ...buttons, ...(fullscreen ? [exit] : [])]) {
     expect(r.x).toBeGreaterThanOrEqual(insets.left);
     expect(r.right).toBeLessThanOrEqual(viewport.width - insets.right);
     expect(r.y).toBeGreaterThanOrEqual(insets.top);
@@ -52,7 +57,7 @@ async function fullscreenLayout(page, touch, safeArea) {
   } else {
     for (const button of buttons) expect(button.y).toBeGreaterThanOrEqual(video.bottom);
   }
-  expect(exit.y).toBeGreaterThanOrEqual(video.bottom);
+  if (fullscreen) expect(exit.y).toBeGreaterThanOrEqual(video.bottom);
 }
 
 async function renderedPixels(page, mode) {
@@ -115,7 +120,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
         }
         await expect(video).toBeFocused();
         await expect(enter).toHaveText('Exit fullscreen');
-        await fullscreenLayout(page, touch, safeArea);
+        await gameplayLayout(page, { touch, safeArea });
         await renderedPixels(page, mode);
         if (capture) await page.screenshot({ path: testInfo.outputPath(`${capture}-${mode}-fullscreen.png`), scale: 'css' });
         if (rotate && mode === 'crt') {
@@ -129,7 +134,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
             });
             await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([width, height]);
             await expect(presentation).toHaveAttribute('id', 'game-presentation');
-            await fullscreenLayout(page, touch);
+            await gameplayLayout(page, { touch });
             await renderedPixels(page, mode);
           }
         }
@@ -152,18 +157,24 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
   });
 }
 
-for (const viewport of [{ width: 500, height: 250 }, { width: 360, height: 300 }]) {
-  test.describe(`${viewport.width}×${viewport.height} fullscreen safe area`, () => {
+for (const viewport of [{ width: 500, height: 250 }, { width: 424, height: 320 }, { width: 360, height: 300 }]) {
+  test.describe(`${viewport.width}×${viewport.height} landscape safe area`, () => {
     test.use({ viewport, hasTouch: true, isMobile: true });
-    test('keeps the video and twelve 44px targets inside the insets', async ({ page }) => {
+    test('keeps the video and twelve 44px targets inside the insets before, during and after fullscreen', async ({ page }) => {
       const session = await page.context().newCDPSession(page);
       await session.send('Emulation.setSafeAreaInsetsOverride', { insets });
       await page.goto('/');
       await selectDemo(page);
       await expect(page.locator('#status')).toHaveText('Playing');
+      const geometry = { touch: true, safeArea: insets };
+      const presentation = page.locator(':fullscreen');
+      await gameplayLayout(page, { ...geometry, fullscreen: false });
       await page.locator('#fullscreen').tap();
-      await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
-      await fullscreenLayout(page, true, insets);
+      await expect(presentation).toHaveAttribute('id', 'game-presentation');
+      await gameplayLayout(page, geometry);
+      await page.locator('#exit-fullscreen').tap();
+      await expect(presentation).toHaveCount(0);
+      await gameplayLayout(page, { ...geometry, fullscreen: false });
     });
   });
 }
