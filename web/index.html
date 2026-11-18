@@ -39,28 +39,6 @@
           <span id="placeholder">Insert a cartridge</span>
         </div>
         <button id="exit-fullscreen">Exit fullscreen</button>
-        <div class="touch-controls" role="group" aria-label="SNES touch controls">
-          <div class="left-controls">
-            <button class="shoulder" data-button="32" aria-label="SNES L" disabled>L</button>
-            <div class="dpad" role="group" aria-label="Directional pad">
-              <button data-button="2048" aria-label="SNES Up" disabled>▲</button>
-              <button data-button="512" aria-label="SNES Left" disabled>◀</button>
-              <button data-button="256" aria-label="SNES Right" disabled>▶</button>
-              <button data-button="1024" aria-label="SNES Down" disabled>▼</button>
-            </div>
-            <button class="system" data-button="8192" aria-label="SNES Select" disabled>Select</button>
-          </div>
-          <div class="right-controls">
-            <button class="shoulder" data-button="16" aria-label="SNES R" disabled>R</button>
-            <div class="face-buttons">
-              <button data-button="64" aria-label="SNES X" disabled>X</button>
-              <button data-button="16384" aria-label="SNES Y" disabled>Y</button>
-              <button data-button="128" aria-label="SNES A" disabled>A</button>
-              <button data-button="32768" aria-label="SNES B" disabled>B</button>
-            </div>
-            <button class="system" data-button="4096" aria-label="SNES Start" disabled>Start</button>
-          </div>
-        </div>
       </div>
       <div class="toolbar" role="group" aria-label="Player controls">
         <button id="play" disabled>Play</button>
@@ -93,6 +71,28 @@
           <button id="open-local" disabled>Open local ROM…</button>
         </div>
         <input id="rom" type="file" hidden disabled accept=".sfc,.smc" aria-label="Open local ROM">
+      </div>
+      <div class="touch-controls" role="group" aria-label="SNES touch controls">
+        <div class="left-controls">
+          <button class="shoulder" data-button="32" aria-label="SNES L" disabled>L</button>
+          <div class="dpad" role="group" aria-label="Directional pad">
+            <button data-button="2048" aria-label="SNES Up" disabled>▲</button>
+            <button data-button="512" aria-label="SNES Left" disabled>◀</button>
+            <button data-button="256" aria-label="SNES Right" disabled>▶</button>
+            <button data-button="1024" aria-label="SNES Down" disabled>▼</button>
+          </div>
+          <button class="system" data-button="8192" aria-label="SNES Select" disabled>Select</button>
+        </div>
+        <div class="right-controls">
+          <button class="shoulder" data-button="16" aria-label="SNES R" disabled>R</button>
+          <div class="face-buttons">
+            <button data-button="64" aria-label="SNES X" disabled>X</button>
+            <button data-button="16384" aria-label="SNES Y" disabled>Y</button>
+            <button data-button="128" aria-label="SNES A" disabled>A</button>
+            <button data-button="32768" aria-label="SNES B" disabled>B</button>
+          </div>
+          <button class="system" data-button="4096" aria-label="SNES Start" disabled>Start</button>
+        </div>
       </div>
     </section>
     <p id="error" role="alert"></p>
