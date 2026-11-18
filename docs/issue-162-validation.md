@@ -6,7 +6,8 @@ them in Help beside an About / Legal disclosure. The new header keeps Help as
 a short keyboard, touch and gamepad reference, with a separate group of native
 Scale and Display selectors and a direct GitHub link. On narrow phones, the
 settings wrap above the screen and the volume slider flexes so the playback
-buttons stay on one row. In short landscape, the header fits one row above the
+buttons stay on one row. In short landscape, tighter header spacing and
+smaller labels keep Help, GitHub, Scale and Display on one row above the
 screen and both controller clusters.
 
 Scale requests a 256-pixel multiple up to the space available. On a short
@@ -26,7 +27,7 @@ Chromium. The phone captures use touch emulation.
 | --- | --- | --- |
 | Desktop 1280×900 | 768×672 | [Desktop](issue-162/desktop.png) |
 | Portrait 320×740 | 265×232 | [Narrow portrait](issue-162/portrait.png) |
-| Landscape 667×320 | 158×138 | [Short landscape](issue-162/landscape.png) |
+| Landscape 424×320 | 116×102 | [Short landscape](issue-162/landscape.png) |
 
 ## Local validation
 
