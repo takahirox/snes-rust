@@ -84,7 +84,9 @@ button:hover:enabled { background: #edf0ec; }
   .right-controls .system { justify-self: start; }
   @media (orientation: portrait) {
     /* Reserve the wrapping header, entry metadata, actions and 44px controls. */
-    #video { max-width: min(100%, max(1px, calc((100svh - 484px - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))) * 256 / 224))); }
+    #video { max-width: min(100%, max(1px, calc((100svh - 484px - var(--audio-status-space, 0px) - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))) * 256 / 224))); }
+    /* Allow two lines of recovery guidance and its margins. */
+    main:has(#audio-status:not(:empty)) { --audio-status-space: calc(2lh + 16px); }
   }
 }
 @media (orientation: portrait) and (max-width: 400px) {
@@ -106,7 +108,7 @@ button:hover:enabled { background: #edf0ec; }
   .left-controls { grid-area: 1 / 1 / 4 / 2; }
   .right-controls { grid-area: 1 / 3 / 4 / 4; }
   .game-entry { grid-area: 2 / 2; gap: 4px; }
-  #cartridge-label { font-size: 9px; }
+  #cartridge-label { display: block; font-size: 9px; line-height: 1.2; }
   #current-game { font-size: 10px; }
   #change-cartridge { font-size: 10px; padding: 6px; }
   .toolbar { grid-area: 3 / 2; justify-content: center; gap: 2px; }
@@ -117,6 +119,12 @@ button:hover:enabled { background: #edf0ec; }
   .left-controls .system, .right-controls .system { justify-self: center; }
 }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 640px) {
+  header { column-gap: 6px; }
+  nav { gap: 8px; }
+  .display-controls { gap: 6px; }
+  .display-controls select { padding-inline: 4px; }
+  .game-entry { grid-template-columns: minmax(0, 1fr) fit-content(55%); }
+  #change-cartridge { white-space: normal; line-height: 1.3; }
   /* Leave room for a wrapped toolbar even with phone safe-area insets. */
   #video { max-width: min(100%, calc((100svh - 204px - max(6px, env(safe-area-inset-top)) - max(6px, env(safe-area-inset-bottom))) * 256 / 224)); }
 }
