@@ -260,25 +260,29 @@ test('save restore retry fits the initial 412×915 portrait viewport', async ({ 
   await expect(retry).toBeHidden();
 });
 
-test('tapping a landscape controller button dismisses Help and reaches the guest', async ({ page }) => {
-  await page.setViewportSize({ width: 667, height: 320 });
-  await boot(page);
-  const help = page.locator('summary');
-  const reference = page.locator('.controls-reference');
-  await help.tap();
-  await expect(reference).toBeVisible();
-  await layout(page);
-  const touch = await fingers(page);
-  await touch.down('A');
-  await expect(reference).toBeHidden();
-  await expect.poll(() => controller(page)).toBe(masks.A);
-  await touch.up();
-  await expect.poll(() => controller(page)).toBe(0);
-  await expect(page.locator('#status')).toHaveText('Playing');
-  await layout(page);
-});
+for (const [width, buttons] of [[667, ['A']], [424, ['Right', 'Y']]]) {
+  test(`landscape Help dismisses on a controller tap that reaches the guest at ${width}×320`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 320 });
+    await boot(page);
+    const help = page.locator('summary');
+    const reference = page.locator('.controls-reference');
+    const touch = await fingers(page);
+    for (const button of buttons) {
+      await help.tap();
+      await expect(reference).toBeVisible();
+      await layout(page);
+      await touch.down(button);
+      await expect(reference).toBeHidden();
+      await expect.poll(() => controller(page)).toBe(masks[button]);
+      await touch.up();
+      await expect.poll(() => controller(page)).toBe(0);
+    }
+    await expect(page.locator('#status')).toHaveText('Playing');
+    await layout(page);
+  });
+}
 
-test('short landscape Help scrolls by keyboard during playback and Escape returns focus', async ({ page }) => {
+test('short landscape Help scrolls by keyboard and gameplay resumes from its toggle after dismissal', async ({ page }) => {
   await page.setViewportSize({ width: 568, height: 280 });
   await boot(page);
   const help = page.locator('summary');
@@ -296,14 +300,21 @@ test('short landscape Help scrolls by keyboard during playback and Escape return
   await page.keyboard.up('ArrowDown');
   await page.keyboard.press('End');
   await expect(hints).toBeInViewport({ ratio: 1 });
-  await page.keyboard.press('Escape');
-  await expect(reference).toBeHidden();
-  await expect(help).toBeFocused();
-  await page.locator('#video').tap();
-  await page.keyboard.down('ArrowDown');
-  await expect.poll(() => controller(page)).toBe(masks.Down);
-  await page.keyboard.up('ArrowDown');
-  await expect.poll(() => controller(page)).toBe(0);
+  for (const key of ['Escape', 'Enter']) {
+    await page.keyboard.press(key);
+    await expect(reference).toBeHidden();
+    await expect(help).toBeFocused();
+    await page.keyboard.down('ArrowRight');
+    await expect.poll(() => controller(page), { message: `ArrowRight after ${key}` }).toBe(masks.Right);
+    await page.keyboard.up('ArrowRight');
+    await expect.poll(() => controller(page)).toBe(0);
+    if (key === 'Escape') {
+      await page.keyboard.down('Enter');
+      await expect(reference).toBeVisible();
+      expect(await controller(page)).toBe(0);
+      await page.keyboard.up('Enter');
+    }
+  }
 });
 
 test('Shionari title advances into its real story with mobile A touch', async ({ page }) => {

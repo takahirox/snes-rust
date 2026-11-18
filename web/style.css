@@ -114,7 +114,7 @@ button:hover:enabled { background: #edf0ec; }
   main { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); }
   header { margin-bottom: 6px; }
   /* Center Help between the two 132px controller columns and their 10px gaps. */
-  .controls-reference { left: 50%; right: auto; transform: translateX(-50%); width: clamp(200px, calc(100% - 284px), 320px); }
+  .controls-reference { left: 50%; right: auto; transform: translateX(-50%); width: min(320px, calc(100% - 284px)); }
   .player { grid-template-columns: 132px minmax(0, 1fr) 132px; gap: 6px 10px; }
   .screen { grid-area: 1 / 2; padding: 0; background: transparent; }
   /* Cap Scale to the center column and available height while keeping the aspect ratio. */
@@ -149,6 +149,8 @@ button:hover:enabled { background: #edf0ec; }
   nav a, summary, .display-controls select { font-size: 12px; }
   .display-controls label { gap: 3px; font-size: 11px; }
   .display-controls select { padding-inline: 2px; }
+  .controls-reference { padding-inline: 6px; overflow-wrap: anywhere; }
+  .controls-reference dl { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 4px; }
 }
 
 /* The source canvas retains layout, focus and the unmodified Pixel fallback. */
