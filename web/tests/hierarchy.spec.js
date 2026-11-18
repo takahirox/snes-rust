@@ -7,7 +7,6 @@ async function ready(page) {
 }
 async function entryActions(page) {
   await expect(page.getByRole('heading', { name: 'snes-rust', exact: true, level: 1 })).toBeVisible();
-  await expect(page.locator('.app-identity')).toContainText('SNES emulator');
   const slot = page.getByRole('group', { name: 'Cartridge slot', exact: true });
   await expect(slot).toBeVisible();
   await expect(slot.getByText('Inserted cartridge', { exact: true })).toBeVisible();
@@ -40,6 +39,11 @@ test('emulator-first layout exposes display settings and GitHub with optional ke
   expect(notice).toContain('**All rights reserved.**');
   expect(notice).toContain('**does not apply to this game ROM or its embedded content**');
   const displaySettings = page.getByRole('group', { name: 'Display settings' });
+  const toolbar = page.getByRole('group', { name: 'Player controls' });
+  await expect(toolbar.getByRole('group', { name: 'Display settings' })).toBeVisible();
+  await expect(page.locator('header').getByRole('combobox')).toHaveCount(0);
+  const screen = await page.locator('#video').boundingBox();
+  expect((await toolbar.boundingBox()).y).toBeGreaterThanOrEqual(screen.y + screen.height);
   const scale = displaySettings.getByRole('combobox', { name: 'Scale', exact: true });
   const display = displaySettings.getByRole('combobox', { name: 'Display', exact: true });
   await expect(scale).toBeVisible();
@@ -55,7 +59,8 @@ test('emulator-first layout exposes display settings and GitHub with optional ke
   await expect(page.locator('details p')).toHaveText(/touch D-pad for diagonals.*Standard gamepads/);
   await page.keyboard.press('Enter');
   await expect(keyboard).toBeHidden();
-  for (const control of [github, scale, display]) {
+  for (const control of [github, page.locator('#video'), page.locator('#mute'),
+    page.locator('#volume'), page.locator('#fullscreen'), scale, display, page.locator('#change-cartridge')]) {
     await page.keyboard.press('Tab');
     await expect(control).toBeFocused();
     await expect(control).toHaveCSS('outline-style', 'solid');
@@ -146,7 +151,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 740 
     await expect(page.locator('#current-game')).toHaveText(name);
     expect(await geometry(page)).toEqual(initial);
     // Check player bounds; errors may extend the page below the fixed player.
-    const targets = page.locator('h1, .app-identity p, header a, #scale, #display, #video, #change-cartridge, #current-game, #play');
+    const targets = page.locator('h1, header a, #scale, #display, #video, #change-cartridge, #current-game, #play');
     for (const target of await targets.all()) await expect(target).toBeInViewport({ ratio: 1 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
   });

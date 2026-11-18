@@ -206,10 +206,11 @@ test('native keyboard, mute restore, pause/reset/cartridge/fullscreen and reload
   }
   await local(page);
   await page.locator('#fullscreen').click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  await expect(page.locator(':fullscreen #volume')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator(':fullscreen')).toHaveCount(0);
   await expect(slider(page)).toBeVisible(); await expect(slider(page)).toHaveValue('0');
-  await page.locator('#fullscreen').click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
   await mute(page).click(); await expect(slider(page)).toHaveValue('50'); await measuredLevel(page, 50);
   await page.reload(); await expect(slider(page)).toHaveValue('50');
   await local(page); await measuredLevel(page, 50);

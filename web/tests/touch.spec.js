@@ -31,9 +31,9 @@ async function fingers(page) {
   const session = await page.context().newCDPSession(page), points = new Map();
   const send = type => session.send('Input.dispatchTouchEvent', { type, touchPoints: [...points].map(([id, p]) => ({ id, ...p })) });
   return {
-    async down(name, id = 1) {
+    async down(name, id = 1, horizontal = 0.5) {
       const r = await page.getByRole('button', { name: `SNES ${name}`, exact: true }).boundingBox();
-      points.set(id, { x: r.x + r.width / 2, y: r.y + r.height / 2 }); await send('touchStart');
+      points.set(id, { x: r.x + r.width * horizontal, y: r.y + r.height / 2 }); await send('touchStart');
     },
     async move(id, x, y) { points.set(id, { x, y }); await send('touchMove'); },
     async up(id = 1) { const point = points.get(id); points.delete(id); await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ id, ...point }] }); },
@@ -43,8 +43,8 @@ async function fingers(page) {
 async function layout(page) {
   const result = await page.evaluate(() => {
     const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
-    const headerActions = [...document.querySelectorAll('header summary, header a, #scale, #display')];
-    const playerActions = [...document.querySelectorAll('#change-cartridge, #current-game, .toolbar button, #volume')];
+    const headerActions = [...document.querySelectorAll('header summary, header a')];
+    const playerActions = [...document.querySelectorAll('#change-cartridge, #current-game, .toolbar button, #volume, #scale, #display')];
     const hitTarget = element => {
       const r = rect(element);
       return element.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
@@ -330,10 +330,8 @@ test('tabbing out of Help leaves playback controls unobscured at 424×320', asyn
 
   for (const control of [
     page.getByRole('link', { name: 'GitHub' }),
-    page.getByRole('combobox', { name: 'Scale' }),
-    page.getByRole('combobox', { name: 'Display' }),
     page.locator('#video'),
-    page.locator('#change-cartridge'),
+    ...await page.locator('[data-button]').all(),
   ]) {
     await page.keyboard.press('Tab');
     await expect(control).toBeFocused();
@@ -367,15 +365,18 @@ test('Shionari title advances into its real story with mobile A touch', async ({
 });
 
 
-for (const viewport of [{ width: 844, height: 390 }, { width: 568, height: 320 }]) {
+for (const viewport of [{ width: 844, height: 390 }, { width: 568, height: 320 }, { width: 424, height: 320 }]) {
   test(`safe-area insets preserve landscape geometry and controls at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const session = await page.context().newCDPSession(page);
-    await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, bottom: 21, top: 0 } });
+    const insets = { left: 44, right: 44, top: 8, bottom: 21 };
+    await session.send('Emulation.setSafeAreaInsetsOverride', { insets });
     await boot(page); const result = await layout(page);
     for (const r of [result.screen, ...result.actions, ...result.buttons]) {
-      expect(r.x).toBeGreaterThanOrEqual(44); expect(r.right).toBeLessThanOrEqual(viewport.width - 44);
-      expect(r.bottom).toBeLessThanOrEqual(viewport.height - 21);
+      expect(r.x, r.label).toBeGreaterThanOrEqual(insets.left);
+      expect(r.right, r.label).toBeLessThanOrEqual(viewport.width - insets.right);
+      expect(r.y, r.label).toBeGreaterThanOrEqual(insets.top);
+      expect(r.bottom, r.label).toBeLessThanOrEqual(viewport.height - insets.bottom);
     }
     expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
   });
@@ -385,11 +386,67 @@ test('fullscreen entry/exit release virtual input and preserve running guest geo
   await boot(page); const touch = await fingers(page);
   await touch.down('B'); await expect.poll(() => controller(page)).toBe(0x8000);
   await page.locator('#fullscreen').click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
   await expect.poll(() => controller(page)).toBe(0); await touch.up();
-  await touch.down('A'); await expect.poll(() => controller(page)).toBe(0x80);
-  await page.locator('#fullscreen').click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
+  await expect(page.locator('#video')).toBeFocused();
+  await page.evaluate(() => { window.testPads = [{ mapping: 'standard', axes: [1, 0], buttons: [] }]; });
+  await expect.poll(() => controller(page)).toBe(masks.Right);
+  await page.evaluate(() => { window.testPads = []; });
+  await expect.poll(() => controller(page)).toBe(0);
+  await touch.down('Right'); await touch.down('A', 2);
+  await expect.poll(() => controller(page)).toBe(masks.Right | masks.A);
+  await touch.cancel(); await expect.poll(() => controller(page)).toBe(0);
+  await touch.down('A'); await expect.poll(() => controller(page)).toBe(masks.A);
+  await page.locator('#exit-fullscreen').click();
+  await expect(page.locator(':fullscreen')).toHaveCount(0);
   await expect.poll(() => controller(page)).toBe(0); await touch.up();
+  await expect(page.locator('#video')).toBeFocused();
+  await touch.down('Start'); await expect.poll(() => controller(page)).toBe(masks.Start);
+  await touch.up(); await expect.poll(() => controller(page)).toBe(0);
   await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
 });
+
+test('compact landscape fullscreen keeps the entire D-pad button active and supports diagonals', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 300 });
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, top: 8, bottom: 21 } });
+  await boot(page);
+  await page.locator('#fullscreen').tap();
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  const touch = await fingers(page);
+  const left = await page.getByRole('button', { name: 'SNES Left', exact: true }).boundingBox();
+  await touch.down('Left', 1, 0.9);
+  await expect.poll(() => controller(page)).toBe(masks.Left);
+  const dpad = await page.locator('.dpad').boundingBox();
+  await touch.move(1, dpad.x + 10, dpad.y + 10);
+  await expect.poll(() => controller(page)).toBe(masks.Left | masks.Up);
+  // Left stays held as the pointer returns from the diagonal to its original top edge.
+  await touch.move(1, left.x + left.width * 0.9, Math.ceil(left.y));
+  await expect.poll(() => controller(page)).toBe(masks.Left);
+  await touch.cancel();
+  await expect.poll(() => controller(page)).toBe(0);
+});
+
+for (const touch of [false, true]) {
+  test.describe(touch ? 'touch fullscreen exit' : 'desktop fullscreen exit', () => {
+    test.use({ hasTouch: touch, isMobile: touch, viewport: touch ? { width: 320, height: 740 } : { width: 1280, height: 900 } });
+    test('Enter reaches the guest as Start immediately after pointer-initiated fullscreen', async ({ page }) => {
+      await boot(page);
+      const enter = page.locator('#fullscreen'), presentation = page.locator(':fullscreen');
+      if (touch) await enter.tap();
+      else await enter.click();
+      await expect(presentation).toHaveAttribute('id', 'game-presentation');
+      if (touch) await page.locator('#exit-fullscreen').tap();
+      else await page.keyboard.press('Escape');
+      await expect(presentation).toHaveCount(0);
+      await page.keyboard.down('Enter');
+      try {
+        await expect.poll(() => controller(page)).toBe(masks.Start);
+        await expect(presentation).toHaveCount(0);
+      } finally {
+        await page.keyboard.up('Enter');
+      }
+      await expect.poll(() => controller(page)).toBe(0);
+    });
+  });
+}

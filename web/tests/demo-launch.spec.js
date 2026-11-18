@@ -137,10 +137,23 @@ test('a demo selected before hiding restores SRAM and starts without another Pla
 
 test('fullscreen entry and exit preserve playback and SRAM', async ({ page }) => {
   await selectDemo(page); await expect(page.locator('#status')).toHaveText('Playing');
-  await page.evaluate(() => { new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79; });
-  await page.locator('#fullscreen').click(); await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
-  await page.locator('#fullscreen').click(); await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
+  const before = await page.evaluate(() => {
+    new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79;
+    const store = Storage.prototype.setItem;
+    window.sramWrites = 0;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('snes-rust:sram:')) sramWrites++;
+      return store.call(this, key, value);
+    };
+    return launchMetrics.frames;
+  });
+  await page.locator('#fullscreen').click(); await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(before + 2);
+  const fullscreenFrames = await page.evaluate(() => launchMetrics.frames);
+  await page.keyboard.press('Escape'); await expect(page.locator(':fullscreen')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(fullscreenFrames + 2);
   await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => launchMetrics.loads)).toBe(1);
+  expect(await page.evaluate(() => sramWrites)).toBe(0);
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
 });
