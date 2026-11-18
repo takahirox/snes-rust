@@ -31,9 +31,9 @@ async function fingers(page) {
   const session = await page.context().newCDPSession(page), points = new Map();
   const send = type => session.send('Input.dispatchTouchEvent', { type, touchPoints: [...points].map(([id, p]) => ({ id, ...p })) });
   return {
-    async down(name, id = 1) {
+    async down(name, id = 1, horizontal = 0.5) {
       const r = await page.getByRole('button', { name: `SNES ${name}`, exact: true }).boundingBox();
-      points.set(id, { x: r.x + r.width / 2, y: r.y + r.height / 2 }); await send('touchStart');
+      points.set(id, { x: r.x + r.width * horizontal, y: r.y + r.height / 2 }); await send('touchStart');
     },
     async move(id, x, y) { points.set(id, { x, y }); await send('touchMove'); },
     async up(id = 1) { const point = points.get(id); points.delete(id); await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [{ id, ...point }] }); },
@@ -400,8 +400,49 @@ test('fullscreen entry/exit release virtual input and preserve running guest geo
   await page.locator('#exit-fullscreen').click();
   await expect(page.locator(':fullscreen')).toHaveCount(0);
   await expect.poll(() => controller(page)).toBe(0); await touch.up();
-  await expect(page.locator('#fullscreen')).toBeFocused();
+  await expect(page.locator('#video')).toBeFocused();
   await touch.down('Start'); await expect.poll(() => controller(page)).toBe(masks.Start);
   await touch.up(); await expect.poll(() => controller(page)).toBe(0);
   await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
 });
+
+test('compact landscape fullscreen keeps the entire D-pad button active and supports diagonals', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 300 });
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, top: 8, bottom: 21 } });
+  await boot(page);
+  await page.locator('#fullscreen').tap();
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  const touch = await fingers(page);
+  await touch.down('Left', 1, 0.9);
+  await expect.poll(() => controller(page)).toBe(masks.Left);
+  const dpad = await page.locator('.dpad').boundingBox();
+  await touch.move(1, dpad.x + 10, dpad.y + 10);
+  await expect.poll(() => controller(page)).toBe(masks.Left | masks.Up);
+  await touch.cancel();
+  await expect.poll(() => controller(page)).toBe(0);
+});
+
+for (const touch of [false, true]) {
+  test.describe(touch ? 'touch fullscreen exit' : 'desktop fullscreen exit', () => {
+    test.use({ hasTouch: touch, isMobile: touch, viewport: touch ? { width: 320, height: 740 } : { width: 1280, height: 900 } });
+    test('Enter reaches the guest as Start immediately after pointer-initiated fullscreen', async ({ page }) => {
+      await boot(page);
+      const enter = page.locator('#fullscreen'), presentation = page.locator(':fullscreen');
+      if (touch) await enter.tap();
+      else await enter.click();
+      await expect(presentation).toHaveAttribute('id', 'game-presentation');
+      if (touch) await page.locator('#exit-fullscreen').tap();
+      else await page.keyboard.press('Escape');
+      await expect(presentation).toHaveCount(0);
+      await page.keyboard.down('Enter');
+      try {
+        await expect.poll(() => controller(page)).toBe(masks.Start);
+        await expect(presentation).toHaveCount(0);
+      } finally {
+        await page.keyboard.up('Enter');
+      }
+      await expect.poll(() => controller(page)).toBe(0);
+    });
+  });
+}

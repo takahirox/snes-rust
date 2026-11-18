@@ -179,7 +179,7 @@ test('CRT handles low/hires transitions, paused resize, non-integer scale, fulls
   await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
   await geometry(page); expect(await frameHash(page)).toBe(hash);
   await page.evaluate(() => document.exitFullscreen());
-  await expect(page.locator('#fullscreen')).toBeFocused();
+  await expect(page.locator('#video')).toBeFocused();
   await geometry(page); expect(await frameHash(page)).toBe(hash);
   await expect(page.locator('#play')).toHaveText('Play');
   await page.locator('#reset').click(); await expect(page.locator('#status')).toHaveText('Playing');
