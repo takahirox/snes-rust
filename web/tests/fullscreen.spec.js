@@ -139,7 +139,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
           await exit.tap();
         } else await page.keyboard.press('Escape');
         await expect(presentation).toHaveCount(0);
-        await expect(enter).toBeFocused();
+        await expect(touch ? video : enter).toBeFocused();
         await expect(enter).toHaveText('Fullscreen');
         await expect(page.locator('#status')).toHaveText('Playing');
         await expect(page.locator('#display')).toHaveValue(mode);
@@ -148,6 +148,22 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
         await renderedPixels(page, mode);
       }
       expect(errors).toEqual([]);
+    });
+  });
+}
+
+for (const viewport of [{ width: 500, height: 250 }, { width: 360, height: 300 }]) {
+  test.describe(`${viewport.width}×${viewport.height} fullscreen safe area`, () => {
+    test.use({ viewport, hasTouch: true, isMobile: true });
+    test('keeps the video and twelve 44px targets inside the insets', async ({ page }) => {
+      const session = await page.context().newCDPSession(page);
+      await session.send('Emulation.setSafeAreaInsetsOverride', { insets });
+      await page.goto('/');
+      await selectDemo(page);
+      await expect(page.locator('#status')).toHaveText('Playing');
+      await page.locator('#fullscreen').tap();
+      await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+      await fullscreenLayout(page, true, insets);
     });
   });
 }
@@ -253,13 +269,9 @@ test.describe('normal portrait keyboard focus', () => {
     await page.locator('#fullscreen').tap();
     await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
     await page.locator('#exit-fullscreen').tap();
-    await expect(page.locator('#fullscreen')).toBeFocused();
-    for (const id of ['scale', 'display', 'change-cartridge']) {
-      await page.keyboard.press('Tab');
-      await expect(page.locator(`#${id}`)).toBeFocused();
-    }
+    await expect(page.locator('#video')).toBeFocused();
     await page.keyboard.press('Tab');
-    await expect(touchButtons.first()).toBeFocused();
+    await expect(page.locator('#play')).toBeFocused();
   });
 });
 

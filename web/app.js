@@ -445,6 +445,7 @@ const touchControls = document.querySelector('.touch-controls');
 const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 1100px)');
 const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save');
 let gameplayFullscreen = false;
+let fullscreenEnteredWithKeyboard = false;
 let fullscreenWarningTimeout;
 function clearFullscreenWarning() {
   clearTimeout(fullscreenWarningTimeout);
@@ -470,7 +471,10 @@ async function toggleFullscreen() {
     }
   }
 }
-fullscreenButton.addEventListener('click', toggleFullscreen);
+fullscreenButton.addEventListener('click', event => {
+  fullscreenEnteredWithKeyboard = event.detail === 0;
+  void toggleFullscreen();
+});
 $('exit-fullscreen').addEventListener('click', toggleFullscreen);
 function placeTouchControls() {
   // Match the short landscape layout in style.css, where the controller flanks the game.
@@ -488,8 +492,8 @@ document.addEventListener('fullscreenchange', () => {
   for (const element of playerChrome) element.inert = active;
   clearVirtualInput();
   placeTouchControls();
-  if (active) canvas.focus({ preventScroll: true });
-  else fullscreenButton.focus();
+  if (!active && fullscreenEnteredWithKeyboard) fullscreenButton.focus();
+  else canvas.focus({ preventScroll: true });
 });
 const help = $('help');
 document.addEventListener('pointerdown', (event) => {
@@ -548,6 +552,9 @@ function directionAt(event, element) {
   const rect = element.getBoundingClientRect();
   const x = (event.clientX - rect.left) / rect.width, y = (event.clientY - rect.top) / rect.height;
   if (x < 0 || x > 1 || y < 0 || y > 1) return 0;
+  // Compact fullscreen columns can place a button across the D-pad's thirds.
+  const button = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-button]');
+  if (button && element.contains(button)) return Number(button.dataset.button);
   return (x < 1/3 ? 0x200 : x > 2/3 ? 0x100 : 0) | (y < 1/3 ? 0x800 : y > 2/3 ? 0x400 : 0);
 }
 touchControls.addEventListener('contextmenu', event => event.preventDefault());
