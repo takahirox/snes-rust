@@ -84,9 +84,16 @@ button:hover:enabled { background: #edf0ec; }
   .right-controls .system { justify-self: start; }
   @media (orientation: portrait) {
     /* Reserve the wrapping header, entry metadata, actions and 44px controls. */
-    #video { max-width: min(100%, max(1px, calc((100svh - 484px - var(--audio-status-space, 0px) - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))) * 256 / 224))); }
-    /* Allow two lines of recovery guidance and its margins. */
+    #video {
+      max-width: min(100%, max(1px, calc((100svh - 484px
+        - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))
+        - var(--audio-status-space, 0px) - var(--display-status-space, 0px)
+        - var(--save-restore-space, 0px)) * 256 / 224)));
+    }
+    /* Leave room for each visible recovery message, including the save retry button. */
     main:has(#audio-status:not(:empty)) { --audio-status-space: calc(2lh + 16px); }
+    main:has(#display-status:not(:empty)) { --display-status-space: calc(2lh + 16px); }
+    main:has(#retry-save:not([hidden])) { --save-restore-space: calc(4lh + 16px + 45px); }
   }
 }
 @media (orientation: portrait) and (max-width: 400px) {

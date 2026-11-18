@@ -188,6 +188,49 @@ for (const viewport of [{ width: 375, height: 667 }, { width: 360, height: 640 }
   });
 }
 
+test('CRT fallback guidance fits the initial 375×667 portrait viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.addInitScript(() => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (kind, ...args) {
+      return kind === 'webgl' ? null : getContext.call(this, kind, ...args);
+    };
+  });
+  await boot(page);
+  await expect(page.locator('#display')).toHaveValue('pixel');
+  const guidance = page.getByText(/Using Pixel\. Select CRT to retry\./);
+  await expect(guidance).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => scrollY)).toBe(0);
+  await layout(page);
+});
+
+test('save restore retry fits the initial 412×915 portrait viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key) {
+      if (!window.allowSaveRead && key.startsWith('snes-rust:sram:')) {
+        throw new DOMException('Storage unavailable', 'SecurityError');
+      }
+      return getItem.call(this, key);
+    };
+  });
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await page.locator('#rom').setInputFiles({ name: 'controller-probe.sfc', mimeType: 'application/octet-stream', buffer: probe });
+  const warning = page.getByRole('alert');
+  await expect(warning).toHaveText(/Save could not be restored.*Retry restoring the save/);
+  await expect(warning).toBeInViewport({ ratio: 1 });
+  const retry = page.getByRole('button', { name: 'Retry restoring save' });
+  await expect(retry).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => scrollY)).toBe(0);
+  await layout(page);
+  await page.evaluate(() => { window.allowSaveRead = true; });
+  await retry.tap();
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(retry).toBeHidden();
+});
+
 test('Shionari title advances into its real story with mobile A touch', async ({ page }) => {
   await boot(page, false); const touch = await fingers(page);
   const scene = () => page.evaluate(async () => {
