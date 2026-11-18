@@ -43,8 +43,9 @@ async function fingers(page) {
 async function layout(page) {
   const result = await page.evaluate(() => {
     const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+    const actions = document.querySelectorAll('header summary, header a, #scale, #display, #change-cartridge, #current-game, #play, #fullscreen');
     return { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight,
-      screen: rect(document.querySelector('canvas')), actions: [...document.querySelectorAll('#change-cartridge, #current-game, #play')].map(rect), buttons: [...document.querySelectorAll('[data-button]')].map(button => {
+      screen: rect(document.querySelector('canvas')), actions: Array.from(actions, rect), buttons: [...document.querySelectorAll('[data-button]')].map(button => {
         const r = rect(button), hit = document.elementFromPoint(r.x + r.width/2, r.y + r.height/2);
         return { ...r, label: button.ariaLabel, hit: hit === button };
       }) };
@@ -151,7 +152,7 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await expect(page.locator('#play')).toHaveText('Pause');
 });
 
-for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }]) {
+for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }, { width: 424, height: 320 }]) {
   test(`touch layout and live resize preserve geometry/SRAM at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page); const touch = await fingers(page);
     let result = await layout(page);

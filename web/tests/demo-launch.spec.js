@@ -53,6 +53,8 @@ test('gesture unlocks audio before delayed fetch; concurrent and repeated demo c
 });
 
 for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pending']) test(`${source}: audio ${failure} leaves gameplay running and audio controls can recover`, async ({ page }) => {
+  const narrowLocalLaunch = source === 'local' && failure === 'rejected';
+  if (narrowLocalLaunch) await page.setViewportSize({ width: 375, height: 667 });
   await page.evaluate(failure => {
     const resume = AudioContext.prototype.resume;
     window.recoverAudio = () => { AudioContext.prototype.resume = resume; };
@@ -70,14 +72,19 @@ for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pend
     await (await chooserPromise).setFiles({ name: 'local.sfc', mimeType: 'application/octet-stream', buffer: rom });
   }
   await expect(page.locator('#status')).toHaveText('Playing');
-  await expect(page.locator('#audio-status')).toContainText('Sound');
-  await expect(page.locator('#audio-status')).toBeVisible();
-  await expect(page.locator('#audio-status')).toContainText('Adjust volume or unmute to retry.');
+  const audioStatus = page.locator('#audio-status');
+  await expect(audioStatus).toContainText('Sound');
+  await expect(audioStatus).toBeVisible();
+  await expect(audioStatus).toContainText('Adjust volume or unmute to retry.');
+  if (narrowLocalLaunch) {
+    await expect(audioStatus).toBeInViewport({ ratio: 1 });
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+  }
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
   await page.evaluate(() => recoverAudio());
   if (source === 'demo') { await page.locator('#mute').click(); await page.locator('#mute').click(); }
   else { await page.locator('#volume').focus(); await page.keyboard.press('ArrowLeft'); }
-  await expect(page.locator('#audio-status')).toBeEmpty();
+  await expect(audioStatus).toBeEmpty();
   await expect.poll(() => page.evaluate(() => testAudio.state)).toBe('running');
 });
 
