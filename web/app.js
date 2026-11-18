@@ -456,9 +456,9 @@ for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) =
     return;
   }
   if (!keys[event.code] || !playing) return;
-  const inControl = inHelp || target.closest?.('#cartridge-picker') ||
+  const inControl = (inHelp && help.open) || target.closest?.('#cartridge-picker') ||
     ['INPUT', 'SELECT'].includes(target.tagName) ||
-    (['BUTTON', 'A'].includes(target.tagName) && ['Enter', 'Space'].includes(event.code));
+    (['BUTTON', 'A', 'SUMMARY'].includes(target.tagName) && ['Enter', 'Space'].includes(event.code));
   if (inControl && !(type === 'keyup' && held.has(event.code))) return;
   event.preventDefault(); if (type === 'keydown') held.add(event.code); else held.delete(event.code);
   keyboard = [...held].reduce((value, code) => value | keys[code], 0);
