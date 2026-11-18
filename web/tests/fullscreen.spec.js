@@ -165,8 +165,8 @@ for (const unavailable of ['missing', 'rejected']) {
     const video = page.locator('#video'), normal = await video.boundingBox();
     await page.locator('#fullscreen').click();
     const warning = page.locator('#fullscreen-status');
-    await expect(warning).toHaveText(/Fullscreen is unavailable.*try a browser/);
-    await expect(warning).toBeInViewport();
+    await expect(warning).toHaveText('Fullscreen unavailable. Try another browser.');
+    await expect(warning).toBeInViewport({ ratio: 1 });
     await expect(page.locator(':fullscreen')).toHaveCount(0);
     await expect(video).toBeVisible();
     expect(await video.boundingBox()).toEqual(normal);
@@ -174,3 +174,84 @@ for (const unavailable of ['missing', 'rejected']) {
     await expect(page.locator('#status')).toHaveText('Paused');
   });
 }
+
+for (const viewport of [{ width: 320, height: 740 }, { width: 424, height: 320 }]) {
+  test.describe(`${viewport.width}×${viewport.height} fullscreen fallback`, () => {
+    test.use({ viewport, hasTouch: true, isMobile: true });
+    test('the warning and all twelve touch targets fit without scrolling', async ({ page }) => {
+      await page.addInitScript(() => { Element.prototype.requestFullscreen = undefined; });
+      await page.goto('/');
+      await selectDemo(page);
+      await expect(page.locator('#status')).toHaveText('Playing');
+      const enter = page.locator('#fullscreen');
+      await expect(enter).toBeInViewport({ ratio: 1 });
+      await enter.tap();
+      const warning = page.locator('#fullscreen-status');
+      await expect(warning).toHaveText('Fullscreen unavailable. Try another browser.');
+      await expect(warning).toBeInViewport({ ratio: 1 });
+      await expect(page.locator(':fullscreen')).toHaveCount(0);
+      const buttons = page.locator('[data-button]');
+      await expect(buttons).toHaveCount(12);
+      for (const button of await buttons.all()) {
+        await expect(button).toBeInViewport({ ratio: 1 });
+        await expect(button).toBeEnabled();
+        expect(await button.evaluate(el => {
+          const { x, y, width, height } = el.getBoundingClientRect();
+          return el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+        }), await button.getAttribute('aria-label')).toBe(true);
+      }
+      expect(await page.evaluate(() => [scrollX, scrollY])).toEqual([0, 0]);
+      await expect(page.locator('#play')).toHaveText('Pause');
+    });
+  });
+}
+
+test('Escape returns keyboard focus to the scrolled fullscreen button', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 700 });
+  await page.goto('/');
+  const enter = page.locator('#fullscreen');
+  await expect(enter).not.toBeInViewport();
+  await enter.focus();
+  await expect(enter).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  await page.keyboard.press('Enter');
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  await page.keyboard.press('Escape');
+  await expect(page.locator(':fullscreen')).toHaveCount(0);
+  await expect(enter).toBeFocused();
+  await expect(enter).toBeInViewport({ ratio: 1 });
+  await expect(enter).toHaveCSS('outline-style', 'solid');
+});
+
+test.describe('normal short landscape keyboard focus', () => {
+  test.use({ viewport: { width: 424, height: 320 }, hasTouch: true, isMobile: true });
+  test('the canvas focus ring is rendered over Pixel and CRT', async ({ page }) => {
+    await page.goto('/');
+    await selectDemo(page);
+    await renderedPixels(page, 'crt');
+    await page.locator('#play').tap();
+    await expect(page.locator('#status')).toHaveText('Paused');
+    const video = page.locator('#video');
+    const link = page.getByRole('link', { name: 'GitHub' });
+    const edgePixel = async () => {
+      const screenshot = await video.screenshot({ scale: 'css' });
+      return page.evaluate(async png => {
+        const bytes = Uint8Array.from(atob(png), byte => byte.charCodeAt(0));
+        const image = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const context = new OffscreenCanvas(image.width, image.height).getContext('2d');
+        context.drawImage(image, 0, 0);
+        return [...context.getImageData(Math.floor(image.width / 2), 1, 1, 1).data];
+      }, screenshot.toString('base64'));
+    };
+    const focusColor = [0x30, 0x6e, 0x59, 0xff];
+    for (const mode of ['pixel', 'crt']) {
+      await page.locator('#display').selectOption(mode);
+      await renderedPixels(page, mode);
+      await link.focus();
+      expect(await edgePixel(), `${mode} unfocused edge`).not.toEqual(focusColor);
+      await page.keyboard.press('Tab');
+      await expect(video).toBeFocused();
+      expect(await edgePixel(), `${mode} focused edge`).toEqual(focusColor);
+    }
+  });
+});
