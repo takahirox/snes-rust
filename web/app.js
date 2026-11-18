@@ -273,7 +273,7 @@ function restoreSave() {
     $('current-game').title = pendingCartridge.name;
     $('placeholder').hidden = true;
     pendingCartridge = undefined; restorePending = false; persistenceError = '';
-    draw(); $('status').textContent = 'Paused';
+    draw(); setStatus('Paused');
   } catch (e) {
     persistenceError = `Save could not be restored: ${e.message}. Saving and cartridge changes are blocked. Retry restoring the save when storage is available.`;
   }
@@ -292,10 +292,10 @@ function updatePlayback() {
   for (const button of touchButtons) button.disabled = !playing;
 }
 function clearInput() { keyboard = 0; held.clear(); clearVirtualInput(); }
-function pause() { playing = false; clearInput(); updatePlayback(); flushAudio(); const saved = save(); if (loaded) $('status').textContent = 'Paused'; return saved; }
+function pause() { playing = false; clearInput(); updatePlayback(); flushAudio(); const saved = save(); if (loaded) setStatus('Paused'); return saved; }
 function start() {
   if (!loaded || restorePending || loading) return;
-  debt = frameMilliseconds; lastTime = performance.now(); playing = true; updatePlayback(); $('status').textContent = 'Playing';
+  debt = frameMilliseconds; lastTime = performance.now(); playing = true; updatePlayback(); setStatus('Playing');
 }
 function togglePlayback(event) {
   if (!loaded || restorePending || loading) return;
@@ -366,7 +366,7 @@ async function loadCartridge(name, read, demo) {
     if (!pause()) return;
     clearError();
     if (!core) throw new Error('Emulator has not loaded');
-    $('status').textContent = `Loading ${name}…`;
+    setStatus(`Loading ${name}…`);
     let data = new Uint8Array(await read());
     if (data.length > 4 * 1024 * 1024 + 512) throw new Error('Maximum ROM size is 4 MiB plus a copier header');
     if (!demo && data.length % 1024 === 512) data = data.subarray(512);
@@ -378,9 +378,9 @@ async function loadCartridge(name, read, demo) {
     copyInput(data); check(core.prepare_rom());
     pendingCartridge = { key: `snes-rust:sram:${hash}`, name, activeDemo: demo ? demo.file : '' };
     restoreSave();
-    if (restorePending) $('status').textContent = 'Restore save before changing cartridge';
+    if (restorePending) setStatus('Restore save before changing cartridge');
   } catch (e) {
-    $('status').textContent = loaded ? 'Paused' : 'Cartridge could not be loaded';
+    setStatus(loaded ? 'Paused' : 'Cartridge could not be loaded');
     report(e);
   } finally {
     loading = false;
@@ -441,10 +441,21 @@ $('scale').addEventListener('change', event => {
 });
 const presentation = $('game-presentation'), fullscreenButton = $('fullscreen');
 const fullscreenStatus = $('fullscreen-status');
+const touchControls = document.querySelector('.touch-controls');
+const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 1100px)');
 const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save');
 let gameplayFullscreen = false;
-async function toggleFullscreen() {
+let fullscreenWarningTimeout;
+function clearFullscreenWarning() {
+  clearTimeout(fullscreenWarningTimeout);
   fullscreenStatus.textContent = '';
+}
+function setStatus(text) {
+  clearFullscreenWarning();
+  $('status').textContent = text;
+}
+async function toggleFullscreen() {
+  clearFullscreenWarning();
   try {
     if (document.fullscreenElement === presentation) await document.exitFullscreen();
     else {
@@ -453,12 +464,21 @@ async function toggleFullscreen() {
     }
   } catch {
     if (document.fullscreenElement !== presentation) {
+      clearTimeout(fullscreenWarningTimeout);
       fullscreenStatus.textContent = 'Fullscreen unavailable. Try another browser.';
+      fullscreenWarningTimeout = setTimeout(clearFullscreenWarning, 4000);
     }
   }
 }
 fullscreenButton.addEventListener('click', toggleFullscreen);
 $('exit-fullscreen').addEventListener('click', toggleFullscreen);
+function placeTouchControls() {
+  // Match the short landscape layout in style.css, where the controller flanks the game.
+  const parent = gameplayFullscreen || shortLandscape.matches ? presentation : presentation.parentElement;
+  if (touchControls.parentElement !== parent) parent.append(touchControls);
+}
+shortLandscape.addEventListener('change', placeTouchControls);
+placeTouchControls();
 document.addEventListener('fullscreenchange', () => {
   const active = document.fullscreenElement === presentation;
   if (active === gameplayFullscreen) return;
@@ -467,6 +487,7 @@ document.addEventListener('fullscreenchange', () => {
   // Keep focus and assistive technology inside the fullscreen presentation.
   for (const element of playerChrome) element.inert = active;
   clearVirtualInput();
+  placeTouchControls();
   if (active) canvas.focus({ preventScroll: true });
   else fullscreenButton.focus();
 });
@@ -529,7 +550,6 @@ function directionAt(event, element) {
   if (x < 0 || x > 1 || y < 0 || y > 1) return 0;
   return (x < 1/3 ? 0x200 : x > 2/3 ? 0x100 : 0) | (y < 1/3 ? 0x800 : y > 2/3 ? 0x400 : 0);
 }
-const touchControls = document.querySelector('.touch-controls');
 touchControls.addEventListener('contextmenu', event => event.preventDefault());
 touchControls.addEventListener('pointerdown', event => {
   if (!playing || (event.pointerType === 'mouse' && event.button !== 0)) return;
@@ -566,5 +586,5 @@ window.addEventListener('pagehide', save);
 try {
   const response = await fetch('snes_wasm.wasm'); if (!response.ok) throw new Error(`Wasm download failed: HTTP ${response.status}`);
   const result = await WebAssembly.instantiate(await response.arrayBuffer(), {}); core = result.instance.exports;
-  $('status').textContent = 'Ready'; enableSources(true); requestAnimationFrame(animate);
-} catch (e) { report(e); $('status').textContent = 'Emulator unavailable'; enableSources(false); }
+  setStatus('Ready'); enableSources(true); requestAnimationFrame(animate);
+} catch (e) { report(e); setStatus('Emulator unavailable'); enableSources(false); }

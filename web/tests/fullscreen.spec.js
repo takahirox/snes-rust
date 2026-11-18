@@ -171,7 +171,17 @@ for (const unavailable of ['missing', 'rejected']) {
     await expect(video).toBeVisible();
     expect(await video.boundingBox()).toEqual(normal);
     await page.locator('#play').click();
-    await expect(page.locator('#status')).toHaveText('Paused');
+    const status = page.locator('#status');
+    await expect(status).toHaveText('Paused');
+    expect(await status.isVisible()).toBe(true);
+    await expect(warning).toBeEmpty();
+    if (unavailable === 'rejected') {
+      await page.locator('#fullscreen').click();
+      await expect(warning).toBeInViewport({ ratio: 1 });
+      await expect(warning).toBeEmpty({ timeout: 6000 });
+      await expect(status).toBeVisible();
+      await expect(status).toHaveText('Paused');
+    }
   });
 }
 
@@ -221,6 +231,36 @@ test('Escape returns keyboard focus to the scrolled fullscreen button', async ({
   await expect(enter).toBeFocused();
   await expect(enter).toBeInViewport({ ratio: 1 });
   await expect(enter).toHaveCSS('outline-style', 'solid');
+});
+
+test.describe('normal portrait keyboard focus', () => {
+  test.use({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
+  test('Tab moves from the game through the toolbar and cartridge before the touch controller', async ({ page }) => {
+    await page.goto('/');
+    await selectDemo(page);
+    await expect(page.locator('#status')).toHaveText('Playing');
+    await expect(page.locator('#video')).toBeFocused();
+    for (const id of ['play', 'reset', 'mute', 'volume', 'fullscreen', 'scale', 'display', 'change-cartridge']) {
+      await page.keyboard.press('Tab');
+      await expect(page.locator(`#${id}`)).toBeFocused();
+    }
+    const touchButtons = page.locator('.touch-controls button');
+    await expect(touchButtons).toHaveCount(12);
+    for (const button of await touchButtons.all()) {
+      await page.keyboard.press('Tab');
+      await expect(button).toBeFocused();
+    }
+    await page.locator('#fullscreen').tap();
+    await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+    await page.locator('#exit-fullscreen').tap();
+    await expect(page.locator('#fullscreen')).toBeFocused();
+    for (const id of ['scale', 'display', 'change-cartridge']) {
+      await page.keyboard.press('Tab');
+      await expect(page.locator(`#${id}`)).toBeFocused();
+    }
+    await page.keyboard.press('Tab');
+    await expect(touchButtons.first()).toBeFocused();
+  });
 });
 
 test.describe('normal short landscape keyboard focus', () => {
