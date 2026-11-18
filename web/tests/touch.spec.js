@@ -43,12 +43,17 @@ async function fingers(page) {
 async function layout(page) {
   const result = await page.evaluate(() => {
     const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
-    const actions = document.querySelectorAll('header summary, header a, #scale, #display, #change-cartridge, #current-game, #play, #fullscreen');
+    const headerActions = [...document.querySelectorAll('header summary, header a, #scale, #display')];
+    const playerActions = [...document.querySelectorAll('#change-cartridge, #current-game, .toolbar button, #volume')];
+    const hitTarget = element => {
+      const r = rect(element);
+      return element.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    };
     return { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight,
-      screen: rect(document.querySelector('canvas')), actions: Array.from(actions, rect), buttons: [...document.querySelectorAll('[data-button]')].map(button => {
-        const r = rect(button), hit = document.elementFromPoint(r.x + r.width/2, r.y + r.height/2);
-        return { ...r, label: button.ariaLabel, hit: hit === button };
-      }) };
+      screen: rect(document.querySelector('canvas')),
+      actions: [...headerActions, ...playerActions].map(action => ({ ...rect(action), label: action.id || action.textContent.trim() })),
+      headerHits: headerActions.map(action => ({ label: action.id || action.textContent.trim(), hit: hitTarget(action) })),
+      buttons: [...document.querySelectorAll('[data-button]')].map(button => ({ ...rect(button), label: button.ariaLabel, hit: hitTarget(button) })) };
   });
   expect(result.scrollWidth).toBe(result.width);
   expect(result.scrollHeight).toBe(result.height);
@@ -57,6 +62,7 @@ async function layout(page) {
     expect(r.x, r.label).toBeGreaterThanOrEqual(0); expect(r.y, r.label).toBeGreaterThanOrEqual(0);
     expect(r.right, r.label).toBeLessThanOrEqual(result.width); expect(r.bottom, r.label).toBeLessThanOrEqual(result.height);
   }
+  for (const action of result.headerHits) expect(action.hit, action.label).toBe(true);
   for (const button of result.buttons) { expect(button.hit, button.label).toBe(true); expect(button.width).toBeGreaterThanOrEqual(44); expect(button.height).toBeGreaterThanOrEqual(44); }
   expect(result.screen.width/result.screen.height).toBeCloseTo(256/224, 3);
   return result;
@@ -152,7 +158,7 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await expect(page.locator('#play')).toHaveText('Pause');
 });
 
-for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }, { width: 424, height: 320 }]) {
+for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }, { width: 424, height: 320 }, { width: 400, height: 320 }]) {
   test(`touch layout and live resize preserve geometry/SRAM at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page); const touch = await fingers(page);
     let result = await layout(page);

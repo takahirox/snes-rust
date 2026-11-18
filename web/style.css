@@ -128,6 +128,13 @@ button:hover:enabled { background: #edf0ec; }
   /* Leave room for a wrapped toolbar even with phone safe-area insets. */
   #video { max-width: min(100%, calc((100svh - 204px - max(6px, env(safe-area-inset-top)) - max(6px, env(safe-area-inset-bottom))) * 256 / 224)); }
 }
+@media (orientation: landscape) and (max-height: 600px) and (max-width: 480px) {
+  /* Keep the header on one row with room for platform-native select widths. */
+  header, nav, .display-controls { column-gap: 4px; }
+  nav a, summary, .display-controls select { font-size: 12px; }
+  .display-controls label { gap: 3px; font-size: 11px; }
+  .display-controls select { padding-inline: 2px; }
+}
 
 /* The source canvas retains layout, focus and the unmodified Pixel fallback. */
 .crt-display { position: absolute; pointer-events: none; image-rendering: auto; }
