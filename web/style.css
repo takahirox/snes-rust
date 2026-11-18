@@ -84,12 +84,18 @@ button:hover:enabled { background: #edf0ec; }
   .right-controls .system { justify-self: start; }
   @media (orientation: portrait) {
     /* Reserve the wrapping header, entry metadata, actions and 44px controls. */
-    #video {
-      max-width: min(100%, max(1px, calc((100svh - 484px
-        - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))
-        - var(--audio-status-space, 0px) - var(--display-status-space, 0px)
-        - var(--save-restore-space, 0px)) * 256 / 224)));
+    main {
+      --portrait-screen-height: max(1px, 100svh - 484px
+        - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)));
     }
+    #video {
+      /* Let the recovery messages scroll below the controls when space runs out. */
+      max-width: min(100%, calc(max(min(120px, var(--portrait-screen-height)),
+        var(--portrait-screen-height)
+        - var(--audio-status-space, 0px) - var(--display-status-space, 0px)
+        - var(--save-restore-space, 0px)) * 256 / 224));
+    }
+    #audio-status, #display-status { margin: 4px 0 0; font-size: 13px; }
     /* Leave room for each visible recovery message, including the save retry button. */
     main:has(#audio-status:not(:empty)) { --audio-status-space: calc(2lh + 16px); }
     main:has(#display-status:not(:empty)) { --display-status-space: calc(2lh + 16px); }
@@ -107,6 +113,8 @@ button:hover:enabled { background: #edf0ec; }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
   main { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); }
   header { margin-bottom: 6px; }
+  /* Center Help between the two 132px controller columns and their 10px gaps. */
+  .controls-reference { left: 50%; right: auto; transform: translateX(-50%); width: clamp(200px, calc(100% - 284px), 320px); }
   .player { grid-template-columns: 132px minmax(0, 1fr) 132px; gap: 6px 10px; }
   .screen { grid-area: 1 / 2; padding: 0; background: transparent; }
   /* Cap Scale to the center column and available height while keeping the aspect ratio. */

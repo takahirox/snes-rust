@@ -204,6 +204,35 @@ test('CRT fallback guidance fits the initial 375×667 portrait viewport', async 
   await layout(page);
 });
 
+test('combined CRT and sound failures keep 360×640 portrait playback usable', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.addInitScript(() => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (kind, ...args) {
+      return kind === 'webgl' ? null : getContext.call(this, kind, ...args);
+    };
+    AudioContext.prototype.resume = () => Promise.reject(new DOMException('Activation denied', 'NotAllowedError'));
+  });
+  await boot(page, false);
+  await expect(page.locator('#display')).toHaveValue('pixel');
+  const canvas = page.locator('#video');
+  const audioGuidance = page.locator('#audio-status');
+  const displayGuidance = page.locator('#display-status');
+  await expect(audioGuidance).toHaveText(/Sound unavailable.*Adjust volume or unmute to retry/);
+  await expect(displayGuidance).toHaveText(/Using Pixel\. Select CRT to retry\./);
+  await expect(canvas).toBeInViewport({ ratio: 1 });
+  const { width, height } = await canvas.boundingBox();
+  expect(Math.round(height)).toBeGreaterThanOrEqual(120);
+  expect(width / height).toBeCloseTo(256 / 224, 3);
+  for (const button of await page.locator('[data-button]').all()) {
+    await expect(button).toBeInViewport({ ratio: 1 });
+  }
+  await displayGuidance.scrollIntoViewIfNeeded();
+  await expect(audioGuidance).toBeInViewport({ ratio: 1 });
+  await expect(displayGuidance).toBeInViewport({ ratio: 1 });
+  await expect(page.locator('#status')).toHaveText('Playing');
+});
+
 test('save restore retry fits the initial 412×915 portrait viewport', async ({ page }) => {
   await page.setViewportSize({ width: 412, height: 915 });
   await page.addInitScript(() => {
@@ -229,6 +258,52 @@ test('save restore retry fits the initial 412×915 portrait viewport', async ({ 
   await retry.tap();
   await expect(page.locator('#status')).toHaveText('Playing');
   await expect(retry).toBeHidden();
+});
+
+test('tapping a landscape controller button dismisses Help and reaches the guest', async ({ page }) => {
+  await page.setViewportSize({ width: 667, height: 320 });
+  await boot(page);
+  const help = page.locator('summary');
+  const reference = page.locator('.controls-reference');
+  await help.tap();
+  await expect(reference).toBeVisible();
+  await layout(page);
+  const touch = await fingers(page);
+  await touch.down('A');
+  await expect(reference).toBeHidden();
+  await expect.poll(() => controller(page)).toBe(masks.A);
+  await touch.up();
+  await expect.poll(() => controller(page)).toBe(0);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await layout(page);
+});
+
+test('short landscape Help scrolls by keyboard during playback and Escape returns focus', async ({ page }) => {
+  await page.setViewportSize({ width: 568, height: 280 });
+  await boot(page);
+  const help = page.locator('summary');
+  const reference = page.locator('.controls-reference');
+  const hints = reference.getByText(/Standard gamepads work/);
+  await help.focus();
+  await page.keyboard.press('Enter');
+  await expect(reference).toBeVisible();
+  await expect(hints).not.toBeInViewport({ ratio: 1 });
+  await page.keyboard.press('Tab');
+  await expect(reference).toBeFocused();
+  await page.keyboard.down('ArrowDown');
+  await expect.poll(() => reference.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  expect(await controller(page)).toBe(0);
+  await page.keyboard.up('ArrowDown');
+  await page.keyboard.press('End');
+  await expect(hints).toBeInViewport({ ratio: 1 });
+  await page.keyboard.press('Escape');
+  await expect(reference).toBeHidden();
+  await expect(help).toBeFocused();
+  await page.locator('#video').tap();
+  await page.keyboard.down('ArrowDown');
+  await expect.poll(() => controller(page)).toBe(masks.Down);
+  await page.keyboard.up('ArrowDown');
+  await expect.poll(() => controller(page)).toBe(0);
 });
 
 test('Shionari title advances into its real story with mobile A touch', async ({ page }) => {
