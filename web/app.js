@@ -440,9 +440,29 @@ $('reset').addEventListener('click', () => {
 $('mute').addEventListener('click', () => setVolume(volume ? 0 : lastNonzeroVolume));
 $('volume').addEventListener('input', () => setVolume(Number($('volume').value)));
 $('scale').addEventListener('change', () => { const scale = Number($('scale').value); canvas.style.width = `${256 * scale}px`; });
+const help = $('help');
+document.addEventListener('pointerdown', (event) => {
+  if (help.open && !help.contains(event.target)) help.open = false;
+});
+help.addEventListener('focusout', (event) => {
+  if (!help.contains(event.relatedTarget)) help.open = false;
+});
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {
+  const target = event.target;
+  const inHelp = target.closest?.('#help');
+  if (type === 'keydown' && event.key === 'Escape' && help.open) {
+    help.open = false;
+    if (inHelp) {
+      event.preventDefault();
+      help.querySelector('summary').focus({ preventScroll: true });
+    }
+    return;
+  }
   if (!keys[event.code] || !playing) return;
-  if ((event.target.closest?.('#cartridge-picker') || ['INPUT', 'SELECT'].includes(event.target.tagName) || (['BUTTON', 'SUMMARY', 'A'].includes(event.target.tagName) && ['Enter', 'Space'].includes(event.code))) && !(type === 'keyup' && held.has(event.code))) return;
+  const inControl = (inHelp && help.open) || target.closest?.('#cartridge-picker') ||
+    ['INPUT', 'SELECT'].includes(target.tagName) ||
+    (['BUTTON', 'A', 'SUMMARY'].includes(target.tagName) && ['Enter', 'Space'].includes(event.code));
+  if (inControl && !(type === 'keyup' && held.has(event.code))) return;
   event.preventDefault(); if (type === 'keydown') held.add(event.code); else held.delete(event.code);
   keyboard = [...held].reduce((value, code) => value | keys[code], 0);
 });

@@ -19,17 +19,52 @@ const geometry = page => page.locator('#video, .game-entry, #change-cartridge, #
   const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
 }));
 
-test('generic emulator identity, stable cartridge slot and preserved legal disclosure', async ({ page }) => {
+test('emulator-first layout exposes display settings and GitHub with optional keyboard help', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await ready(page); await entryActions(page);
   await expect(page.locator('#placeholder')).toHaveText('Insert a cartridge');
   await expect(page.locator('#current-game')).toHaveText('None');
   const areas = await page.locator('.screen, .game-entry').evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().width));
   expect(areas[0]).toBeGreaterThan(areas[1] * 2);
-  await page.getByText('About / Legal', { exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'About snes-rust' })).toBeVisible();
-  await expect(page.locator('.disclosure').filter({ hasText: 'All rights reserved' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'ROM provenance and distribution notice' })).toHaveAttribute('href', 'https://github.com/takahirox/snes-rust/blob/main/demos/NOTICE.md');
+  await expect(page.locator('details')).toHaveCount(1);
+  await expect(page.getByText(/About \/ Legal|All rights reserved|About snes-rust/)).toHaveCount(0);
+  const help = page.locator('summary');
+  const keyboard = page.getByRole('heading', { name: 'Keyboard' });
+  await expect(help).toHaveText('Help');
+  await expect(keyboard).toBeHidden();
+  const github = page.getByRole('link', { name: 'GitHub', exact: true });
+  await expect(github).toHaveAttribute('href', 'https://github.com/takahirox/snes-rust');
+  const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
+  expect(readme).toContain('[ROM-specific provenance and distribution notice](demos/NOTICE.md)');
+  const notice = readFileSync(new URL('../../demos/NOTICE.md', import.meta.url), 'utf8');
+  expect(notice).toContain('**All rights reserved.**');
+  expect(notice).toContain('**does not apply to this game ROM or its embedded content**');
+  const displaySettings = page.getByRole('group', { name: 'Display settings' });
+  const scale = displaySettings.getByRole('combobox', { name: 'Scale', exact: true });
+  const display = displaySettings.getByRole('combobox', { name: 'Display', exact: true });
+  await expect(scale).toBeVisible();
+  await expect(scale).toHaveValue('3');
+  await expect(display).toBeVisible();
+  await expect(display).toHaveValue('crt');
+  await page.keyboard.press('Tab');
+  await expect(help).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(keyboard).toBeVisible();
+  await expect(page.locator('details dt')).toHaveText(['Arrow keys', 'Z / X', 'A / S', 'Q / W', 'Enter / Shift']);
+  await expect(page.locator('details dd')).toHaveText(['Move', 'B / A', 'Y / X', 'L / R', 'Start / Select']);
+  await expect(page.locator('details p')).toHaveText(/touch D-pad for diagonals.*Standard gamepads/);
+  await page.keyboard.press('Enter');
+  await expect(keyboard).toBeHidden();
+  for (const control of [github, scale, display]) {
+    await page.keyboard.press('Tab');
+    await expect(control).toBeFocused();
+    await expect(control).toHaveCSS('outline-style', 'solid');
+    if (control === scale) {
+      await page.keyboard.press('1');
+      await expect(scale).toHaveValue('1');
+      await expect(page.locator('#video')).toHaveCSS('width', '256px');
+    }
+  }
 });
 
 test('keyboard picker offers three sources; Escape, outside click and file cancellation preserve gameplay and held input', async ({ page }) => {
@@ -111,7 +146,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 740 
     await expect(page.locator('#current-game')).toHaveText(name);
     expect(await geometry(page)).toEqual(initial);
     // Check player bounds; errors may extend the page below the fixed player.
-    const targets = page.locator('h1, .app-identity p, #video, #change-cartridge, #current-game, #play');
+    const targets = page.locator('h1, .app-identity p, header a, #scale, #display, #video, #change-cartridge, #current-game, #play');
     for (const target of await targets.all()) await expect(target).toBeInViewport({ ratio: 1 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
   });
@@ -119,7 +154,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 320, height: 740 
 
 test.describe('mobile first view', () => {
   test.use({ hasTouch: true, isMobile: true });
-  for (const viewport of [{ width: 320, height: 740 }, { width: 360, height: 640 }, { width: 667, height: 320 }, { width: 568, height: 320, safeArea: true }]) {
+  for (const viewport of [{ width: 320, height: 740 }, { width: 360, height: 640 }, { width: 374, height: 640 }, { width: 667, height: 320 }, { width: 568, height: 320, safeArea: true }]) {
     test(`all twelve controls and cartridge slot fit at ${viewport.width}×${viewport.height}`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       if (viewport.safeArea) {
@@ -127,7 +162,7 @@ test.describe('mobile first view', () => {
         await session.send('Emulation.setSafeAreaInsetsOverride', { insets: { left: 44, right: 44, bottom: 21, top: 0 } });
       }
       await ready(page); await entryActions(page);
-      const targets = page.locator('#video, #change-cartridge, #current-game, #play, [data-button]');
+      const targets = page.locator('header a, summary, #scale, #display, #video, #change-cartridge, #current-game, #play, [data-button]');
       expect(await page.locator('[data-button]').count()).toBe(12);
       for (const target of await targets.all()) {
         await expect(target).toBeInViewport({ ratio: 1 });
@@ -142,6 +177,32 @@ test.describe('mobile first view', () => {
       await page.locator('#change-cartridge').tap();
       await expect(page.getByRole('dialog', { name: 'Cartridges' })).toBeVisible();
       await page.locator('h1').tap(); await expect(page.locator('#cartridge-picker')).toBeHidden();
+      if ([320, 667].includes(viewport.width)) {
+        await page.locator('#rom').setInputFiles({ name: 'local.sfc', mimeType: 'application/octet-stream', buffer });
+        await expect(page.locator('#status')).toHaveText('Playing');
+        await page.locator('summary').tap();
+        const reference = page.locator('.controls-reference');
+        await expect(reference).toBeInViewport({ ratio: 1 });
+        expect(await reference.evaluate(el => el.scrollHeight)).toBeLessThanOrEqual(await reference.evaluate(el => el.clientHeight));
+        await page.locator('summary').tap();
+        await expect(reference).toBeHidden();
+        for (const [id, value] of [['scale', '1'], ['display', 'pixel']]) {
+          const select = page.locator(`#${id}`);
+          await select.tap();
+          await expect(select).toBeFocused();
+          // Headless Chromium cannot interact with the platform option popup.
+          await page.keyboard.press('Escape');
+          await select.selectOption(value);
+          await expect(select).toHaveValue(value);
+        }
+        if (viewport.width === 320) await expect(page.locator('#video')).toHaveCSS('width', '256px');
+        await expect(page.locator('.crt-display')).toBeHidden();
+        await expect(page.locator('#status')).toHaveText('Playing');
+        const repository = 'https://github.com/takahirox/snes-rust';
+        await page.route(repository, route => route.fulfill({ body: 'Repository' }));
+        await page.getByRole('link', { name: 'GitHub', exact: true }).tap();
+        await expect(page).toHaveURL(repository);
+      }
     });
   }
 });

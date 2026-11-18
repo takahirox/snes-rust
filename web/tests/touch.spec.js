@@ -43,11 +43,17 @@ async function fingers(page) {
 async function layout(page) {
   const result = await page.evaluate(() => {
     const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+    const headerActions = [...document.querySelectorAll('header summary, header a, #scale, #display')];
+    const playerActions = [...document.querySelectorAll('#change-cartridge, #current-game, .toolbar button, #volume')];
+    const hitTarget = element => {
+      const r = rect(element);
+      return element.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    };
     return { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight,
-      screen: rect(document.querySelector('canvas')), actions: [...document.querySelectorAll('#change-cartridge, #current-game, #play')].map(rect), buttons: [...document.querySelectorAll('[data-button]')].map(button => {
-        const r = rect(button), hit = document.elementFromPoint(r.x + r.width/2, r.y + r.height/2);
-        return { ...r, label: button.ariaLabel, hit: hit === button };
-      }) };
+      screen: rect(document.querySelector('canvas')),
+      actions: [...headerActions, ...playerActions].map(action => ({ ...rect(action), label: action.id || action.textContent.trim() })),
+      headerHits: headerActions.map(action => ({ label: action.id || action.textContent.trim(), hit: hitTarget(action) })),
+      buttons: [...document.querySelectorAll('[data-button]')].map(button => ({ ...rect(button), label: button.ariaLabel, hit: hitTarget(button) })) };
   });
   expect(result.scrollWidth).toBe(result.width);
   expect(result.scrollHeight).toBe(result.height);
@@ -56,6 +62,7 @@ async function layout(page) {
     expect(r.x, r.label).toBeGreaterThanOrEqual(0); expect(r.y, r.label).toBeGreaterThanOrEqual(0);
     expect(r.right, r.label).toBeLessThanOrEqual(result.width); expect(r.bottom, r.label).toBeLessThanOrEqual(result.height);
   }
+  for (const action of result.headerHits) expect(action.hit, action.label).toBe(true);
   for (const button of result.buttons) { expect(button.hit, button.label).toBe(true); expect(button.width).toBeGreaterThanOrEqual(44); expect(button.height).toBeGreaterThanOrEqual(44); }
   expect(result.screen.width/result.screen.height).toBeCloseTo(256/224, 3);
   return result;
@@ -151,7 +158,7 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await expect(page.locator('#play')).toHaveText('Pause');
 });
 
-for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }]) {
+for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }, { width: 424, height: 320 }, { width: 400, height: 320 }]) {
   test(`touch layout and live resize preserve geometry/SRAM at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page); const touch = await fingers(page);
     let result = await layout(page);
@@ -180,6 +187,170 @@ for (const viewport of [{ width: 375, height: 667 }, { width: 360, height: 640 }
     expect(await page.evaluate(() => scrollY)).toBe(0);
   });
 }
+
+test('CRT fallback guidance fits the initial 375×667 portrait viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.addInitScript(() => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (kind, ...args) {
+      return kind === 'webgl' ? null : getContext.call(this, kind, ...args);
+    };
+  });
+  await boot(page);
+  await expect(page.locator('#display')).toHaveValue('pixel');
+  const guidance = page.getByText(/Using Pixel\. Select CRT to retry\./);
+  await expect(guidance).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => scrollY)).toBe(0);
+  await layout(page);
+});
+
+test('combined CRT and sound failures keep 360×640 portrait playback usable', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.addInitScript(() => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (kind, ...args) {
+      return kind === 'webgl' ? null : getContext.call(this, kind, ...args);
+    };
+    AudioContext.prototype.resume = () => Promise.reject(new DOMException('Activation denied', 'NotAllowedError'));
+  });
+  await boot(page, false);
+  await expect(page.locator('#display')).toHaveValue('pixel');
+  const canvas = page.locator('#video');
+  const audioGuidance = page.locator('#audio-status');
+  const displayGuidance = page.locator('#display-status');
+  await expect(audioGuidance).toHaveText(/Sound unavailable.*Adjust volume or unmute to retry/);
+  await expect(displayGuidance).toHaveText(/Using Pixel\. Select CRT to retry\./);
+  await expect(canvas).toBeInViewport({ ratio: 1 });
+  const { width, height } = await canvas.boundingBox();
+  expect(Math.round(height)).toBeGreaterThanOrEqual(120);
+  expect(width / height).toBeCloseTo(256 / 224, 3);
+  for (const button of await page.locator('[data-button]').all()) {
+    await expect(button).toBeInViewport({ ratio: 1 });
+  }
+  await displayGuidance.scrollIntoViewIfNeeded();
+  await expect(audioGuidance).toBeInViewport({ ratio: 1 });
+  await expect(displayGuidance).toBeInViewport({ ratio: 1 });
+  await expect(page.locator('#status')).toHaveText('Playing');
+});
+
+test('save restore retry fits the initial 412×915 portrait viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key) {
+      if (!window.allowSaveRead && key.startsWith('snes-rust:sram:')) {
+        throw new DOMException('Storage unavailable', 'SecurityError');
+      }
+      return getItem.call(this, key);
+    };
+  });
+  await page.goto('/');
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await page.locator('#rom').setInputFiles({ name: 'controller-probe.sfc', mimeType: 'application/octet-stream', buffer: probe });
+  const warning = page.getByRole('alert');
+  await expect(warning).toHaveText(/Save could not be restored.*Retry restoring the save/);
+  await expect(warning).toBeInViewport({ ratio: 1 });
+  const retry = page.getByRole('button', { name: 'Retry restoring save' });
+  await expect(retry).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => scrollY)).toBe(0);
+  await layout(page);
+  await page.evaluate(() => { window.allowSaveRead = true; });
+  await retry.tap();
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(retry).toBeHidden();
+});
+
+for (const [width, buttons] of [[667, ['A']], [424, ['Right', 'Y']]]) {
+  test(`landscape Help dismisses on a controller tap that reaches the guest at ${width}×320`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 320 });
+    await boot(page);
+    const help = page.locator('summary');
+    const reference = page.locator('.controls-reference');
+    const touch = await fingers(page);
+    for (const button of buttons) {
+      await help.tap();
+      await expect(reference).toBeVisible();
+      await layout(page);
+      await touch.down(button);
+      await expect(reference).toBeHidden();
+      await expect.poll(() => controller(page)).toBe(masks[button]);
+      await touch.up();
+      await expect.poll(() => controller(page)).toBe(0);
+    }
+    await expect(page.locator('#status')).toHaveText('Playing');
+    await layout(page);
+  });
+}
+
+test('short landscape Help scrolls by keyboard and gameplay resumes from its toggle after dismissal', async ({ page }) => {
+  await page.setViewportSize({ width: 568, height: 280 });
+  await boot(page);
+  const help = page.locator('summary');
+  const reference = page.locator('.controls-reference');
+  const hints = reference.getByText(/Standard gamepads work/);
+  await help.focus();
+  await page.keyboard.press('Enter');
+  await expect(reference).toBeVisible();
+  await expect(hints).not.toBeInViewport({ ratio: 1 });
+  await page.keyboard.press('Tab');
+  await expect(reference).toBeFocused();
+  await page.keyboard.down('ArrowDown');
+  await expect.poll(() => reference.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  expect(await controller(page)).toBe(0);
+  await page.keyboard.up('ArrowDown');
+  await page.keyboard.press('End');
+  await expect(hints).toBeInViewport({ ratio: 1 });
+  for (const key of ['Escape', 'Enter']) {
+    await page.keyboard.press(key);
+    await expect(reference).toBeHidden();
+    await expect(help).toBeFocused();
+    await page.keyboard.down('ArrowRight');
+    await expect.poll(() => controller(page), { message: `ArrowRight after ${key}` }).toBe(masks.Right);
+    await page.keyboard.up('ArrowRight');
+    await expect.poll(() => controller(page)).toBe(0);
+    if (key === 'Escape') {
+      await page.keyboard.down('Enter');
+      await expect(reference).toBeVisible();
+      expect(await controller(page)).toBe(0);
+      await page.keyboard.up('Enter');
+    }
+  }
+});
+
+test('tabbing out of Help leaves playback controls unobscured at 424×320', async ({ page }) => {
+  await page.setViewportSize({ width: 424, height: 320 });
+  await boot(page);
+  const help = page.locator('summary');
+  const reference = page.getByRole('group', { name: 'Controls reference' });
+  await help.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await expect(reference).toBeFocused();
+  await expect(reference).toBeVisible();
+
+  for (const control of [
+    page.getByRole('link', { name: 'GitHub' }),
+    page.getByRole('combobox', { name: 'Scale' }),
+    page.getByRole('combobox', { name: 'Display' }),
+    page.locator('#video'),
+    page.locator('#change-cartridge'),
+  ]) {
+    await page.keyboard.press('Tab');
+    await expect(control).toBeFocused();
+  }
+
+  for (const name of ['Pause', 'Reset']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await page.keyboard.press('Tab');
+    await expect(button).toBeFocused();
+    await expect(button).toHaveCSS('outline-style', 'solid');
+    expect(await button.evaluate(el => {
+      const { x, y, width, height } = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+    }), `${name} is unobscured`).toBe(true);
+  }
+  await expect(reference).toBeHidden();
+});
 
 test('Shionari title advances into its real story with mobile A touch', async ({ page }) => {
   await boot(page, false); const touch = await fingers(page);
