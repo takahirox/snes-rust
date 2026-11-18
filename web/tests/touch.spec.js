@@ -414,11 +414,15 @@ test('compact landscape fullscreen keeps the entire D-pad button active and supp
   await page.locator('#fullscreen').tap();
   await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
   const touch = await fingers(page);
+  const left = await page.getByRole('button', { name: 'SNES Left', exact: true }).boundingBox();
   await touch.down('Left', 1, 0.9);
   await expect.poll(() => controller(page)).toBe(masks.Left);
   const dpad = await page.locator('.dpad').boundingBox();
   await touch.move(1, dpad.x + 10, dpad.y + 10);
   await expect.poll(() => controller(page)).toBe(masks.Left | masks.Up);
+  // Left stays held as the pointer returns from the diagonal to its original top edge.
+  await touch.move(1, left.x + left.width * 0.9, Math.ceil(left.y));
+  await expect.poll(() => controller(page)).toBe(masks.Left);
   await touch.cancel();
   await expect.poll(() => controller(page)).toBe(0);
 });
