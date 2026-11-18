@@ -199,9 +199,6 @@ class CrtDisplay {
       if (gl.isContextLost()) throw new Error('Context lost');
       const rect = s.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
-      const parent = s.parentElement.getBoundingClientRect();
-      c.style.left = `${rect.left - parent.left}px`; c.style.top = `${rect.top - parent.top}px`;
-      c.style.width = `${rect.width}px`; c.style.height = `${rect.height}px`;
       // Bound fill cost on high-DPR phones and very large fullscreen displays.
       const ratio = Math.min(devicePixelRatio || 1, 2, this.maxSize / rect.width, this.maxSize / rect.height);
       const width = Math.max(1, Math.round(rect.width * ratio)), height = Math.max(1, Math.round(rect.height * ratio));
@@ -439,7 +436,39 @@ $('reset').addEventListener('click', () => {
 });
 $('mute').addEventListener('click', () => setVolume(volume ? 0 : lastNonzeroVolume));
 $('volume').addEventListener('input', () => setVolume(Number($('volume').value)));
-$('scale').addEventListener('change', () => { const scale = Number($('scale').value); canvas.style.width = `${256 * scale}px`; });
+$('scale').addEventListener('change', event => {
+  canvas.parentElement.style.setProperty('--video-width', `${256 * Number(event.target.value)}px`);
+});
+const presentation = $('game-presentation'), fullscreenButton = $('fullscreen');
+const fullscreenStatus = $('fullscreen-status');
+const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save');
+let gameplayFullscreen = false;
+async function toggleFullscreen() {
+  fullscreenStatus.textContent = '';
+  try {
+    if (document.fullscreenElement === presentation) await document.exitFullscreen();
+    else {
+      if (!document.fullscreenEnabled || !presentation.requestFullscreen) throw new Error();
+      await presentation.requestFullscreen();
+    }
+  } catch {
+    if (document.fullscreenElement !== presentation) {
+      fullscreenStatus.textContent = 'Fullscreen is unavailable. Continue here or try a browser with element fullscreen support.';
+    }
+  }
+}
+fullscreenButton.addEventListener('click', toggleFullscreen);
+$('exit-fullscreen').addEventListener('click', toggleFullscreen);
+document.addEventListener('fullscreenchange', () => {
+  const active = document.fullscreenElement === presentation;
+  if (active === gameplayFullscreen) return;
+  gameplayFullscreen = active;
+  fullscreenButton.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+  // Keep focus and assistive technology inside the fullscreen presentation.
+  for (const element of playerChrome) element.inert = active;
+  clearVirtualInput();
+  (active ? canvas : fullscreenButton).focus({ preventScroll: true });
+});
 const help = $('help');
 document.addEventListener('pointerdown', (event) => {
   if (help.open && !help.contains(event.target)) help.open = false;
@@ -450,6 +479,9 @@ help.addEventListener('focusout', (event) => {
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {
   const target = event.target;
   const inHelp = target.closest?.('#help');
+  if (type === 'keydown' && event.key === 'Escape' && document.fullscreenElement === presentation) {
+    event.preventDefault(); void toggleFullscreen(); return;
+  }
   if (type === 'keydown' && event.key === 'Escape' && help.open) {
     help.open = false;
     if (inHelp) {
@@ -469,13 +501,6 @@ for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) =
 window.addEventListener('blur', clearInput);
 window.addEventListener('resize', clearVirtualInput);
 window.addEventListener('orientationchange', clearVirtualInput);
-document.addEventListener('fullscreenchange', clearVirtualInput);
-$('fullscreen').addEventListener('click', async () => {
-  try {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await document.documentElement.requestFullscreen();
-  } catch (e) { report(new Error(`Fullscreen unavailable: ${e.message}`)); }
-});
 // Each pointer owns its own mask. Releasing it never clears another pointer,
 // a keyboard key or a physical gamepad button.
 function virtualButtons() {

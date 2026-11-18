@@ -1,0 +1,176 @@
+import { test, expect } from '@playwright/test';
+import { selectDemo } from './cartridge.js';
+
+async function fullscreenLayout(page, touch, safeArea) {
+  const layout = await page.locator(':fullscreen').evaluate(el => {
+    const rect = node => node.getBoundingClientRect().toJSON();
+    const hit = node => {
+      const { x, y, width, height } = rect(node);
+      return node.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+    };
+    const video = el.querySelector('#video'), exit = el.querySelector('#exit-fullscreen');
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      screen: rect(el.querySelector('.screen')), video: rect(video), exit: { ...rect(exit), hit: hit(exit) },
+      buttons: [...el.querySelectorAll('[data-button]')].filter(node => node.getClientRects().length)
+        .map(node => ({ ...rect(node), hit: hit(node), name: node.ariaLabel })),
+      scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight, background: getComputedStyle(el).backgroundColor,
+    };
+  });
+  const { viewport, screen, video, exit, buttons } = layout;
+  expect(layout.scrollWidth).toBe(viewport.width);
+  expect(layout.scrollHeight).toBe(viewport.height);
+  expect(layout.background).toBe('rgb(0, 0, 0)');
+  expect(video.width / video.height).toBeCloseTo(256 / 224, 3);
+  expect(video.width).toBeCloseTo(Math.min(screen.width, screen.height * 256 / 224), 1);
+  expect(video.x - screen.x).toBeCloseTo((screen.width - video.width) / 2, 1);
+  expect(video.y - screen.y).toBeCloseTo((screen.height - video.height) / 2, 1);
+  expect(buttons).toHaveLength(touch ? 12 : 0);
+  if (!touch) {
+    expect(screen.width).toBe(viewport.width);
+    expect(screen.height).toBe(viewport.height);
+    expect(exit.width).toBe(0);
+    return;
+  }
+  const insets = safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 };
+  for (const r of [video, exit, ...buttons]) {
+    expect(r.x).toBeGreaterThanOrEqual(insets.left);
+    expect(r.right).toBeLessThanOrEqual(viewport.width - insets.right);
+    expect(r.y).toBeGreaterThanOrEqual(insets.top);
+    expect(r.bottom).toBeLessThanOrEqual(viewport.height - insets.bottom);
+    if (r !== video) {
+      expect(r.hit, r.name).toBe(true);
+      expect(r.width).toBeGreaterThanOrEqual(44);
+      expect(r.height).toBeGreaterThanOrEqual(44);
+    }
+  }
+  if (viewport.width > viewport.height) {
+    for (const button of buttons) {
+      if (/ (?:L|Up|Down|Left|Right|Select)$/.test(button.name)) expect(button.right).toBeLessThanOrEqual(video.x);
+      else expect(button.x).toBeGreaterThanOrEqual(video.right);
+    }
+  } else {
+    for (const button of buttons) expect(button.y).toBeGreaterThanOrEqual(video.bottom);
+  }
+  expect(exit.y).toBeGreaterThanOrEqual(video.bottom);
+}
+
+async function renderedPixels(page, mode) {
+  if (mode === 'pixel') {
+    await expect(page.locator('.crt-display')).toBeHidden();
+    await expect.poll(() => page.locator('#video').evaluate(canvas =>
+      canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.some((v, i) => i % 4 !== 3 && v > 0)
+    )).toBe(true);
+  } else {
+    const overlay = page.locator('.crt-display');
+    await expect(overlay).toBeVisible();
+    expect(await overlay.boundingBox()).toEqual(await page.locator('#video').boundingBox());
+    await expect.poll(() => overlay.evaluate(canvas => {
+      const { width, height } = canvas.getBoundingClientRect();
+      const ratio = Math.min(devicePixelRatio, 2);
+      if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) return false;
+      const gl = canvas.getContext('webgl'), pixels = new Uint8Array(canvas.width * canvas.height * 4);
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return pixels.some((v, i) => i % 4 !== 3 && v > 0);
+    })).toBe(true);
+  }
+}
+
+const insets = { left: 44, right: 44, top: 8, bottom: 21 };
+for (const { viewport, touch, safeArea, rotate, capture } of [
+  { viewport: { width: 1280, height: 900 }, touch: false, capture: 'desktop' },
+  { viewport: { width: 320, height: 740 }, touch: true, capture: 'portrait' },
+  { viewport: { width: 375, height: 667 }, touch: true, rotate: { width: 424, height: 320 } },
+  { viewport: { width: 667, height: 320 }, touch: true, safeArea: insets, capture: 'landscape' },
+]) {
+  test.describe(`${viewport.width}×${viewport.height}`, () => {
+    test.use({ viewport, hasTouch: touch, isMobile: touch, deviceScaleFactor: touch ? 2 : 1 });
+    test('gameplay fullscreen fits Pixel and CRT, restores the player, and keeps touch targets in bounds', async ({ page }, testInfo) => {
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+      const session = await page.context().newCDPSession(page);
+      if (safeArea) await session.send('Emulation.setSafeAreaInsetsOverride', { insets: safeArea });
+      await page.goto('/');
+      await selectDemo(page);
+      await expect(page.locator('#status')).toHaveText('Playing');
+      await renderedPixels(page, 'crt');
+      await page.keyboard.press('KeyX', { delay: 100 });
+      if (capture) await page.waitForTimeout(1800); // Let Shionari's title animation settle.
+      const scale = capture ? '3' : '1';
+      await page.locator('#scale').selectOption(scale);
+      const video = page.locator('#video'), enter = page.locator('#fullscreen'), exit = page.locator('#exit-fullscreen');
+      const normal = await video.boundingBox();
+      for (const mode of ['crt', 'pixel']) {
+        await page.locator('#display').selectOption(mode);
+        await renderedPixels(page, mode);
+        if (capture) await page.screenshot({ path: testInfo.outputPath(`${capture}-${mode}-player.png`), scale: 'css' });
+        if (touch) await enter.tap();
+        else { await enter.focus(); await page.keyboard.press('Enter'); }
+        const presentation = page.locator(':fullscreen');
+        await expect(presentation).toHaveAttribute('id', 'game-presentation');
+        await expect(presentation.locator('header, .toolbar, .game-entry')).toHaveCount(0);
+        for (const chrome of await page.locator('header, .toolbar, .game-entry').all()) {
+          await expect(chrome).toHaveJSProperty('inert', true);
+        }
+        await expect(video).toBeFocused();
+        await expect(enter).toHaveText('Exit fullscreen');
+        await fullscreenLayout(page, touch, safeArea);
+        await renderedPixels(page, mode);
+        if (capture) await page.screenshot({ path: testInfo.outputPath(`${capture}-${mode}-fullscreen.png`), scale: 'css' });
+        if (rotate && mode === 'crt') {
+          for (const { width, height } of [rotate, viewport]) {
+            // A fullscreen Chromium window cannot be resized by Playwright.
+            // Rotate the emulated device metrics while keeping the element fullscreen.
+            const landscape = width > height;
+            await session.send('Emulation.setDeviceMetricsOverride', {
+              width, height, screenWidth: width, screenHeight: height, mobile: true, deviceScaleFactor: 2,
+              screenOrientation: { type: landscape ? 'landscapePrimary' : 'portraitPrimary', angle: landscape ? 90 : 0 },
+            });
+            await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([width, height]);
+            await expect(presentation).toHaveAttribute('id', 'game-presentation');
+            await fullscreenLayout(page, touch);
+            await renderedPixels(page, mode);
+          }
+        }
+        if (touch) {
+          await page.keyboard.press('Tab'); await expect(exit).toBeFocused();
+          await expect(exit).toHaveCSS('outline-style', 'solid');
+          await exit.tap();
+        } else await page.keyboard.press('Escape');
+        await expect(presentation).toHaveCount(0);
+        await expect(enter).toBeFocused();
+        await expect(enter).toHaveText('Fullscreen');
+        await expect(page.locator('#status')).toHaveText('Playing');
+        await expect(page.locator('#display')).toHaveValue(mode);
+        await expect(page.locator('#scale')).toHaveValue(scale);
+        expect(await video.boundingBox()).toEqual(normal);
+        await renderedPixels(page, mode);
+      }
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
+for (const unavailable of ['missing', 'rejected']) {
+  test(`fullscreen ${unavailable} leaves the normal player usable`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.addInitScript(unavailable => {
+      Element.prototype.requestFullscreen = unavailable === 'missing' ? undefined :
+        () => Promise.reject(new DOMException('Fullscreen denied', 'NotAllowedError'));
+    }, unavailable);
+    await page.goto('/');
+    await selectDemo(page);
+    await expect(page.locator('#status')).toHaveText('Playing');
+    const video = page.locator('#video'), normal = await video.boundingBox();
+    await page.locator('#fullscreen').click();
+    const warning = page.locator('#fullscreen-status');
+    await expect(warning).toHaveText(/Fullscreen is unavailable.*try a browser/);
+    await expect(warning).toBeInViewport();
+    await expect(page.locator(':fullscreen')).toHaveCount(0);
+    await expect(video).toBeVisible();
+    expect(await video.boundingBox()).toEqual(normal);
+    await page.locator('#play').click();
+    await expect(page.locator('#status')).toHaveText('Paused');
+  });
+}

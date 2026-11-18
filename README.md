@@ -96,7 +96,7 @@ Reset restarts the inserted game and immediately plays, preserving SRAM.
 Switching tabs preserves the Play/Pause state. Browsers may throttle or suspend
 frames and audio while the tab is hidden.
 
-The header groups **Scale** and **Display** beside the navigation links. Scale
+**Scale** and **Display** sit with the playback controls beneath the screen. Scale
 sets the canvas width to 1×, 2× or 3×, limited by the available space. CRT is the
 default and adds subtle scanlines and horizontal softness without changing
 gameplay. An explicit Pixel or CRT choice is remembered where storage is
@@ -106,6 +106,10 @@ signal simulation. If GPU rendering fails or exceeds the frame budget, Pixel
 continues automatically; choose CRT again to retry. See the
 [display comparisons and original validation](docs/issue-142-validation.md) and
 [CRT-default validation](docs/issue-147-validation.md).
+
+**Fullscreen** fits the game image to the screen and keeps the on-screen
+controller available on touch devices. Press Escape or tap **Exit fullscreen**
+to return to the player.
 
 SRAM for battery-backed cartridges is stored locally under the SHA-256 of the
 ROM after removing any copier header. Reset clears volatile machine state and

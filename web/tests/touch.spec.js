@@ -43,8 +43,8 @@ async function fingers(page) {
 async function layout(page) {
   const result = await page.evaluate(() => {
     const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
-    const headerActions = [...document.querySelectorAll('header summary, header a, #scale, #display')];
-    const playerActions = [...document.querySelectorAll('#change-cartridge, #current-game, .toolbar button, #volume')];
+    const headerActions = [...document.querySelectorAll('header summary, header a')];
+    const playerActions = [...document.querySelectorAll('#change-cartridge, #current-game, .toolbar button, #volume, #scale, #display')];
     const hitTarget = element => {
       const r = rect(element);
       return element.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
@@ -330,10 +330,8 @@ test('tabbing out of Help leaves playback controls unobscured at 424×320', asyn
 
   for (const control of [
     page.getByRole('link', { name: 'GitHub' }),
-    page.getByRole('combobox', { name: 'Scale' }),
-    page.getByRole('combobox', { name: 'Display' }),
     page.locator('#video'),
-    page.locator('#change-cartridge'),
+    ...await page.locator('[data-button]').all(),
   ]) {
     await page.keyboard.press('Tab');
     await expect(control).toBeFocused();
@@ -385,11 +383,22 @@ test('fullscreen entry/exit release virtual input and preserve running guest geo
   await boot(page); const touch = await fingers(page);
   await touch.down('B'); await expect.poll(() => controller(page)).toBe(0x8000);
   await page.locator('#fullscreen').click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
   await expect.poll(() => controller(page)).toBe(0); await touch.up();
-  await touch.down('A'); await expect.poll(() => controller(page)).toBe(0x80);
-  await page.locator('#fullscreen').click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
+  await expect(page.locator('#video')).toBeFocused();
+  await page.evaluate(() => { window.testPads = [{ mapping: 'standard', axes: [1, 0], buttons: [] }]; });
+  await expect.poll(() => controller(page)).toBe(masks.Right);
+  await page.evaluate(() => { window.testPads = []; });
+  await expect.poll(() => controller(page)).toBe(0);
+  await touch.down('Right'); await touch.down('A', 2);
+  await expect.poll(() => controller(page)).toBe(masks.Right | masks.A);
+  await touch.cancel(); await expect.poll(() => controller(page)).toBe(0);
+  await touch.down('A'); await expect.poll(() => controller(page)).toBe(masks.A);
+  await page.locator('#exit-fullscreen').click();
+  await expect(page.locator(':fullscreen')).toHaveCount(0);
   await expect.poll(() => controller(page)).toBe(0); await touch.up();
+  await expect(page.locator('#fullscreen')).toBeFocused();
+  await touch.down('Start'); await expect.poll(() => controller(page)).toBe(masks.Start);
+  await touch.up(); await expect.poll(() => controller(page)).toBe(0);
   await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
 });

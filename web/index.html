@@ -11,7 +11,7 @@
 <body>
   <main>
     <header>
-      <div class="app-identity"><h1>snes-rust</h1><p>SNES emulator</p></div>
+      <h1>snes-rust</h1>
       <nav aria-label="Information">
         <details id="help">
           <summary>Help</summary>
@@ -29,25 +29,40 @@
         </details>
         <a href="https://github.com/takahirox/snes-rust">GitHub</a>
       </nav>
-      <div class="display-controls" role="group" aria-label="Display settings">
-        <label>Scale <select id="scale"><option value="1">1×</option><option value="2">2×</option><option value="3" selected>3×</option></select></label>
-        <label>Display <select id="display"><option value="crt">CRT</option><option value="pixel">Pixel</option></select></label>
-      </div>
     </header>
     <section class="player" aria-label="SNES player">
-      <div class="screen"><canvas id="video" tabindex="0" width="256" height="224" aria-label="Emulated SNES display"></canvas><span id="placeholder">Insert a cartridge</span></div>
-      <div class="game-entry" role="group" aria-label="Cartridge slot">
-        <div class="cartridge-value"><span id="cartridge-label">Inserted cartridge</span><p id="current-game" aria-labelledby="cartridge-label" title="None">None</p></div>
-        <button id="change-cartridge" popovertarget="cartridge-picker" aria-haspopup="dialog" disabled>Insert cartridge</button>
-        <div id="cartridge-picker" popover role="dialog" aria-labelledby="cartridge-title">
-          <h2 id="cartridge-title">Cartridges</h2>
-          <button id="demo" autofocus disabled>Bundled demo — <span lang="ja">潮鳴りの密室</span></button>
-          <button id="demo-yonaki" disabled>Bundled demo — <span lang="ja">夜鳴き鐘</span></button>
-          <button id="open-local" disabled>Open local ROM…</button>
+      <div class="game-presentation" id="game-presentation">
+        <div class="screen">
+          <div class="video-frame">
+            <canvas id="video" tabindex="0" width="256" height="224" aria-label="Emulated SNES display"></canvas>
+          </div>
+          <span id="placeholder">Insert a cartridge</span>
         </div>
-        <input id="rom" type="file" hidden disabled accept=".sfc,.smc" aria-label="Open local ROM">
+        <button id="exit-fullscreen">Exit fullscreen</button>
+        <div class="touch-controls" role="group" aria-label="SNES touch controls">
+          <div class="left-controls">
+            <button class="shoulder" data-button="32" aria-label="SNES L" disabled>L</button>
+            <div class="dpad" role="group" aria-label="Directional pad">
+              <button data-button="2048" aria-label="SNES Up" disabled>▲</button>
+              <button data-button="512" aria-label="SNES Left" disabled>◀</button>
+              <button data-button="256" aria-label="SNES Right" disabled>▶</button>
+              <button data-button="1024" aria-label="SNES Down" disabled>▼</button>
+            </div>
+            <button class="system" data-button="8192" aria-label="SNES Select" disabled>Select</button>
+          </div>
+          <div class="right-controls">
+            <button class="shoulder" data-button="16" aria-label="SNES R" disabled>R</button>
+            <div class="face-buttons">
+              <button data-button="64" aria-label="SNES X" disabled>X</button>
+              <button data-button="16384" aria-label="SNES Y" disabled>Y</button>
+              <button data-button="128" aria-label="SNES A" disabled>A</button>
+              <button data-button="32768" aria-label="SNES B" disabled>B</button>
+            </div>
+            <button class="system" data-button="4096" aria-label="SNES Start" disabled>Start</button>
+          </div>
+        </div>
       </div>
-      <div class="toolbar" role="group" aria-label="Playback controls">
+      <div class="toolbar" role="group" aria-label="Player controls">
         <button id="play" disabled>Play</button>
         <button id="reset" disabled>Reset</button>
         <div id="volume-control" role="group" aria-label="Audio">
@@ -61,29 +76,23 @@
           <input id="volume" type="range" min="0" max="100" step="1" value="100" aria-label="Volume">
         </div>
         <button id="fullscreen">Fullscreen</button>
+        <div class="display-controls" role="group" aria-label="Display settings">
+          <label>Scale <select id="scale"><option value="1">1×</option><option value="2">2×</option><option value="3" selected>3×</option></select></label>
+          <label>Display <select id="display"><option value="crt">CRT</option><option value="pixel">Pixel</option></select></label>
+        </div>
         <p id="status" role="status">Loading emulator…</p>
+        <p id="fullscreen-status" role="status"></p>
       </div>
-      <div class="touch-controls" role="group" aria-label="SNES touch controls">
-        <div class="left-controls">
-          <button class="shoulder" data-button="32" aria-label="SNES L" disabled>L</button>
-          <div class="dpad" role="group" aria-label="Directional pad">
-            <button data-button="2048" aria-label="SNES Up" disabled>▲</button>
-            <button data-button="512" aria-label="SNES Left" disabled>◀</button>
-            <button data-button="256" aria-label="SNES Right" disabled>▶</button>
-            <button data-button="1024" aria-label="SNES Down" disabled>▼</button>
-          </div>
-          <button class="system" data-button="8192" aria-label="SNES Select" disabled>Select</button>
+      <div class="game-entry" role="group" aria-label="Cartridge slot">
+        <div class="cartridge-value"><span id="cartridge-label">Inserted cartridge</span><p id="current-game" aria-labelledby="cartridge-label" title="None">None</p></div>
+        <button id="change-cartridge" popovertarget="cartridge-picker" aria-haspopup="dialog" disabled>Insert cartridge</button>
+        <div id="cartridge-picker" popover role="dialog" aria-labelledby="cartridge-title">
+          <h2 id="cartridge-title">Cartridges</h2>
+          <button id="demo" autofocus disabled>Bundled demo — <span lang="ja">潮鳴りの密室</span></button>
+          <button id="demo-yonaki" disabled>Bundled demo — <span lang="ja">夜鳴き鐘</span></button>
+          <button id="open-local" disabled>Open local ROM…</button>
         </div>
-        <div class="right-controls">
-          <button class="shoulder" data-button="16" aria-label="SNES R" disabled>R</button>
-          <div class="face-buttons">
-            <button data-button="64" aria-label="SNES X" disabled>X</button>
-            <button data-button="16384" aria-label="SNES Y" disabled>Y</button>
-            <button data-button="128" aria-label="SNES A" disabled>A</button>
-            <button data-button="32768" aria-label="SNES B" disabled>B</button>
-          </div>
-          <button class="system" data-button="4096" aria-label="SNES Start" disabled>Start</button>
-        </div>
+        <input id="rom" type="file" hidden disabled accept=".sfc,.smc" aria-label="Open local ROM">
       </div>
     </section>
     <p id="error" role="alert"></p>

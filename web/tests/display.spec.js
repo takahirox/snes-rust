@@ -150,8 +150,18 @@ test('CRT handles low/hires transitions, paused resize, non-integer scale, fulls
   await boot(page);
   await local(page, readFileSync(new URL('../../.cache/hires/hires-5-switch.sfc', import.meta.url)));
   await choose(page, 'crt'); await geometry(page);
-  await page.locator('#video').focus(); await page.keyboard.down('KeyX');
+  await page.locator('#fullscreen').click();
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  await expect(page.locator('#video')).toHaveAttribute('width', '256');
+  await page.keyboard.down('KeyX');
   await expect.poll(() => page.evaluate(() => videoCore.framebuffer_width())).toBe(512);
+  await geometry(page);
+  await page.keyboard.up('KeyX');
+  await expect.poll(() => page.evaluate(() => videoCore.framebuffer_width())).toBe(256);
+  await geometry(page);
+  await page.keyboard.down('KeyX');
+  await expect.poll(() => page.evaluate(() => videoCore.framebuffer_width())).toBe(512);
+  await page.keyboard.press('Escape'); await expect(page.locator(':fullscreen')).toHaveCount(0);
   await geometry(page);
   await page.locator('#play').click(); const hiresHash = await frameHash(page);
   for (const mode of ['pixel', 'crt']) {
@@ -166,8 +176,12 @@ test('CRT handles low/hires transitions, paused resize, non-integer scale, fulls
   await page.setViewportSize({ width: 1051, height: 801 }); await geometry(page);
   expect(await frameHash(page)).toBe(hash);
   await page.locator('#fullscreen').click();
-  await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
-  await geometry(page); await page.evaluate(() => document.exitFullscreen());
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  await geometry(page); expect(await frameHash(page)).toBe(hash);
+  await page.evaluate(() => document.exitFullscreen());
+  await expect(page.locator('#fullscreen')).toBeFocused();
+  await geometry(page); expect(await frameHash(page)).toBe(hash);
+  await expect(page.locator('#play')).toHaveText('Play');
   await page.locator('#reset').click(); await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('.crt-display')).toBeVisible();
   await local(page); await expect(page.locator('#display')).toHaveValue('crt');
@@ -306,15 +320,18 @@ for (const failure of ['unavailable', 'compile', 'link', 'draw', 'error', 'budge
   });
 }
 
-test('context loss exposes Pixel immediately; restoration rebuilds resources on retry', async ({ page }) => {
+test('fullscreen context loss exposes playable Pixel; restoration rebuilds resources on retry', async ({ page }) => {
   await boot(page); await local(page); await choose(page, 'crt');
+  await page.locator('#fullscreen').click();
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
   await page.evaluate(() => {
     window.loseGpu = document.querySelector('.crt-display').getContext('webgl').getExtension('WEBGL_lose_context');
     loseGpu.loseContext();
   });
-  await expect(page.locator('#display')).toHaveValue('pixel');
-  await expect(page.locator('.crt-display')).toBeHidden();
-  await expect(page.locator('#status')).toHaveText('Playing');
+  await playablePixel(page);
+  await expect(page.locator(':fullscreen #video')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator(':fullscreen')).toHaveCount(0);
   await page.evaluate(() => loseGpu.restoreContext());
   await expect(page.locator('#display-status')).toContainText('available again');
   await choose(page, 'crt'); await geometry(page);
