@@ -246,8 +246,9 @@ test('CRT stays active when multi-frame catch-up fits the per-frame budget', asy
     return frames;
   });
   // Allow 120 three-frame callbacks so the old per-callback average would
-  // also have reached its budget check.
-  await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before + 360);
+  // also have reached its budget check. The 8 ms frame cost is simulated, but
+  // real WebGL draws can take longer on the CI runner.
+  await expect.poll(() => page.evaluate(() => videoMetrics.frames), { timeout: 12000 }).toBeGreaterThan(before + 360);
   await expect(page.locator('#display')).toHaveValue('crt');
   await expect(page.locator('.crt-display')).toBeVisible();
   expect(page.displayErrors).toEqual([]);

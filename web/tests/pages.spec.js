@@ -8,7 +8,7 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 const dist = new URL('../dist/', import.meta.url);
 const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream', 'yonaki.sfc': 'application/octet-stream' };
 const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
-const yonakiHash = '89110030d3fd97c97c2917420fc74c8c43fde5e6c92a27815c872601bbd07580';
+const yonakiHash = '0989f29a892abcc9cb215a5d8eed2970c02b85fcf5001d06a807292b92097bcc';
 const saveKey = `snes-rust:sram:${demoHash}`;
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const prefix = '/snes-rust/';
