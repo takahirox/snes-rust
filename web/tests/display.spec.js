@@ -231,6 +231,28 @@ test('playing survives a long background frame gap with bounded video and audio 
   expect(page.displayErrors).toEqual([]);
 });
 
+test('CRT stays active when multi-frame catch-up fits the per-frame budget', async ({ page }) => {
+  await boot(page); await local(page);
+  await expect(page.locator('.crt-display')).toBeVisible();
+  const before = await page.evaluate(() => {
+    const request = window.requestAnimationFrame;
+    const { frames } = videoMetrics;
+    const start = performance.now();
+    let offset = 0;
+    // Simulate late callbacks and 8 ms of measured work per real Wasm frame.
+    // Each three-frame callback costs 24 ms within its three-frame budget.
+    window.requestAnimationFrame = callback => request(time => callback(time + (offset += 60)));
+    performance.now = () => start + (videoMetrics.frames - frames) * 8;
+    return frames;
+  });
+  // Allow 120 three-frame callbacks so the old per-callback average would
+  // also have reached its budget check.
+  await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before + 360);
+  await expect(page.locator('#display')).toHaveValue('crt');
+  await expect(page.locator('.crt-display')).toBeVisible();
+  expect(page.displayErrors).toEqual([]);
+});
+
 test('manual pause retains the Wasm framebuffer and CRT output across visibility changes', async ({ page }) => {
   await boot(page); await local(page);
   const crt = page.locator('.crt-display');
@@ -492,27 +514,21 @@ test('repeated Pixel/CRT choices release GPU resources and reuse one context', a
 });
 
 test('CRT pixels retain source orientation, brightness, opacity and canvas capture', async ({ page }, testInfo) => {
-  await boot(page); await local(page);
-  await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(10);
-  await page.locator('#play').click(); await choose(page, 'crt');
-  let ready;
-  try {
-    await expect.poll(async () => {
-      ready = await page.evaluate(() => {
-        const source = document.getElementById('video'), c = document.querySelector('.crt-display'), gl = c.getContext('webgl');
-        const input = source.getContext('2d').getImageData(0, 0, source.width, source.height).data;
-        const output = new Uint8Array(c.width * c.height * 4);
-        gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, output);
-        return { sourceLit: input.some((v, i) => i % 4 !== 3 && v > 0),
-          outputLit: output.some((v, i) => i % 4 !== 3 && v > 0),
-          contextLost: gl.isContextLost(), width: c.width, height: c.height };
-      });
-      return ready.sourceLit && ready.outputLit && !ready.contextLost;
-    }).toBe(true);
-  } finally {
-    await testInfo.attach('paused-crt-readiness', { body: JSON.stringify(ready), contentType: 'application/json' });
-  }
-  const pixels = await page.evaluate(async () => {
+  await boot(page); await choose(page, 'pixel'); await local(page);
+  // The smoke guest cycles its palette through black. Sample the real source
+  // and pause in the same task so a new emulated frame cannot slip in between.
+  await expect.poll(() => page.locator('#video').evaluate(source => {
+    if (videoMetrics.frames <= 10) return false;
+    const input = source.getContext('2d').getImageData(0, 0, source.width, source.height).data;
+    if (!input.some((v, i) => i % 4 !== 3 && v > 0)) return false;
+    document.getElementById('play').click();
+    return true;
+  })).toBe(true);
+  await expect(page.locator('#status')).toHaveText('Paused');
+  // Selecting CRT draws the paused source synchronously before revealing the
+  // surface. readPixels waits for that draw in the preserved drawing buffer.
+  await choose(page, 'crt');
+  const pixels = await page.evaluate(() => {
     const source = document.getElementById('video'), c = document.querySelector('.crt-display'), gl = c.getContext('webgl');
     const original = source.getContext('2d').getImageData(0, 0, source.width, source.height).data;
     const data = new Uint8Array(c.width * c.height * 4); gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, data);
@@ -522,7 +538,22 @@ test('CRT pixels retain source orientation, brightness, opacity and canvas captu
       opaque &&= data[i+3] === 255;
       for (let k = 0; k < 3; k++) { error += Math.abs(data[i+k] - original[j+k]); inputSum += original[j+k]; outputSum += data[i+k]; }
     }
+    return { error: error / (c.width * c.height * 3), ratio: outputSum / inputSum, opaque,
+      sourceLit: inputSum > 0, lit: outputSum > 0, contextLost: gl.isContextLost(), glError: gl.getError(),
+      sourceSize: [source.width, source.height], outputSize: [c.width, c.height],
+      drawingBufferSize: [gl.drawingBufferWidth, gl.drawingBufferHeight], frames: videoMetrics.frames };
+  });
+  await testInfo.attach('paused-crt-readiness', { body: JSON.stringify(pixels), contentType: 'application/json' });
+  expect(pixels.sourceSize).toEqual([256, 224]);
+  for (const size of pixels.outputSize) expect(size).toBeGreaterThan(0);
+  expect(pixels.drawingBufferSize).toEqual(pixels.outputSize);
+  expect(pixels.contextLost).toBe(false); expect(pixels.glError).toBe(0);
+  expect(pixels.sourceLit).toBe(true); expect(pixels.lit).toBe(true); expect(pixels.opaque).toBe(true);
+  expect(pixels.ratio).toBeGreaterThan(.9); expect(pixels.ratio).toBeLessThan(1.1);
+  expect(pixels.error).toBeGreaterThan(0); expect(pixels.error).toBeLessThan(255 * .1);
+  const captured = await page.evaluate(async () => {
     // Capture the actual GPU surface while paused. No CPU recreation of CRT.
+    const c = document.querySelector('.crt-display');
     const stream = c.captureStream(), video = document.createElement('video'); video.srcObject = stream; video.muted = true;
     const started = video.play();
     // Request a fresh presentation after starting capture, without running the
@@ -532,11 +563,9 @@ test('CRT pixels retain source orientation, brightness, opacity and canvas captu
     const ctx = capture.getContext('2d'); ctx.drawImage(video, 0, 0);
     const captured = ctx.getImageData(0, 0, c.width, c.height).data;
     stream.getTracks().forEach(track => track.stop()); video.srcObject = null;
-    return { error: error / (c.width * c.height * 3), ratio: outputSum / inputSum, opaque,
-      lit: outputSum > 0, captured: captured.some((v,i) => i % 4 !== 3 && v > 0) };
+    return captured.some((v, i) => i % 4 !== 3 && v > 0);
   });
-  expect(pixels.lit).toBe(true); expect(pixels.opaque).toBe(true); expect(pixels.captured).toBe(true);
-  expect(pixels.ratio).toBeGreaterThan(.9); expect(pixels.ratio).toBeLessThan(1.1);
-  expect(pixels.error).toBeGreaterThan(0); expect(pixels.error).toBeLessThan(255 * .1);
+  expect(captured).toBe(true);
+  expect(await page.evaluate(() => videoMetrics.frames)).toBe(pixels.frames);
   expect(page.displayErrors).toEqual([]);
 });
