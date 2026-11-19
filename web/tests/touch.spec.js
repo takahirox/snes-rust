@@ -433,20 +433,39 @@ for (const touch of [false, true]) {
     test('Enter reaches the guest as Start immediately after pointer-initiated fullscreen', async ({ page }) => {
       await boot(page);
       const enter = page.locator('#fullscreen'), presentation = page.locator(':fullscreen');
-      if (touch) await enter.tap();
-      else await enter.click();
-      await expect(presentation).toHaveAttribute('id', 'game-presentation');
-      if (touch) await page.locator('#exit-fullscreen').tap();
-      else await page.keyboard.press('Escape');
-      await expect(presentation).toHaveCount(0);
+      const exit = presentation.getByRole('button', { name: 'Exit fullscreen', exact: true });
+      // Touch-capable devices expose the Exit button and can also use a mouse.
+      for (const exitMethod of touch ? ['tap', 'escape', 'click'] : ['escape']) {
+        if (touch && exitMethod !== 'click') await enter.tap();
+        else await enter.click();
+        await expect(presentation).toHaveAttribute('id', 'game-presentation');
+        if (exitMethod === 'escape') await page.keyboard.press('Escape');
+        else if (exitMethod === 'tap') await exit.tap();
+        else await exit.click();
+        await expect(presentation).toHaveCount(0);
+        await page.keyboard.down('Enter');
+        try {
+          await expect.poll(() => controller(page)).toBe(masks.Start);
+          await expect(presentation).toHaveCount(0);
+          await expect(page.locator('#video')).toBeFocused();
+          await expect(page.locator('#status')).toHaveText('Playing');
+        } finally {
+          await page.keyboard.up('Enter');
+        }
+        await expect.poll(() => controller(page)).toBe(0);
+      }
+
+      const mute = page.getByRole('button', { name: 'Mute', exact: true });
+      await mute.focus();
+      const frame = await page.evaluate(() => testCore.peek(0x10));
       await page.keyboard.down('Enter');
       try {
-        await expect.poll(() => controller(page)).toBe(masks.Start);
-        await expect(presentation).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Unmute', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await expect.poll(() => page.evaluate(() => testCore.peek(0x10))).not.toBe(frame);
+        expect(await controller(page)).toBe(0);
       } finally {
         await page.keyboard.up('Enter');
       }
-      await expect.poll(() => controller(page)).toBe(0);
     });
   });
 }

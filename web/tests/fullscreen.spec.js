@@ -280,9 +280,27 @@ test.describe('normal portrait keyboard focus', () => {
     await page.locator('#fullscreen').tap();
     await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
     await page.locator('#exit-fullscreen').tap();
+    await expect(page.locator(':fullscreen')).toHaveCount(0);
+    // Canvas focus is restored before the toolbar leaves fullscreen's inert state.
+    await expect(page.getByRole('button', { name: 'Fullscreen', exact: true })).toBeVisible();
     await expect(page.locator('#video')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.locator('#play')).toBeFocused();
+  });
+
+  test('keyboard activation of Exit returns focus to the Fullscreen button', async ({ page }) => {
+    await page.goto('/');
+    const enter = page.getByRole('button', { name: 'Fullscreen', exact: true });
+    const presentation = page.locator(':fullscreen');
+    await enter.focus();
+    await page.keyboard.press('Enter');
+    await expect(presentation).toHaveAttribute('id', 'game-presentation');
+    await expect(page.locator('#video')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(presentation.getByRole('button', { name: 'Exit fullscreen', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(presentation).toHaveCount(0);
+    await expect(enter).toBeFocused();
   });
 });
 

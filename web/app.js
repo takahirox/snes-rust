@@ -458,8 +458,12 @@ function setStatus(text) {
 async function toggleFullscreen() {
   clearFullscreenWarning();
   try {
-    if (document.fullscreenElement === presentation) await document.exitFullscreen();
-    else {
+    if (document.fullscreenElement === presentation) {
+      // The Exit button can still own focus after fullscreenElement clears and
+      // before fullscreenchange runs. Hand gameplay input back before exiting.
+      if (!fullscreenEnteredWithKeyboard) canvas.focus({ preventScroll: true });
+      await document.exitFullscreen();
+    } else {
       if (!document.fullscreenEnabled || !presentation.requestFullscreen) throw new Error();
       await presentation.requestFullscreen();
     }
@@ -475,7 +479,9 @@ fullscreenButton.addEventListener('click', event => {
   fullscreenEnteredWithKeyboard = event.detail === 0;
   void toggleFullscreen();
 });
-$('exit-fullscreen').addEventListener('click', toggleFullscreen);
+$('exit-fullscreen').addEventListener('click', () => {
+  if (document.fullscreenElement === presentation) void toggleFullscreen();
+});
 function placeTouchControls() {
   // Match the short landscape layout in style.css, where the controller flanks the game.
   const parent = gameplayFullscreen || shortLandscape.matches ? presentation : presentation.parentElement;
