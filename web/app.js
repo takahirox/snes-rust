@@ -177,20 +177,22 @@ class CrtDisplay {
     this.timer = gl.getExtension('EXT_disjoint_timer_query'); this.queries = [];
     this.cpuCost = this.cpuSamples = this.gpuCost = this.gpuSamples = this.workCost = this.workSamples = 0;
   }
-  overBudget(cost, kind = 'cpu') {
+  overBudget(cost, kind = 'cpu', frames = 1) {
     const sum = `${kind}Cost`, samples = `${kind}Samples`;
     this[sum] += cost;
     // The existing NTSC frame budget, averaged over a sustained two seconds
     // of work, rather than a machine-specific benchmark threshold. No gl.finish.
-    if (++this[samples] < 120) return false;
+    this[samples] += frames;
+    if (this[samples] < 120) return false;
     const slow = this[sum] / this[samples] > frameMilliseconds;
     this[sum] = this[samples] = 0;
     return slow;
   }
-  observeWorkload(cost) {
+  observeWorkload(cost, frames) {
     // Include core catch-up/audio work: a small shader cost can still push an
-    // already busy device past its presentation budget. Pixel is cheaper.
-    if (this.mode === 'crt' && this.overBudget(cost, 'work')) this.fallback('CRT exceeded the frame budget.');
+    // already busy device past its frame budget. A callback that catches up
+    // several guest frames has one frame budget for each frame it runs.
+    if (this.mode === 'crt' && this.overBudget(cost, 'work', frames)) this.fallback('CRT exceeded the frame budget.');
   }
   present() {
     if (this.mode !== 'crt' || !this.hasFrame) return;
@@ -352,7 +354,7 @@ function animate(time) {
     const workStart = performance.now();
     let frames = 0;
     while (debt >= frameMilliseconds && frames < 3) { check(core.run_frame(buttons())); queueAudio(); debt -= frameMilliseconds; frames++; }
-    if (frames) { draw(); display.observeWorkload(performance.now() - workStart); }
+    if (frames) { draw(); display.observeWorkload(performance.now() - workStart, frames); }
     if (time - saveClock > 5000) { save(); saveClock = time; }
   } catch (e) { pause(); report(e); }
 }

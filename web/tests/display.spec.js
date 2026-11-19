@@ -231,6 +231,28 @@ test('playing survives a long background frame gap with bounded video and audio 
   expect(page.displayErrors).toEqual([]);
 });
 
+test('CRT stays active when multi-frame catch-up fits the per-frame budget', async ({ page }) => {
+  await boot(page); await local(page);
+  await expect(page.locator('.crt-display')).toBeVisible();
+  const before = await page.evaluate(() => {
+    const request = window.requestAnimationFrame;
+    const { frames } = videoMetrics;
+    const start = performance.now();
+    let offset = 0;
+    // Simulate late callbacks and 8 ms of measured work per real Wasm frame.
+    // Each three-frame callback costs 24 ms within its three-frame budget.
+    window.requestAnimationFrame = callback => request(time => callback(time + (offset += 60)));
+    performance.now = () => start + (videoMetrics.frames - frames) * 8;
+    return frames;
+  });
+  // Allow 120 three-frame callbacks so the old per-callback average would
+  // also have reached its budget check.
+  await expect.poll(() => page.evaluate(() => videoMetrics.frames)).toBeGreaterThan(before + 360);
+  await expect(page.locator('#display')).toHaveValue('crt');
+  await expect(page.locator('.crt-display')).toBeVisible();
+  expect(page.displayErrors).toEqual([]);
+});
+
 test('manual pause retains the Wasm framebuffer and CRT output across visibility changes', async ({ page }) => {
   await boot(page); await local(page);
   const crt = page.locator('.crt-display');
