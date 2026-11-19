@@ -60,24 +60,60 @@ async function gameplayLayout(page, { touch, safeArea, fullscreen = true }) {
   if (fullscreen) expect(exit.y).toBeGreaterThanOrEqual(video.bottom);
 }
 
-async function renderedPixels(page, mode) {
+function crtState(page) {
+  return page.evaluate(() => {
+    const lit = pixels => pixels.some((value, index) => index % 4 !== 3 && value > 0);
+    const box = element => {
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return [x, y, width, height];
+    };
+    const source = document.getElementById('video');
+    const canvas = document.querySelector('.crt-display');
+    const gl = canvas?.getContext('webgl');
+    const sourceSize = [source.width, source.height];
+    const canvasSize = canvas ? [canvas.width, canvas.height] : null;
+    const drawingBufferSize = gl ? [gl.drawingBufferWidth, gl.drawingBufferHeight] : null;
+    const sourceBox = box(source);
+    const canvasBox = canvas ? box(canvas) : null;
+    const ratio = Math.min(devicePixelRatio, 2);
+    const expectedSize = sourceBox.slice(2).map(size => Math.round(size * ratio));
+    const output = new Uint8Array(drawingBufferSize ? drawingBufferSize[0] * drawingBufferSize[1] * 4 : 0);
+    if (output.length) gl.readPixels(0, 0, ...drawingBufferSize, gl.RGBA, gl.UNSIGNED_BYTE, output);
+    return {
+      fullscreen: Boolean(document.fullscreenElement), playback: document.getElementById('status').textContent,
+      mode: document.getElementById('display').value, fallback: document.getElementById('display-status').textContent,
+      sourceLit: lit(source.getContext('2d').getImageData(0, 0, ...sourceSize).data), outputLit: lit(output),
+      sourceSize, expectedSize, canvasSize, drawingBufferSize, sourceBox, canvasBox,
+      visible: Boolean(canvasBox?.[2] && canvasBox[3] && canvas.checkVisibility({ visibilityProperty: true })),
+      geometryMatches: sourceBox.every((value, index) => value === canvasBox?.[index]),
+      sizeMatches: expectedSize.every((size, index) => size === canvasSize?.[index] && size === drawingBufferSize?.[index]),
+      contextLost: gl?.isContextLost() ?? null, glError: gl?.getError() ?? null,
+    };
+  });
+}
+
+async function renderedPixels(page, mode, testInfo) {
   if (mode === 'pixel') {
     await expect(page.locator('.crt-display')).toBeHidden();
     await expect.poll(() => page.locator('#video').evaluate(canvas =>
       canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.some((v, i) => i % 4 !== 3 && v > 0)
     )).toBe(true);
   } else {
-    const overlay = page.locator('.crt-display');
-    await expect(overlay).toBeVisible();
-    expect(await overlay.boundingBox()).toEqual(await page.locator('#video').boundingBox());
-    await expect.poll(() => overlay.evaluate(canvas => {
-      const { width, height } = canvas.getBoundingClientRect();
-      const ratio = Math.min(devicePixelRatio, 2);
-      if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) return false;
-      const gl = canvas.getContext('webgl'), pixels = new Uint8Array(canvas.width * canvas.height * 4);
-      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      return pixels.some((v, i) => i % 4 !== 3 && v > 0);
-    })).toBe(true);
+    let state;
+    try {
+      await expect.poll(async () => {
+        state = await crtState(page);
+        return state;
+      }).toMatchObject({
+        mode: 'crt', visible: true, geometryMatches: true, sizeMatches: true,
+        contextLost: false, glError: 0, sourceLit: true, outputLit: true,
+      });
+    } catch (error) {
+      if (!state) throw error;
+      const body = JSON.stringify(state);
+      await testInfo.attach('fullscreen-crt-readback', { body, contentType: 'application/json' });
+      throw new Error(`CRT readback state ${body}`, { cause: error });
+    }
   }
 }
 
@@ -99,7 +135,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
       await page.goto('/');
       await selectDemo(page);
       await expect(page.locator('#status')).toHaveText('Playing');
-      await renderedPixels(page, 'crt');
+      await renderedPixels(page, 'crt', testInfo);
       await page.keyboard.press('KeyX', { delay: 100 });
       if (capture) await page.waitForTimeout(1800); // Let Shionari's title animation settle.
       const scale = capture ? '3' : '1';
@@ -108,7 +144,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
       const normal = await video.boundingBox();
       for (const mode of ['crt', 'pixel']) {
         await page.locator('#display').selectOption(mode);
-        await renderedPixels(page, mode);
+        await renderedPixels(page, mode, testInfo);
         if (capture) await page.screenshot({ path: testInfo.outputPath(`${capture}-${mode}-player.png`), scale: 'css' });
         if (touch) await enter.tap();
         else { await enter.focus(); await page.keyboard.press('Enter'); }
@@ -121,7 +157,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
         await expect(video).toBeFocused();
         await expect(enter).toHaveText('Exit fullscreen');
         await gameplayLayout(page, { touch, safeArea });
-        await renderedPixels(page, mode);
+        await renderedPixels(page, mode, testInfo);
         if (capture) await page.screenshot({ path: testInfo.outputPath(`${capture}-${mode}-fullscreen.png`), scale: 'css' });
         if (rotate && mode === 'crt') {
           for (const { width, height } of [rotate, viewport]) {
@@ -135,7 +171,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
             await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([width, height]);
             await expect(presentation).toHaveAttribute('id', 'game-presentation');
             await gameplayLayout(page, { touch });
-            await renderedPixels(page, mode);
+            await renderedPixels(page, mode, testInfo);
           }
         }
         if (touch) {
@@ -147,10 +183,10 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
         await expect(touch ? video : enter).toBeFocused();
         await expect(enter).toHaveText('Fullscreen');
         await expect(page.locator('#status')).toHaveText('Playing');
-        await expect(page.locator('#display')).toHaveValue(mode);
         await expect(page.locator('#scale')).toHaveValue(scale);
         expect(await video.boundingBox()).toEqual(normal);
-        await renderedPixels(page, mode);
+        await renderedPixels(page, mode, testInfo);
+        await expect(page.locator('#display')).toHaveValue(mode);
       }
       expect(errors).toEqual([]);
     });
