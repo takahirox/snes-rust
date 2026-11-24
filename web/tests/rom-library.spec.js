@@ -590,12 +590,13 @@ test('aborted read, write and delete transactions preserve the committed library
   });
   await importRom(page, 'abort.sfc', first);
   await expect(status(page)).toHaveText('Playing');
-  await expect(page.locator('#error')).toContainText('Could not remember abort.sfc');
+  const warning = page.locator('#rom-retention-warning');
+  await expect(warning).toContainText('Could not remember abort.sfc');
   await openPicker(page);
   await expect(rows(page)).toHaveCount(0);
   await page.keyboard.press('Escape');
   await importRom(page, 'abort.sfc', first);
-  await expect(page.locator('#error')).toBeEmpty();
+  await expect(warning).toBeEmpty();
   await openPicker(page);
   await page.evaluate(() => abortLibraryRequest('get', 'roms'));
   await selectSaved(page, firstHash, 'abort.sfc');
@@ -612,22 +613,40 @@ test('aborted read, write and delete transactions preserve the committed library
   await expect(page.locator('#open-local')).toBeFocused();
 });
 
-test('quota exhaustion leaves playback and file import usable', async ({ page, context }) => {
+test('quota exhaustion shows recovery in the viewport and leaves playback and file import usable', async ({ page, context }) => {
   await page.goto('/'); await ready(page);
   const origin = new URL(page.url()).origin;
   const cdp = await context.newCDPSession(page);
   await cdp.send('Storage.overrideQuotaForOrigin', { origin, quotaSize: 1 });
   await chooseRom(page, 'quota.sfc', first);
   await expect(status(page)).toHaveText('Playing');
-  await expect(page.locator('#error')).toContainText('Could not remember quota.sfc');
+  await expect(page.locator('#error')).toBeEmpty();
+  const warning = page.locator('#rom-retention-warning');
+  const pickerWarning = page.locator('#library-retention-warning');
+  const recovery = 'Could not remember quota.sfc. Check browser storage and reopen the original file to retry.';
+  await expect(warning).toHaveText(recovery);
+  for (const [width, height] of [[1280, 720], [320, 568], [667, 320]]) {
+    await page.setViewportSize({ width, height });
+    await expect(warning).toBeInViewport({ ratio: 1 });
+    await openPicker(page);
+    await expect(warning).toBeHidden();
+    await expect(pickerWarning).toHaveText(recovery);
+    await expect(pickerWarning).toBeInViewport({ ratio: 1 });
+    await expect(rows(page)).toHaveCount(0);
+    await page.keyboard.press('Escape');
+  }
+  await page.getByRole('button', { name: 'Dismiss ROM storage warning' }).press('Enter');
+  await expect(warning).toBeHidden();
+  await expect(page.locator('#video')).toBeFocused();
+  await expect(status(page)).toHaveText('Playing');
   await openPicker(page);
-  await expect(rows(page)).toHaveCount(0);
+  await expect(pickerWarning).toHaveText(recovery);
   await page.keyboard.press('Escape');
   await cdp.send('Storage.overrideQuotaForOrigin', { origin });
   await chooseRom(page, 'quota.sfc', first);
-  await expect(page.locator('#error')).toBeEmpty();
   await openPicker(page);
   await expect(saved(page, firstHash)).toBeVisible();
+  await expect(pickerWarning).toBeEmpty();
 });
 
 for (const mode of ['denied', 'unavailable']) {
@@ -642,7 +661,7 @@ for (const mode of ['denied', 'unavailable']) {
     await page.keyboard.press('Escape');
     await chooseRom(page, 'offline.sfc', first);
     await expect(status(page)).toHaveText('Playing');
-    await expect(page.locator('#error')).toContainText('Could not remember offline.sfc');
+    await expect(page.locator('#rom-retention-warning')).toContainText('Could not remember offline.sfc');
     await selectDemo(page);
     await expect(current(page)).toContainText('Shionari no Misshitsu');
     await expect(status(page)).toHaveText('Playing');
