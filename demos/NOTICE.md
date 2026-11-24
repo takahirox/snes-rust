@@ -50,7 +50,7 @@ broader license is granted. The repository's MIT license for emulator source cod
 
 - File: `demos/yonaki.sfc` (published unchanged as `yonaki.sfc`).
 - Size: 4,194,304 bytes; headerless ordinary LoROM, 8 KiB battery-backed SRAM.
-- SHA-256: `0989f29a892abcc9cb215a5d8eed2970c02b85fcf5001d06a807292b92097bcc`.
+- SHA-256: `639cbdd93e2fc41befd6ec2398bbb369f8bc09c88eb64b77630c8c7f2cbe79fa`.
 - Added for [Issue #126](https://github.com/takahirox/snes-rust/issues/126) and updated to the current build for
   [Issue #130](https://github.com/takahirox/snes-rust/issues/130), [Issue #132](https://github.com/takahirox/snes-rust/issues/132) and
   [Issue #138](https://github.com/takahirox/snes-rust/issues/138). Their bodies record
@@ -72,6 +72,9 @@ broader license is granted. The repository's MIT license for emulator source cod
   Holding R applies the previous reading dim and holding L hides the text layer, including
   when both buttons are held. Chapter names label bookmarks and the story flows directly
   into each scene.
+- Updated for [Issue #172](https://github.com/takahirox/snes-rust/issues/172): the
+  maintainer's validated snes-roms working-tree build (base commit `6da6766`) adds
+  a one-pixel dark outline to narration and choices using the same Shinonome glyphs.
 - The code, story, music, sound effects and SPC700 driver were created for this
   game with AI assistance under the maintainer's direction; instruments are
   synthesised, not sampled. Background photographs and character silhouettes were
