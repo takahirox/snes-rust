@@ -198,6 +198,71 @@ test('remembers normalized ROMs, restores guest progress after reload and revisi
   }
 });
 
+test('holding Enter on Remove does not launch the next saved cartridge', async ({ page }) => {
+  await instrument(page);
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'second.sfc', second);
+  await importRom(page, 'first.sfc', first);
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(2);
+  await saved(page, firstHash).getByRole('button', { name: 'Remove first.sfc' }).focus();
+  const next = saved(page, secondHash).getByRole('button', { name: 'second.sfc', exact: true });
+  await page.keyboard.down('Enter');
+  await expect(saved(page, firstHash)).toHaveCount(0);
+  await expect(next).toBeFocused();
+  await page.keyboard.down('Enter'); // Auto-repeat from the held removal key.
+  await page.keyboard.up('Enter');
+  await expect(picker(page)).toBeVisible();
+  await expect(next).toBeFocused();
+  await expect(current(page)).toHaveText('first.sfc');
+  await expect(status(page)).toHaveText('Playing');
+  expect(await commits(page)).toBe(2);
+
+  await page.keyboard.press('Enter');
+  await expect(picker(page)).toBeHidden();
+  await expect(current(page)).toHaveText('second.sfc');
+  expect(await commits(page)).toBe(3);
+});
+
+test('remembers an identical local reimport during an SRAM write failure without interrupting play', async ({ page }) => {
+  await instrument(page);
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'active.sfc', first);
+  await page.keyboard.down('z');
+  await expect.poll(() => sram(page)).toBe(0x79);
+  await page.keyboard.up('z');
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('snes-rust:sram:')) throw new DOMException('Storage full', 'QuotaExceededError');
+      return setItem.call(this, key, value);
+    };
+  });
+  await openPicker(page);
+  await removeSaved(page, firstHash, 'active.sfc');
+  await expect(rows(page)).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  await chooseRom(page, 'reimported.smc', withHeader(first));
+  await expect(status(page)).toHaveText('Playing');
+  await expect(current(page)).toHaveText('active.sfc');
+  expect(await commits(page)).toBe(1);
+  expect(await sram(page)).toBe(0x79);
+  await openPicker(page);
+  await expect(saved(page, firstHash).getByRole('button', { name: 'reimported.smc', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await chooseRom(page, 'different.sfc', second);
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  await expect(status(page)).toHaveText('Paused');
+  await expect(current(page)).toHaveText('active.sfc');
+  expect(await commits(page)).toBe(1);
+  expect(await sram(page)).toBe(0x79);
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(1);
+  await expect(saved(page, secondHash)).toHaveCount(0);
+});
+
 test('rejects invalid imports and shares bundled identity without a saved duplicate', async ({ page }) => {
   await page.goto('/'); await ready(page);
   const unsupported = Buffer.from(first);

@@ -377,14 +377,15 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   enableSources(false);
   $('play').disabled = true; $('reset').disabled = true;
   try {
-    // Reading a saved copy of the current ROM cannot replace the machine.
-    if (savedHash !== activeHash && !(demo ? pause() : save())) {
+    const expectedHash = demo?.hash ?? savedHash;
+    // Check a local file's identity before requiring a save to replace the machine.
+    if (expectedHash && expectedHash !== activeHash && !(demo ? pause() : save())) {
       if (playing) stopPlayback();
       return;
     }
     clearError();
     if (!core) throw new Error('Emulator has not loaded');
-    if (savedHash !== activeHash) setStatus(`Loading ${name}…`);
+    if (expectedHash !== activeHash) setStatus(`Loading ${name}…`);
     let data = await read();
     if (data.length > maxRomBytes) throw new Error(romSizeError);
     if (!demo && !savedHash && data.length % 1024 === 512) data = data.slice(512);
@@ -399,7 +400,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
       canvas.focus({ preventScroll: true });
       return;
     }
-    // Reading/hashing is asynchronous: save again at the replacement boundary.
+    // Save at the replacement boundary, after asynchronous reading and hashing.
     if (!pause()) return;
     copyInput(data); check(core.prepare_rom());
     pendingCartridge = { hash, name, remember };
@@ -420,6 +421,10 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   if (playing) canvas.focus({ preventScroll: true });
 }
 const picker = $('cartridge-picker');
+picker.addEventListener('keydown', event => {
+  // Removing a row can move focus to another button while Enter is still held.
+  if (event.key === 'Enter' && event.repeat) event.preventDefault();
+});
 function closePicker() { picker.hidePopover(); $('change-cartridge').focus({ preventScroll: true }); }
 
 // Keep metadata separate so listing cartridges never reads their ROM bytes.
