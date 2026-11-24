@@ -12,7 +12,7 @@ pub struct Spc {
     pub halted: bool,
 }
 pub struct Apu {
-    pub ram: Vec<u8>,
+    pub ram: Box<[u8; 0x10000]>,
     pub cpu: Spc,
     pub dsp: Dsp,
     pub input: [u8; 4],
@@ -37,7 +37,7 @@ pub struct Apu {
 impl Default for Apu {
     fn default() -> Self {
         Self {
-            ram: vec![0; 65536],
+            ram: crate::zeroed(),
             cpu: Spc {
                 sp: 0xef,
                 ..Spc::default()
@@ -167,7 +167,7 @@ impl Apu {
                     self.clock_timer(2);
                 }
                 if self.total.is_multiple_of(32) {
-                    let (l, r) = self.dsp.sample(&mut self.ram);
+                    let (l, r) = self.dsp.sample(&mut self.ram[..]);
                     self.samples.push(l as f32 / 32768.0);
                     self.samples.push(r as f32 / 32768.0);
                 }
@@ -183,7 +183,7 @@ impl Apu {
         }
         self.clock_timer(2);
         if total.is_multiple_of(32) {
-            let (l, r) = self.dsp.sample(&mut self.ram);
+            let (l, r) = self.dsp.sample(&mut self.ram[..]);
             self.samples.push(l as f32 / 32768.0);
             self.samples.push(r as f32 / 32768.0);
         }

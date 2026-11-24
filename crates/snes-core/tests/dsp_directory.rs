@@ -415,7 +415,7 @@ fn anchor(apu: &Apu, begin: usize, end: usize, pcm: (i16, i16)) {
 #[test]
 fn uploaded_spc_performs_all_live_changes_and_records_numerical_results() {
     let mut apu = Apu::default();
-    data(&mut apu.ram);
+    data(&mut apu.ram[..]);
     let mut master = upload(&mut apu);
     for (command, outx, pcm) in [
         (1, 8, (512, -1024)),
@@ -442,8 +442,8 @@ fn uploaded_spc_performs_all_live_changes_and_records_numerical_results() {
 fn apu_guest_pcm_registers_and_ram_match_irregular_tick_partitions() {
     let mut whole = Apu::default();
     let mut split = Apu::default();
-    data(&mut whole.ram);
-    data(&mut split.ram);
+    data(&mut whole.ram[..]);
+    data(&mut split.ram[..]);
     let mut whole_master = upload(&mut whole);
     let mut split_master = upload(&mut split);
     assert_eq!(whole_master, split_master);

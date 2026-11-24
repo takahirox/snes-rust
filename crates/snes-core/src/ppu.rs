@@ -2,7 +2,7 @@
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 224;
 pub struct Ppu {
-    pub vram: Vec<u8>,
+    pub vram: Box<[u8; 0x10000]>,
     pub cgram: [u8; 512],
     pub oam: [u8; 544],
     pub regs: [u8; 64],
@@ -52,7 +52,7 @@ pub struct Ppu {
 impl Default for Ppu {
     fn default() -> Self {
         Self {
-            vram: vec![0; 65536],
+            vram: crate::zeroed(),
             cgram: [0; 512],
             oam: [0; 544],
             regs: {

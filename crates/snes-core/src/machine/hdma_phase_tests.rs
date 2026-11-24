@@ -247,7 +247,7 @@ fn dma_byte_crossing_phase_defers_hdma_to_next_byte_and_keeps_order() {
             }
             // A short DMA retains the first insertion instead of wrapping CGRAM.
             let mut short = bus(indirect, 0x22);
-            short.wram.copy_from_slice(&b.wram);
+            short.wram.copy_from_slice(&b.wram[..]);
             for channel in [0, 1] {
                 for r in 0..8 {
                     short.write_raw(

@@ -61,7 +61,7 @@ pub struct SystemBus {
     pub cart: Cartridge,
     pub ppu: Ppu,
     pub apu: Apu,
-    pub wram: Vec<u8>,
+    pub wram: Box<[u8; 0x20000]>,
     pub clocks: u64,
     pub frames: u64,
     #[cfg(test)]
@@ -265,7 +265,7 @@ impl SystemBus {
             cart,
             ppu: Ppu::default(),
             apu: Apu::default(),
-            wram: vec![0; 131072],
+            wram: crate::zeroed(),
             clocks: 0,
             frames: 0,
             #[cfg(test)]
