@@ -1140,7 +1140,12 @@ impl Ppu {
         // painted in BG1..BG4, OBJ order; only a strictly higher rank wins.
         for (index, pixels) in screen.iter_mut().enumerate() {
             let pixels = &mut pixels[..n];
-            pixels.fill(BACKDROP | u32::from(if index == 0 { back_color } else { fixed_color }));
+            // The main backdrop is CGRAM[0]; the subscreen's is COLDATA.
+            pixels.fill(if index == 0 {
+                BACKDROP | INDEXED
+            } else {
+                BACKDROP | u32::from(fixed_color)
+            });
             if index >= screens {
                 continue;
             }
