@@ -57,14 +57,27 @@ release profile (opt-level 3, LTO, one codegen unit). Snes9x libretro
 Makefile's default optimized release flags, including `-O3 -DNDEBUG`.
 Native used Apple clang 21.0.0 and Wasm used Emscripten 6.0.13-git.
 Node 26.12.1 ran both Wasm builds. Python 3.13.13 scheduled child processes.
-The starting tree was GitWeave's `e50e33e`, which has the same production
-files as `main` at `416b6c4`.
+The matched uncapped and browser trials were rerun on 2026-11-24. Each
+trial records its build's `source_revision`.
+
+| Build | Source revision |
+| --- | --- |
+| Rust baseline | `416b6c4097c447cd2f2a58298c153ab6295f243a` |
+| Rust final | `7a8bc5351a15092b63e11617ed5d5dcea4e98497` (PR #175 after the STAT77 fix) |
+| Snes9x reference | `204ea1c0b851f960cbf223075eb1c25641cb483c` |
+
+The final binaries were built from the review checkpoint `b22a9b9`,
+whose Git tree matches the listed PR revision. The STAT77 fix composes
+elapsed pixels before reads during the HBlank picture tail so that delayed
+OBJ overflow remains visible there. Both native Rust builds use the same
+benchmark example. The browser comparison uses the revised playback probe
+for both builds.
 
 The drivers start a fresh guest for each trial, use controller masks from
 [the workload manifest](../tools/performance/workloads.json) from reset,
-and time 600 frame calls after either 120 or 240 warm-up calls. The masks
-are zero-based, start inclusive and end exclusive. Castle uses the
-existing recorded route. The rest of the diagnostic workloads use idle
+and time 600 frame calls after either 120 or 240 warm-up calls in the
+uncapped suite. The masks are zero-based, start inclusive and end exclusive.
+Castle uses the existing recorded route. The diagnostic workloads use idle
 input while their CPU, raster and APU keep running. The timed window
 includes emulation and delivery of video/audio buffers for every field.
 The Rust paths produce packed RGBA (256 or 512 by 224), while Snes9x sends
@@ -86,8 +99,9 @@ windows. The reference had an extra video callback during initialization
 on the three games. Both engines generated 600 fields' worth of audio
 in each timed window.
 
-For a cross-emulator sanity check, native checkpoints were also compared
-pixel by pixel after RGB565 expansion into 8-bit channels. The
+For a cross-emulator sanity check at the initial optimization checkpoint
+(`3fb053e`), native checkpoints were compared pixel by pixel after RGB565
+expansion into 8-bit channels. The
 [scene checks](performance/issue-174-scenes.csv) record both the mean
 absolute channel error and the share of channels within eight levels. Both demos changed through the
 scripted inputs. In the six checked snapshots per demo, over 99.99% of
@@ -172,13 +186,18 @@ python3 tools/performance/suite.py \
 ```sh
 npm ci --prefix web
 npx --prefix web playwright install chromium
-SNES_BENCH_METAL=1 node tools/performance/browser.mjs \
-  "$perf/source-baseline/web/dist" yonaki 3 > "$perf/browser-baseline.jsonl"
-SNES_BENCH_METAL=1 node tools/performance/browser.mjs \
-  web/dist yonaki 3 > "$perf/browser-final.jsonl"
-SNES_BENCH_METAL=1 node tools/performance/browser.mjs \
-  web/dist yonaki 2 mobile > "$perf/browser-mobile.jsonl"
-# Use shionari 2 or hires 3 in place of yonaki 3 for the other desktop runs.
+export SNES_BENCH_METAL=1
+run_playback() {
+  workload=$1 trials=$2 device=$3
+  node tools/performance/browser.mjs "$perf/source-baseline/web/dist" \
+    "$workload" "$trials" "$device" > "$perf/browser-baseline-$workload-$device.jsonl" &&
+  node tools/performance/browser.mjs web/dist \
+    "$workload" "$trials" "$device" > "$perf/browser-final-$workload-$device.jsonl"
+}
+run_playback shionari 2 desktop &&
+run_playback yonaki 3 desktop &&
+run_playback hires 3 desktop &&
+run_playback yonaki 2 mobile
 ```
 
 For native profiling, run the benchmark with a longer replay starting at the
@@ -191,9 +210,10 @@ the timed runs. Use distinct output filenames for each experimental build.
 ## Results
 
 The [uncapped trial records](performance/issue-174-throughput.jsonl) include
-all 108 trials and their deterministic output checkpoints. The
-[browser trial records](performance/issue-174-browser.csv) include 40
-measured playback windows.
+all 108 trials and their deterministic output checkpoints. Every trial
+reproduced the ROM hash and output checkpoints published before the STAT77
+fix. The [browser trial records](performance/issue-174-browser.csv) include
+40 measured playback windows.
 
 ### Uncapped throughput
 
@@ -203,18 +223,22 @@ of 60.10 Hz, and throughput as a percent of same-platform Snes9x.
 
 | Workload | Build | Baseline | Final | Snes9x | Final ms / field · NTSC speed · ref share |
 | --- | --- | ---: | ---: | ---: | ---: |
-| shionari | native | 187 (137–198) | 288 (222–297) | 3028 (2921–3057) | 3.48 · 4.8× · 9.5% |
-| shionari | wasm | 164 (157–174) | 222 (193–288) | 1635 (1134–2027) | 4.50 · 3.7× · 13.6% |
-| yonaki | native | 274 (164–276) | 381 (331–384) | 2447 (2102–2571) | 2.63 · 6.3× · 15.6% |
-| yonaki | wasm | 213 (207–230) | 368 (364–369) | 1751 (1716–1761) | 2.72 · 6.1× · 21.0% |
-| castle | native | 320 (320–330) | 507 (459–524) | 4198 (4193–4471) | 1.97 · 8.4× · 12.1% |
-| castle | wasm | 275 (224–290) | 459 (406–487) | 2288 (2057–3041) | 2.18 · 7.6× · 20.1% |
-| hires | native | 178 (165–196) | 254 (180–312) | 2774 (2310–2882) | 3.93 · 4.2× · 9.2% |
-| hires | wasm | 166 (160–187) | 259 (236–312) | 1477 (1172–1904) | 3.86 · 4.3× · 17.5% |
-| mode7 | native | 183 (175–225) | 199 (132–281) | 2453 (1493–3313) | 5.02 · 3.3× · 8.1% |
-| mode7 | wasm | 210 (179–220) | 307 (262–345) | 1514 (1427–1719) | 3.26 · 5.1× · 20.2% |
-| hdma | native | 183 (141–193) | 248 (233–261) | 2137 (1762–2689) | 4.03 · 4.1× · 11.6% |
-| hdma | wasm | 130 (129–137) | 229 (201–248) | 1106 (1064–1283) | 4.37 · 3.8× · 20.7% |
+| shionari | native | 301 (267–306) | 471 (450–492) | 4463 (4321–4562) | 2.12 · 7.8× · 10.6% |
+| shionari | wasm | 255 (238–264) | 419 (400–432) | 2775 (2774–2989) | 2.39 · 7.0× · 15.1% |
+| yonaki | native | 190 (132–277) | 308 (269–351) | 2113 (2067–2382) | 3.25 · 5.1× · 14.6% |
+| yonaki | wasm | 145 (142–175) | 233 (219–256) | 1268 (1217–1453) | 4.30 · 3.9× · 18.4% |
+| castle | native | 227 (154–233) | 339 (339–406) | 3512 (3125–3901) | 2.95 · 5.6× · 9.7% |
+| castle | wasm | 185 (182–185) | 297 (200–325) | 1860 (1398–2079) | 3.37 · 4.9× · 15.9% |
+| hires | native | 162 (161–198) | 272 (265–312) | 2486 (2472–2545) | 3.68 · 4.5× · 10.9% |
+| hires | wasm | 147 (87–169) | 286 (285–290) | 1818 (1759–2099) | 3.50 · 4.8× · 15.7% |
+| mode7 | native | 348 (323–349) | 430 (408–432) | 4745 (4508–4778) | 2.32 · 7.2× · 9.1% |
+| mode7 | wasm | 379 (358–380) | 560 (548–562) | 3207 (3113–3234) | 1.79 · 9.3× · 17.5% |
+| hdma | native | 461 (457–469) | 709 (708–717) | 5257 (5188–5302) | 1.41 · 11.8× · 13.5% |
+| hdma | wasm | 369 (367–369) | 649 (644–652) | 3559 (3538–3634) | 1.54 · 10.8× · 18.2% |
+
+The final build reached 9.1–14.6% of Snes9x's median throughput in native
+trials and 15.1–18.4% in Wasm trials. All six workloads remain below the
+80% target on both platforms.
 
 The reported rates exclude warm-up, checkpoint hashing, ROM loading and
 process startup. Whole-process CPU, wall time and peak RSS include those
@@ -223,12 +247,12 @@ including Python for native Snes9x and Node for the Wasm builds.
 
 | Build | CPU ms for 720–840 calls, across workloads | Peak RSS MiB | ROM load ms | Wasm initialization ms |
 | --- | ---: | ---: | ---: | ---: |
-| native-baseline | 2010–3872 | 2.7–10.8 | 0.01–3.13 | — |
-| native-final | 1335–2601 | 2.7–10.7 | 0.01–0.29 | — |
-| native-ref | 195–409 | 41.3–45.9 | 1.80–32.98 | — |
-| wasm-baseline | 2539–4230 | 56.1–71.8 | 0.56–2.38 | 0.52–9.30 |
-| wasm-final | 1616–2635 | 56.4–70.1 | 0.55–1.40 | 0.49–7.62 |
-| wasm-ref | 688–975 | 211.5–292.4 | 8.27–48.11 | 6.82–46.75 |
+| native-baseline | 1542–4324 | 2.7–10.8 | 0.01–0.32 | — |
+| native-final | 1010–2645 | 2.7–10.7 | 0.01–0.54 | — |
+| native-ref | 167–401 | 41.3–46.0 | 1.33–27.73 | — |
+| wasm-baseline | 2026–4476 | 55.2–71.2 | 0.53–1.30 | 0.48–2.42 |
+| wasm-final | 1238–2677 | 55.8–69.8 | 0.55–1.32 | 0.48–1.15 |
+| wasm-ref | 595–1089 | 213.9–286.9 | 7.02–64.18 | 5.91–36.92 |
 
 SHA-256 of each measured workload
 
@@ -243,50 +267,63 @@ SHA-256 of each measured workload
 
 Chromium 149.0.7827.55 used ANGLE Metal on the M4 Max. Desktop viewport was
 1280×800 at DPR 2. The emulated mobile runs used a 390×844 viewport at DPR 3
-and 4× CDP CPU throttling on the same host, with the same GPU. The slices
-begin after warm-up and include production framebuffer upload, Pixel/CRT
-present, and Web Audio scheduling. A scheduled audio gap is a discontinuity
-greater than 1 ms. A late gap also starts after the prior scheduled audio
-has expired on the Web Audio clock. These are proxies for underruns at the
-Web Audio boundary. The physical output device was outside the measurement.
+and 4× CDP CPU throttling on the same host, with the same GPU. Timing starts
+when the animation callback that reaches the warm-up target finishes. It ends
+when the first callback with at least 600 measured calls finishes. Catch-up
+callbacks can run up to three fields and present them together. Keeping the
+callbacks intact can add up to two fields at each boundary. The trial records
+give the actual warm-up and measured field counts. Fields beyond the scripted
+replay use idle input. The measured callbacks include framebuffer upload,
+Pixel/CRT presentation and Web Audio scheduling. Each counted field must have
+a matching core timing and scheduled audio buffer. The 40 trials measured
+600 fields in 38 windows, 601 fields in one, and 602 in one. Both longer
+windows occurred in the throttled Yonaki baseline. Audio buffer counts
+matched field counts in all 40 trials.
+
+A scheduled audio gap is a discontinuity greater than 1 ms. A late gap
+also starts after the prior scheduled audio has expired on the Web Audio
+clock. These are proxies for underruns at the Web Audio boundary. The
+physical output device was outside the measurement.
 
 Rows give median rates and percentile metrics across repeats. Counts are
 the sums across repeats. A late arrival is a render callback with guest
 progress arriving more than 1.1 times the nominal 16.64 ms period since
-the previous such callback. The work threshold uses the nominal period.
+the previous such callback, using the last warm-up callback for the first
+arrival. The work threshold uses the nominal period.
 
 | Device / workload | Build | Mode | Guest fields/s | Work p50/p95/p99 ms | Arrival p50/p95/p99 ms | Over-budget work / late arrivals | Late audio / all gaps |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| desktop / shionari | baseline | pixel | 60.1 | 4.3/4.6/6.2 | 16.7/17.5/25.0 | 0 / 25 | 0 / 0 |
-| desktop / shionari | baseline | crt | 60.1 | 4.7/4.9/5.0 | 16.7/17.5/24.9 | 0 / 22 | 0 / 0 |
-| desktop / shionari | final | pixel | 60.1 | 2.6/2.8/2.9 | 16.7/17.5/25.0 | 0 / 25 | 0 / 0 |
-| desktop / shionari | final | crt | 60.1 | 3.1/3.3/3.4 | 16.7/17.4/25.0 | 0 / 24 | 0 / 0 |
-| desktop / yonaki | baseline | pixel | 60.1 | 4.5/4.8/4.8 | 16.7/17.3/24.5 | 0 / 19 | 0 / 0 |
-| desktop / yonaki | baseline | crt | 60.1 | 5.0/5.1/5.2 | 16.7/17.4/24.6 | 0 / 33 | 0 / 0 |
-| desktop / yonaki | final | pixel | 60.1 | 2.9/3.1/3.2 | 16.7/17.5/24.9 | 0 / 37 | 0 / 0 |
-| desktop / yonaki | final | crt | 60.1 | 3.3/3.5/3.7 | 16.7/17.4/25.0 | 0 / 26 | 0 / 0 |
-| desktop / hires | baseline | pixel | 60.1 | 5.4/5.6/5.7 | 16.7/17.3/24.9 | 0 / 21 | 0 / 0 |
-| desktop / hires | baseline | crt | 60.1 | 5.8/6.0/6.1 | 16.7/17.4/25.0 | 0 / 22 | 0 / 0 |
-| desktop / hires | final | pixel | 60.1 | 3.0/3.2/3.3 | 16.7/17.4/18.7 | 0 / 23 | 0 / 0 |
-| desktop / hires | final | crt | 60.1 | 3.5/3.7/3.7 | 16.7/17.4/25.0 | 0 / 34 | 0 / 0 |
-| mobile / yonaki | baseline | pixel | 53.7 | 54.9/57.6/58.7 | 54.4/58.9/60.0 | 420 / 418 | 56 / 56 |
-| mobile / yonaki | baseline | crt → Pixel | 53.7 | 55.1/56.7/57.3 | 54.2/59.0/62.6 | 421 / 419 | 54 / 54 |
-| mobile / yonaki | final | pixel | 60.0 | 11.9/12.8/13.6 | 16.7/17.6/24.8 | 0 / 27 | 0 / 0 |
-| mobile / yonaki | final | crt | 60.0 | 12.8/14.1/15.2 | 16.7/17.5/25.0 | 0 / 29 | 0 / 0 |
+| desktop / shionari | baseline | pixel | 60.1 | 3.9/4.1/4.1 | 16.7/18.4/25.0 | 0 / 66 | 0 / 0 |
+| desktop / shionari | baseline | crt | 60.1 | 4.4/4.5/4.8 | 16.6/18.5/24.8 | 0 / 95 | 0 / 0 |
+| desktop / shionari | final | pixel | 60.1 | 2.5/2.7/2.8 | 16.7/18.2/25.1 | 0 / 50 | 0 / 0 |
+| desktop / shionari | final | crt | 60.1 | 2.9/3.1/3.2 | 16.7/18.0/24.4 | 0 / 28 | 0 / 0 |
+| desktop / yonaki | baseline | pixel | 60.1 | 4.5/4.6/4.7 | 16.7/18.1/25.1 | 0 / 55 | 0 / 0 |
+| desktop / yonaki | baseline | crt | 60.1 | 4.8/5.0/5.1 | 16.7/18.1/25.2 | 0 / 51 | 0 / 0 |
+| desktop / yonaki | final | pixel | 60.1 | 2.8/3.0/3.2 | 16.7/18.3/25.1 | 0 / 78 | 0 / 0 |
+| desktop / yonaki | final | crt | 60.1 | 3.3/3.4/3.6 | 16.7/18.2/25.2 | 0 / 68 | 0 / 0 |
+| desktop / hires | baseline | pixel | 60.1 | 4.9/5.0/5.1 | 16.7/18.0/25.0 | 0 / 44 | 0 / 0 |
+| desktop / hires | baseline | crt | 60.1 | 5.2/5.4/5.5 | 16.7/18.0/25.2 | 0 / 51 | 0 / 0 |
+| desktop / hires | final | pixel | 60.1 | 2.8/3.1/3.4 | 16.7/18.3/25.1 | 0 / 72 | 0 / 0 |
+| desktop / hires | final | crt | 60.1 | 3.1/3.9/4.2 | 16.7/18.3/25.2 | 0 / 68 | 0 / 0 |
+| mobile / yonaki | baseline | pixel | 55.7 | 52.4/55.4/58.4 | 49.9/58.7/62.6 | 446 / 446 | 38 / 38 |
+| mobile / yonaki | baseline | crt → Pixel | 55.9 | 52.2/55.7/56.5 | 49.7/58.7/59.5 | 449 / 449 | 35 / 35 |
+| mobile / yonaki | final | pixel | 60.1 | 10.8/11.7/12.2 | 16.6/21.1/25.0 | 0 / 94 | 0 / 0 |
+| mobile / yonaki | final | crt | 60.1 | 11.4/12.3/12.9 | 16.7/18.6/25.2 | 0 / 86 | 0 / 0 |
 
 The browser evidence also records scheduled buffers, guest calls, main-thread
-CPU time, JS heap estimates and launch latency when captured. Playback rates
-come from completed frame calls on the production core. Callback and scheduling
-metrics are instrumented by the opt-in driver. A real low-power device was
-outside the measured set.
+CPU time, JS heap estimates and launch latency. The opt-in driver records
+playback metrics inside the callback boundaries and samples CPU and heap
+separately via CDP around that interval. A real low-power device was outside
+the measured set.
 
 ### Optimization sequence
 
-The [iteration measurements](performance/issue-174-iterations.csv) retain every
-trial. The host had concurrent system activity, and wall-time ranges were
-wide. Whole-process CPU time provides a second view for variants of the same
-engine and driver. It includes warm-up and evidence generation, so it is
-reported separately from steady field throughput.
+The [iteration measurements](performance/issue-174-iterations.csv) retain
+the original trials through the initial optimization checkpoint
+(`3fb053e`), before the STAT77 fix. The host had concurrent system activity,
+and wall-time ranges were wide. Whole-process CPU time provides a second view
+for variants of the same engine and driver. It includes warm-up and evidence
+generation, so it is reported separately from steady field throughput.
 
 1. **Borrow the OBJ scanline.** Native sampling put 226 Shionari leaf
    samples in memmove. Raster composition was copying 256 sprite slots for
@@ -334,8 +371,9 @@ The 4× results use that same GPU with CPU throttling enabled.
 
 The [profile counts](performance/issue-174-profiles.csv) include native
 leaf samples from macOS `sample` and V8 leaf samples from Node
-`--cpu-prof`. The remaining renderer, bus/DMA and APU costs appear in
-both backends. In the final Wasm profiles the raster function accounted
+`--cpu-prof` at the initial optimization checkpoint. The remaining
+renderer, bus/DMA and APU costs appear in both backends. In those Wasm
+profiles the raster function accounted
 for about 51% of sampled Shionari time, 54% of Yonaki, 50% of Castle,
 62% of Mode 5, 44% of HiROM Mode 7 and 37% of HDMA. In the HDMA
 run, bus ticking and the HDMA handler contributed another 28%.
@@ -348,7 +386,7 @@ Rust, while Snes9x amortizes background setup over tiles and batches
 scanlines until selected writes.
 
 The ceiling imposed by the remaining costs is more important than the
-speed of any individual pixel routine. Even eliminating half of final
+speed of any individual pixel routine. Even eliminating half of
 Yonaki's sampled Wasm raster cost gives a simple Amdahl estimate of
 roughly 1.4× overall speedup, far short of the required per-workload
 multiplier. The native profiles also show nontrivial bus, DMA event and
@@ -379,6 +417,21 @@ The evidence supports this remaining work within Issue #174.
 
 ## Validation and status
 
+After the STAT77 fix, `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings`, and all
+522 tests in `cargo test --workspace --locked` passed. The source-built
+eleven-band HDMA gate passed on the same revision. The benchmark probe
+was also checked with a controlled replay that forced catch-up at both
+boundaries and verified that the samples stay fixed after the final callback.
+
+The focused Chromium run passed seven checks, covering catch-up, Mode 5
+and Mode 6, the local Pages subpath, and both demo replays. The eighth
+check, live display selection, timed out expecting CRT after the keyboard
+shortcut. It passed on an isolated rerun with the same production build
+and Playwright configuration.
+
+### Initial optimization checkpoint
+
 - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets
   --locked -- -D warnings` and `cargo test --workspace --locked` passed.
   The workspace ran 521 Rust tests, including the CPU/DMA raster boundary,
@@ -402,6 +455,8 @@ The evidence supports this remaining work within Issue #174.
   The warning affected both native Rust endpoints. Rust 1.94.0 ran the
   workspace tests and Clippy. Rust 1.99.1 built the production Wasm and
   the pinned SPC assembler.
+
+### Issue progress
 
 - [x] Same-host baseline with native and production Wasm measurements
   against pinned Snes9x, six workloads, fixed replays and an 80% target.
