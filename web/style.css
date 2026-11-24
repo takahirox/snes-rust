@@ -59,6 +59,15 @@ button:hover:enabled { background: #edf0ec; }
 .remove-cartridge[aria-disabled="true"] { opacity: .42; cursor: default; }
 #library-status { color: #a32f29; overflow-wrap: anywhere; }
 #library-status > span:not(:empty) { display: block; margin-bottom: 8px; }
+#library-recovery:not([hidden]) {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
+  margin-bottom: 12px; padding: 8px; border: 1px solid #e1bfbb; border-radius: 8px;
+}
+#library-load-error {
+  grid-column: 1 / -1; color: #a32f29; margin: 0 0 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#library-recovery button { padding: 4px 8px; font-size: 13px; }
 #rom-retention-notice {
   flex: 1 0 min(280px, 100%); max-width: 460px; margin-inline: auto;
   display: grid; grid-template-columns: minmax(0, 1fr) auto;
@@ -124,8 +133,18 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
   @media (orientation: portrait) {
     /* Reserve space for both toolbar rows, the cartridge and 44px controls. */
     main {
-      --portrait-screen-height: max(1px, 100svh - 484px
+      --portrait-screen-height: max(var(--portrait-screen-min, 1px), 100svh - 484px
+        - var(--rom-notice-space, 0px)
         - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)));
+    }
+    /* Fit the header notice above the player without covering any touch targets. */
+    main:has(#rom-retention-warning:not(:empty)) { --rom-notice-space: 64px; --portrait-screen-min: 48px; }
+    #rom-retention-warning { line-height: 1.25; }
+    @media (max-height: 600px) {
+      main:has(#rom-retention-warning:not(:empty)) { --portrait-warning-gap: 4px; }
+      header { margin-bottom: var(--portrait-warning-gap, 12px); }
+      .player { row-gap: var(--portrait-warning-gap, 12px); }
+      .left-controls, .right-controls { row-gap: var(--portrait-warning-gap, 8px); }
     }
     .video-frame {
       /* Let the recovery messages scroll below the controls when space runs out. */

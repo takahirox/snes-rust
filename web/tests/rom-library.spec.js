@@ -39,6 +39,7 @@ const firstHash = hashOf(first), secondHash = hashOf(second);
 const rows = page => page.locator('#saved-cartridges li');
 const saved = (page, hash) => page.locator(`#saved-cartridges li[data-hash="${hash}"]`);
 const picker = page => page.getByRole('dialog', { name: 'Cartridges' });
+const savedLoadError = page => picker(page).locator('#library-load-error');
 const status = page => page.locator('#status');
 const current = page => page.locator('#current-game');
 const sram = page => page.evaluate(() => new Uint8Array(libraryCore.memory.buffer, libraryCore.sram_buffer(), libraryCore.sram_len())[3]);
@@ -74,8 +75,11 @@ async function importRom(page, name, buffer) {
 }
 async function chooseRom(page, name, buffer) {
   await openPicker(page);
+  await useChooser(page, picker(page).getByRole('button', { name: 'Open local ROM…' }), name, buffer);
+}
+async function useChooser(page, button, name, buffer) {
   const pending = page.waitForEvent('filechooser');
-  await picker(page).getByRole('button', { name: 'Open local ROM…' }).click();
+  await button.click();
   await (await pending).setFiles(file(name, buffer));
   await expect(page.locator('#rom')).toBeEnabled();
 }
@@ -85,6 +89,19 @@ async function selectSaved(page, hash, name) {
 }
 async function removeSaved(page, hash, name) {
   await saved(page, hash).getByRole('button', { name: `Remove ${name}`, exact: true }).click();
+}
+async function abortLibraryRequest(page, method, store) {
+  await page.evaluate(({ method, store }) => {
+    const original = IDBObjectStore.prototype[method];
+    IDBObjectStore.prototype[method] = function (...args) {
+      const request = original.apply(this, args);
+      if (this.name === store) {
+        request.addEventListener('success', () => this.transaction.abort(), { once: true });
+        IDBObjectStore.prototype[method] = original;
+      }
+      return request;
+    };
+  }, { method, store });
 }
 async function changeStoredBytes(page, hash, bytes) {
   await page.evaluate(({ hash, bytes }) => new Promise((resolve, reject) => {
@@ -448,13 +465,12 @@ test('rejects a saved cartridge with an empty hash before reading its valid ROM 
   await page.keyboard.press('Escape');
   await openPicker(page);
   await selectSaved(page, '', 'broken.sfc');
-  await expect(page.locator('#error')).toContainText('Reopen the original file or remove the saved entry');
+  await expect(savedLoadError(page)).toBeFocused();
   await expect(current(page)).toHaveText('active.sfc');
   await expect(status(page)).toHaveText('Playing');
   expect(await commits(page)).toBe(1);
   expect(await page.evaluate(() => libraryReads)).not.toContain('roms');
 
-  await openPicker(page);
   await removeSaved(page, '', 'broken.sfc');
   await expect(rows(page)).toHaveCount(1);
   await expect(saved(page, secondHash)).toBeVisible();
@@ -491,23 +507,32 @@ test('a numeric storage key sharing a filename leaves the healthy ROM playable a
 });
 
 test('reports missing and mismatched bytes, preserves the active guest, and repairs on reimport', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
   await instrument(page);
   await page.goto('/'); await ready(page);
   await importRom(page, 'target.sfc', first);
   await importRom(page, 'active.sfc', second);
   await openPicker(page);
   await expect(rows(page)).toHaveCount(2);
+  const reopen = picker(page).getByRole('button', { name: 'Reopen original file…' });
+  const remove = picker(page).getByRole('button', { name: 'Remove saved entry' });
   for (const badBytes of [null, second]) {
     await changeStoredBytes(page, firstHash, badBytes);
-    await selectSaved(page, firstHash, 'target.sfc');
-    await expect(page.locator('#error')).toContainText('Reopen the original file or remove the saved entry');
+    await saved(page, firstHash).getByRole('button', { name: 'target.sfc', exact: true }).press('Enter');
+    await expect(savedLoadError(page)).toBeFocused();
+    await expect(savedLoadError(page)).toHaveText('Could not load target.sfc.');
+    for (const target of [savedLoadError(page), reopen, remove]) {
+      await expect(target).toBeInViewport({ ratio: 1 });
+    }
+    await page.keyboard.press('Tab');
+    await expect(reopen).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(remove).toBeFocused();
     await expect(current(page)).toHaveText('active.sfc');
     await expect(status(page)).toHaveText('Playing');
     expect(await commits(page)).toBe(2);
-    await openPicker(page);
   }
-  await page.keyboard.press('Escape');
-  await chooseRom(page, 'target-renamed.sfc', first);
+  await useChooser(page, reopen, 'target-renamed.sfc', first);
   await expect(status(page)).toHaveText('Playing');
   await openPicker(page);
   await selectSaved(page, secondHash, 'active.sfc');
@@ -517,8 +542,11 @@ test('reports missing and mismatched bytes, preserves the active guest, and repa
   await expect(page.locator('#error')).toBeEmpty();
   await openPicker(page);
   await changeStoredBytes(page, firstHash, null);
-  await removeSaved(page, firstHash, 'target.sfc');
+  await selectSaved(page, firstHash, 'target.sfc');
+  await remove.press('Enter');
   await expect(saved(page, firstHash)).toHaveCount(0);
+  await expect(page.locator('#open-local')).toBeFocused();
+  await expect(savedLoadError(page)).toBeHidden();
   await expect(status(page)).toHaveText('Playing');
 });
 
@@ -540,12 +568,11 @@ test('saved ROMs with copier headers must match the normalized SRAM identity', a
   await page.keyboard.press('Escape');
   await openPicker(page);
   await selectSaved(page, rawHash, 'wrong-key.smc');
-  await expect(page.locator('#error')).toContainText('Reopen the original file or remove the saved entry');
+  await expect(savedLoadError(page)).toBeFocused();
   await expect(current(page)).toHaveText('active.sfc');
   await expect(status(page)).toHaveText('Playing');
   expect(await commits(page)).toBe(2);
 
-  await openPicker(page);
   await selectSaved(page, firstHash, 'original.sfc');
   await expect.poll(() => bootSave(page)).toBe(0x79);
   await expect(status(page)).toHaveText('Playing');
@@ -574,20 +601,7 @@ test('writes a ROM only after restoring SRAM, including on retry', async ({ page
 
 test('aborted read, write and delete transactions preserve the committed library and allow retry', async ({ page }) => {
   await page.goto('/'); await ready(page);
-  await page.evaluate(() => {
-    window.abortLibraryRequest = (method, store) => {
-      const original = IDBObjectStore.prototype[method];
-      IDBObjectStore.prototype[method] = function (...args) {
-        const request = original.apply(this, args);
-        if (this.name === store) {
-          request.addEventListener('success', () => this.transaction.abort(), { once: true });
-          IDBObjectStore.prototype[method] = original;
-        }
-        return request;
-      };
-    };
-    abortLibraryRequest('put', 'roms');
-  });
+  await abortLibraryRequest(page, 'put', 'roms');
   await importRom(page, 'abort.sfc', first);
   await expect(status(page)).toHaveText('Playing');
   const warning = page.locator('#rom-retention-warning');
@@ -598,12 +612,11 @@ test('aborted read, write and delete transactions preserve the committed library
   await importRom(page, 'abort.sfc', first);
   await expect(warning).toBeEmpty();
   await openPicker(page);
-  await page.evaluate(() => abortLibraryRequest('get', 'roms'));
+  await abortLibraryRequest(page, 'get', 'roms');
   await selectSaved(page, firstHash, 'abort.sfc');
-  await expect(page.locator('#error')).toContainText('Could not load the saved ROM');
+  await expect(savedLoadError(page)).toBeFocused();
   await expect(status(page)).toHaveText('Playing');
-  await openPicker(page);
-  await page.evaluate(() => abortLibraryRequest('delete', 'roms'));
+  await abortLibraryRequest(page, 'delete', 'roms');
   await removeSaved(page, firstHash, 'abort.sfc');
   await expect(picker(page).getByRole('status')).toContainText('Could not remove abort.sfc');
   await expect(saved(page, firstHash)).toBeVisible();
@@ -611,6 +624,58 @@ test('aborted read, write and delete transactions preserve the committed library
   await removeSaved(page, firstHash, 'abort.sfc');
   await expect(saved(page, firstHash)).toHaveCount(0);
   await expect(page.locator('#open-local')).toBeFocused();
+});
+
+test('an aborted reimport only warns if the committed ROM is missing or corrupt', async ({ page }) => {
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'saved.sfc', first);
+  await openPicker(page);
+  await expect(saved(page, firstHash)).toBeVisible();
+
+  await page.reload(); await ready(page);
+  await abortLibraryRequest(page, 'put', 'roms');
+  await importRom(page, 'alias.smc', withHeader(first));
+  await openPicker(page);
+  await expect(saved(page, firstHash)).toBeVisible();
+  const warning = page.locator('#library-retention-warning');
+  await expect(warning).toBeEmpty();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#rom-retention-warning')).toBeEmpty();
+
+  for (const badBytes of [null, second]) {
+    await changeStoredBytes(page, firstHash, badBytes);
+    await abortLibraryRequest(page, 'put', 'roms');
+    const name = badBytes ? 'corrupt.sfc' : 'missing.sfc';
+    await importRom(page, name, first);
+    await expect(page.locator('#rom-retention-warning')).toContainText(`Could not remember ${name}`);
+    await openPicker(page);
+    await expect(saved(page, firstHash)).toBeVisible();
+    await expect(warning).toContainText(`Could not remember ${name}`);
+    await page.keyboard.press('Escape');
+  }
+  await expect(status(page)).toHaveText('Playing');
+});
+
+test('a commit in another tab clears the warning for the same ROM identity', async ({ page, context }) => {
+  const other = await context.newPage();
+  await Promise.all([page.goto('/'), other.goto('/')]);
+  await Promise.all([ready(page), ready(other)]);
+  await abortLibraryRequest(page, 'put', 'roms');
+  await importRom(page, 'shared.sfc', first);
+  const warning = page.locator('#rom-retention-warning');
+  await expect(warning).toContainText('Could not remember shared.sfc');
+
+  await openPicker(page);
+  await importRom(other, 'shared.sfc', second);
+  await expect(saved(page, secondHash)).toBeVisible();
+  await expect(page.locator('#library-retention-warning')).toContainText('Could not remember shared.sfc');
+  await page.keyboard.press('Escape');
+  await importRom(other, 'alias.smc', withHeader(first));
+  await expect(warning).toBeEmpty();
+  await openPicker(page);
+  await expect(saved(page, firstHash).getByRole('button', { name: 'alias.smc', exact: true })).toBeVisible();
+  await expect(page.locator('#library-retention-warning')).toBeEmpty();
+  await expect(status(page)).toHaveText('Playing');
 });
 
 test('a queued successful write preserves recovery for the ROM whose write aborted', async ({ page }) => {
@@ -661,7 +726,7 @@ test('quota exhaustion with a long filename leaves recovery and controls usable'
   const pickerWarning = page.locator('#library-retention-warning');
   const recovery = `Could not remember ${name}. Check browser storage and reopen the original file to retry.`;
   await expect(warning).toHaveText(recovery);
-  for (const [width, height] of [[1100, 900], [320, 568], [667, 320]]) {
+  for (const [width, height] of [[1100, 900], [360, 640], [320, 568], [667, 320]]) {
     await page.setViewportSize({ width, height });
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect(warning).toBeInViewport({ ratio: 1 });
@@ -669,6 +734,19 @@ test('quota exhaustion with a long filename leaves recovery and controls usable'
     await page.locator('#video').click({ trial: true });
     await expect(page.locator('#play')).toBeInViewport({ ratio: 1 });
     await expect(page.locator('#change-cartridge')).toBeInViewport({ ratio: 1 });
+    if (width < 760) {
+      const touchButtons = page.locator('.touch-controls button');
+      await expect(touchButtons).toHaveCount(12);
+      for (const button of await touchButtons.all()) {
+        await expect(button).toBeInViewport({ ratio: 1 });
+        await expect(button).toBeEnabled();
+        expect(await button.evaluate(el => {
+          const { x, y, width, height } = el.getBoundingClientRect();
+          return el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+        }), await button.getAttribute('aria-label')).toBe(true);
+      }
+      expect(await page.evaluate(() => scrollY)).toBe(0);
+    }
     await page.getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(status(page)).toHaveText('Paused');
     await page.getByRole('button', { name: 'Play', exact: true }).click();
