@@ -249,6 +249,18 @@ const SPREAD: [u64; 256] = {
     }
     table
 };
+// Transpose the 8x8 bit matrix of plane bytes (byte k = plane k, bit 7 =
+// column 0): byte c of the result holds column 7 - c's color index, plane k
+// in bit k. Hacker's Delight, transpose8.
+#[inline(always)]
+fn transpose_planes(mut x: u64) -> u64 {
+    let t = (x ^ (x >> 7)) & 0x00aa_00aa_00aa_00aa;
+    x ^= t ^ (t << 7);
+    let t = (x ^ (x >> 14)) & 0x0000_cccc_0000_cccc;
+    x ^= t ^ (t << 14);
+    let t = (x ^ (x >> 28)) & 0x0000_0000_f0f0_f0f0;
+    x ^ t ^ (t << 28)
+}
 fn pack(pixel: Option<Pixel>, bg: usize) -> u32 {
     pixel.map_or(0, |p| {
         (u32::from(p.rank) << 24) | MATH | ((bg as u32) << 16) | u32::from(p.color)
@@ -1359,9 +1371,12 @@ impl Ppu {
         };
         let tag = l.tags[usize::from(entry & 0x2000 != 0)];
         // Eight color indices, one byte per column (column 0 first).
-        let colors = (0..l.bpp).fold(0u64, |colors, plane| {
-            colors | (SPREAD[(planes >> (plane * 8)) as usize & 255] << plane)
-        });
+        let plane = |k: usize| SPREAD[(planes >> (k * 8)) as usize & 255] << k;
+        let colors = match l.bpp {
+            2 => plane(0) | plane(1),
+            4 => plane(0) | plane(1) | plane(2) | plane(3),
+            _ => transpose_planes(planes).swap_bytes(),
+        };
         let colors = if entry & 0x4000 != 0 {
             colors.swap_bytes()
         } else {
@@ -1448,6 +1463,20 @@ mod tests {
                 let pixel = ppu.bg_pixel(0, x, 0, &mut row).unwrap();
                 assert_eq!(pixel.color, if flipped { 8 - x } else { x + 1 } as u16);
             }
+        }
+    }
+
+    #[test]
+    fn plane_transpose_matches_per_plane_spread() {
+        let mut x = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..100_000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let spread = (0..8).fold(0u64, |colors, plane| {
+                colors | (SPREAD[(x >> (plane * 8)) as usize & 255] << plane)
+            });
+            assert_eq!(transpose_planes(x).swap_bytes(), spread, "{x:016x}");
         }
     }
 
