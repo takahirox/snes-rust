@@ -381,6 +381,8 @@ async function romHash(data) {
 async function loadCartridge(name, read, { demo, savedHash } = {}) {
   if (loading || restorePending) return;
   const fromLibrary = savedHash !== undefined;
+  const pickerDismissalsAtSelection = pickerDismissals;
+  const pickerDismissed = () => fromLibrary && pickerDismissals !== pickerDismissalsAtSelection;
   let sameCartridge = false;
   let savedLoadFailed = false;
   loading = true;
@@ -398,9 +400,11 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (!core) throw new Error('Emulator has not loaded');
     if (expectedHash !== activeHash) setStatus(`Loading ${name}…`);
     let data = await read();
+    if (pickerDismissed()) return;
     if (data.length > maxRomBytes) throw new Error(romSizeError);
     if (!demo) data = normalizeRom(data);
     const hash = await romHash(data);
+    if (pickerDismissed()) return;
     if (demo && (data.length !== demo.size || hash !== demo.hash)) throw new Error('Demo download does not match the published ROM');
     if (fromLibrary && hash !== savedHash) throw new Error('Saved ROM identity mismatch');
     const remember = !demo && !fromLibrary && !bundledHashes.has(hash) ? data : null;
@@ -417,6 +421,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
       if (restorePending) setStatus('Restore save before changing cartridge');
     }
   } catch (e) {
+    if (pickerDismissed()) return;
     if (!fromLibrary && playing) pause();
     setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Cartridge could not be loaded');
     if (fromLibrary) {
@@ -429,7 +434,8 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     enableSources(Boolean(core));
     $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
     updatePlayback();
-    if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) closePicker();
+    if (pickerDismissed()) setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Ready');
+    else if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) closePicker();
   }
   if (sameCartridge) { canvas.focus({ preventScroll: true }); return; }
   if (restorePending || operationError || persistenceError) return;
@@ -437,6 +443,11 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   if (playing) canvas.focus({ preventScroll: true });
 }
 const picker = $('cartridge-picker');
+let pickerDismissals = 0;
+picker.addEventListener('beforetoggle', event => {
+  // Invalidate a pending saved selection as soon as the picker closes.
+  if (event.newState === 'closed') pickerDismissals++;
+});
 picker.addEventListener('keydown', event => {
   // Removing a row can move focus to another button while Enter is still held.
   if (event.key === 'Enter' && event.repeat) event.preventDefault();
