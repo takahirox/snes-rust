@@ -240,15 +240,17 @@ test('holding Enter on Remove does not launch the next saved cartridge', async (
 });
 
 const touchTest = test.extend({ hasTouch: true });
-for (const { width, height, count, touch } of [
+for (const { width, height, count, touch, nearEdge } of [
   { width: 320, height: 568, count: 1 },
   { width: 667, height: 320, count: 4 },
   { width: 320, height: 568, count: 1, touch: true },
   { width: 667, height: 320, count: 4, touch: true },
+  { width: 320, height: 568, count: 1, touch: true, nearEdge: true },
 ]) {
   const testPointer = touch ? touchTest : test;
   const gesture = touch ? 'double-tapping' : 'double-clicking';
-  testPointer(`${gesture} Remove at ${width}×${height} only removes the intended cartridge`, async ({ page }) => {
+  const target = nearEdge ? 'the edge of Remove' : 'Remove';
+  testPointer(`${gesture} ${target} at ${width}×${height} only removes the intended cartridge`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await instrument(page);
     await page.goto('/'); await ready(page);
@@ -264,18 +266,22 @@ for (const { width, height, count, touch } of [
     const remove = saved(page, firstHash).getByRole('button', { name: 'Remove active.sfc' });
     await remove.scrollIntoViewIfNeeded();
     const box = await remove.boundingBox();
-    const x = box.x + box.width / 2, y = box.y + 2;
+    const x = box.x + (nearEdge ? 2 : box.width / 2), y = box.y + 2;
+    if (nearEdge) await page.evaluate(() => {
+      document.addEventListener('click', event => { window.removeClickCount = event.detail; }, { capture: true });
+    });
     if (touch) await page.touchscreen.tap(x, y);
     else await page.mouse.click(x, y);
     // Let IndexedDB commit and move the controls before sending the second click.
     await expect(remove).toHaveCount(0);
     const next = count === 1 ? page.locator('#demo-yonaki') : picker(page).getByRole('button', { name: 'Remove spare-1.sfc' });
-    // The second tap can drift within the original Remove button.
     const nextX = touch ? x - 10 : x;
-    expect(nextX).toBeGreaterThan(box.x);
+    if (nearEdge) expect(nextX).toBeLessThan(box.x);
+    else expect(nextX).toBeGreaterThan(box.x);
     expect(await next.evaluate((button, { x, y }) => button.contains(document.elementFromPoint(x, y)), { x: nextX, y })).toBe(true);
     if (touch) await page.touchscreen.tap(nextX, y);
     else await page.mouse.click(nextX, y, { clickCount: 2 });
+    if (nearEdge) expect(await page.evaluate(() => removeClickCount)).toBe(2);
 
     await expect(picker(page)).toBeVisible();
     await expect(current(page)).toHaveText('active.sfc');
