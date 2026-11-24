@@ -1412,10 +1412,6 @@ impl Ppu {
             colors
         };
         let colors = colors >> ((sx & 7) * 8);
-        if colors == 0 {
-            out.fill(0);
-            return;
-        }
         if l.direct {
             for (k, o) in out.iter_mut().enumerate() {
                 let color = (colors >> (k * STEP * 8)) as u8;
