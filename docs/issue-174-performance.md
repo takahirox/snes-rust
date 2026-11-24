@@ -27,13 +27,14 @@ the uncapped comparisons answer different questions.
   scanline and more detailed PPU options. The timed runs used Snes9x.
   The matched Snes9x libretro build and output settings supply
   the common target on both platforms. [ares project](https://github.com/ares-emulator/ares),
-  [ares license](https://github.com/ares-emulator/ares/blob/master/LICENSE),
   [bsnes core options and license](https://docs.libretro.com/library/bsnes/).
-- Snes9x is subject to its noncommercial license, ares uses MPL 2.0, and
-  bsnes is GPLv3. Snes9x builds stay in the ignored local cache. The MIT
+- Snes9x is subject to its noncommercial license, and bsnes is GPLv3.
+  ares licenses its own code under ISC and lists separate terms for third-party
+  components. Snes9x builds stay in the ignored local cache. The MIT
   project contains a local benchmark host that uses the public libretro API
   and independently implemented optimizations of the existing core.
-  [Snes9x license](https://github.com/libretro/snes9x/blob/204ea1c0b851f960cbf223075eb1c25641cb483c/LICENSE).
+  [Snes9x license](https://github.com/libretro/snes9x/blob/204ea1c0b851f960cbf223075eb1c25641cb483c/LICENSE),
+  [ares license](https://github.com/ares-emulator/ares/blob/master/LICENSE).
 
 The documented optional paths `GOTHICVANIA_ROM` and `CASTLE_ROM` were unset.
 A scoped search of this worktree and the related `snes-rust` and `snes-roms`
