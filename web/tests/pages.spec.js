@@ -8,7 +8,7 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 const dist = new URL('../dist/', import.meta.url);
 const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream', 'yonaki.sfc': 'application/octet-stream' };
 const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
-const yonakiHash = '639cbdd93e2fc41befd6ec2398bbb369f8bc09c88eb64b77630c8c7f2cbe79fa';
+const yonakiHash = '0488989baeddcc43ec0a0ec3118e4c999df5539656357f7e7cd63d14ace4408b';
 const saveKey = `snes-rust:sram:${demoHash}`;
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const prefix = '/snes-rust/';
@@ -26,7 +26,7 @@ test.beforeAll(async () => {
   expect(rom.length).toBe(524288);
   expect(createHash('sha256').update(rom).digest('hex')).toBe(demoHash);
   const yonaki = readFileSync(new URL('yonaki.sfc', dist));
-  expect(yonaki.length).toBe(4194304);
+  expect(yonaki.length).toBe(3145728);
   expect(createHash('sha256').update(yonaki).digest('hex')).toBe(yonakiHash);
   server = createServer((request, response) => {
     const path = new URL(request.url, 'http://localhost').pathname;
