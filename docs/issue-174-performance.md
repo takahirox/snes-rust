@@ -70,10 +70,10 @@ The final binaries were built from the review checkpoint `b22a9b9`,
 whose Git tree matches the listed PR revision. The STAT77 fix composes
 elapsed pixels before reads during the HBlank picture tail so that delayed
 OBJ overflow remains visible there. Both native Rust builds use the same
-benchmark example. The browser comparison uses the cancellation-aware
-playback probe for both builds. The final playback build used PR revision
-`c168772cb5406695c78b4ef32669033407e8eaea`, which has the same production
-sources as the final uncapped build.
+benchmark example. The browser comparison uses the same playback and audio
+probes for both builds. The final playback build used the production sources
+at PR revision `a22292320927250abb252ceb54558d1d310bfbf4`, which match the
+final uncapped build.
 
 The drivers start a fresh guest for each trial, use controller masks from
 [the workload manifest](../tools/performance/workloads.json) from reset,
@@ -188,7 +188,7 @@ python3 tools/performance/suite.py \
 ```sh
 npm ci --prefix web
 npx --prefix web playwright install chromium
-node --test tools/performance/browser-audio.test.mjs
+node --test tools/performance/browser-{audio,playback}.test.mjs
 export SNES_BENCH_METAL=1
 run_playback() {
   workload=$1 trials=$2 device=$3
@@ -279,9 +279,17 @@ callbacks intact can add up to two fields at each boundary. The trial records
 give the actual warm-up and measured field counts. Fields beyond the scripted
 replay use idle input. The measured callbacks include framebuffer upload,
 Pixel/CRT presentation and Web Audio scheduling. Each counted field must have
-a matching core timing and scheduled audio buffer. The 40 trials measured
-600 fields in 39 windows and 602 in one throttled Yonaki baseline window.
-Audio buffer counts matched field counts in all 40 trials.
+a matching core timing and scheduled audio buffer. Of the 40 trials, 36
+measured 600 fields, three measured 601 and one measured 602. Audio buffer
+counts matched field counts in every trial.
+
+The trial records include the requested mode, the active mode at both window
+boundaries and all mode changes through the final measured callback. Each
+change records whether it preceded the window, how many fields had run
+relative to the end of warm-up, and the elapsed milliseconds from that same
+boundary. A fallback before measurement gives a Pixel window. A change during
+measurement gives a mixed window, including when it occurs in the final
+measured callback. The mode and display status freeze at the closing boundary.
 
 The probe follows the audio queue through starts and stops, including
 buffers scheduled during warm-up. A stop drops a queued buffer or
@@ -293,33 +301,35 @@ Audio clock. The trial records include canceled buffers and the total
 duration of detected gaps. These are Web Audio scheduling measurements.
 The physical output device was outside the measurement.
 
-Rows give median rates and percentile metrics across repeats. Counts are
-the sums across repeats. A late arrival is a render callback with guest
-progress arriving more than 1.1 times the nominal 16.64 ms period since
-the previous such callback, using the last warm-up callback for the first
-arrival. The work threshold uses the nominal period.
+Rows group trials by requested and measured mode and give median rates
+and percentile metrics across repeats. Counts are the sums across repeats.
+A render callback with guest progress counts as late when it arrives more
+than 1.1 times the nominal 16.64 ms period after the previous such callback.
+The first arrival uses the last warm-up callback. The work threshold uses
+the nominal period.
 
 | Device / workload | Build | Mode | Guest fields/s | Work p50/p95/p99 ms | Arrival p50/p95/p99 ms | Over-budget work / late arrivals | Late audio / all gaps | Total audio gap ms |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| desktop / shionari | baseline | pixel | 60.1 | 3.9/4.0/4.1 | 16.7/18.1/25.2 | 0 / 34 | 0 / 0 | 0 |
-| desktop / shionari | baseline | crt | 60.1 | 4.3/4.5/4.5 | 16.7/18.5/25.1 | 0 / 82 | 0 / 0 | 0 |
-| desktop / shionari | final | pixel | 60.1 | 2.4/2.6/2.8 | 16.7/18.1/24.4 | 0 / 30 | 0 / 0 | 0 |
-| desktop / shionari | final | crt | 60.1 | 2.8/3.0/3.1 | 16.7/18.1/25.0 | 0 / 38 | 0 / 0 | 0 |
-| desktop / yonaki | baseline | pixel | 60.1 | 4.5/4.7/4.8 | 16.7/18.1/25.1 | 0 / 53 | 0 / 0 | 0 |
-| desktop / yonaki | baseline | crt | 60.1 | 5.0/5.2/5.3 | 16.7/18.2/25.1 | 0 / 51 | 0 / 0 | 0 |
-| desktop / yonaki | final | pixel | 60.1 | 2.9/3.0/3.1 | 16.7/18.2/25.3 | 0 / 87 | 0 / 0 | 0 |
-| desktop / yonaki | final | crt | 60.1 | 3.3/3.4/3.6 | 16.7/18.2/25.3 | 0 / 72 | 0 / 0 | 0 |
-| desktop / hires | baseline | pixel | 60.1 | 5.2/5.4/5.5 | 16.7/18.2/25.1 | 0 / 66 | 0 / 0 | 0 |
-| desktop / hires | baseline | crt | 60.1 | 5.7/5.9/6.0 | 16.7/18.2/25.1 | 0 / 55 | 0 / 0 | 0 |
-| desktop / hires | final | pixel | 60.1 | 2.8/2.9/2.9 | 16.7/17.9/25.1 | 0 / 46 | 0 / 0 | 0 |
-| desktop / hires | final | crt | 60.1 | 3.4/3.5/3.6 | 16.7/18.2/25.1 | 0 / 67 | 0 / 0 | 0 |
-| mobile / yonaki | baseline | pixel | 57.1 | 43.9/53.6/54.4 | 46.1/58.3/58.9 | 467 / 467 | 24 / 24 | 1009 |
-| mobile / yonaki | baseline | crt → Pixel | 57.0 | 50.8/53.1/53.9 | 48.9/58.2/58.7 | 467 / 467 | 25 / 25 | 1064 |
-| mobile / yonaki | final | pixel | 60.1 | 10.4/11.1/11.5 | 16.7/23.6/25.3 | 0 / 98 | 0 / 0 | 0 |
-| mobile / yonaki | final | crt | 60.1 | 11.4/12.3/12.9 | 16.7/18.6/25.2 | 0 / 87 | 0 / 0 | 0 |
+| desktop / shionari | baseline | pixel | 60.1 | 3.9/4.1/4.1 | 16.7/17.9/25.0 | 0 / 32 | 0 / 0 | 0 |
+| desktop / shionari | baseline | crt | 60.1 | 4.1/4.5/4.6 | 16.7/17.8/24.9 | 0 / 30 | 0 / 0 | 0 |
+| desktop / shionari | final | pixel | 60.1 | 2.4/2.6/2.8 | 16.7/18.0/24.2 | 0 / 26 | 0 / 0 | 0 |
+| desktop / shionari | final | crt | 60.1 | 2.9/3.3/3.4 | 16.7/18.5/25.2 | 0 / 70 | 0 / 0 | 0 |
+| desktop / yonaki | baseline | pixel | 60.1 | 4.2/4.4/4.5 | 16.7/18.3/25.0 | 0 / 91 | 0 / 0 | 0 |
+| desktop / yonaki | baseline | crt | 60.1 | 4.7/4.8/5.0 | 16.7/18.6/25.1 | 0 / 119 | 0 / 0 | 0 |
+| desktop / yonaki | final | pixel | 60.1 | 2.6/2.8/2.9 | 16.7/18.1/25.0 | 0 / 64 | 0 / 0 | 0 |
+| desktop / yonaki | final | crt | 60.1 | 3.0/3.1/3.2 | 16.7/18.2/25.3 | 0 / 68 | 0 / 0 | 0 |
+| desktop / hires | baseline | pixel | 60.1 | 4.8/5.0/5.1 | 16.7/18.1/25.2 | 0 / 60 | 0 / 0 | 0 |
+| desktop / hires | baseline | crt | 60.1 | 5.2/5.4/5.5 | 16.7/18.0/25.3 | 0 / 49 | 0 / 0 | 0 |
+| desktop / hires | final | pixel | 60.1 | 2.8/2.9/3.0 | 16.7/18.2/25.2 | 0 / 67 | 0 / 0 | 0 |
+| desktop / hires | final | crt | 60.1 | 3.2/3.3/3.3 | 16.7/18.1/25.2 | 0 / 49 | 0 / 0 | 0 |
+| mobile / yonaki | baseline | pixel | 58.6 | 33.6/51.4/52.0 | 32.7/50.9/58.4 | 450 / 410 | 10 / 10 | 410 |
+| mobile / yonaki | baseline | mixed CRT → Pixel | 58.5 | 34.4/51.5/52.0 | 37.7/51.7/58.1 | 501 / 501 | 11 / 11 | 458 |
+| mobile / yonaki | final | pixel | 60.1 | 10.5/11.2/11.8 | 16.6/18.4/25.1 | 0 / 71 | 0 / 0 | 0 |
+| mobile / yonaki | final | crt | 60.1 | 11.3/12.3/12.6 | 16.6/23.9/25.2 | 0 / 105 | 0 / 0 | 0 |
 
-The four throttled baseline trials recorded 49 late gaps totaling about
-2.07 seconds. Both baseline CRT requests fell back to Pixel. The final
+The four throttled baseline trials recorded 21 late gaps totaling about
+868 ms. Both baseline CRT trials exceeded the frame budget and switched to
+Pixel after 121 measured fields, 2.03–2.04 s into each window. The final
 build sustained about 60.1 fields/s in both modes under throttling.
 Every other trial recorded zero audio gaps. The live trials recorded
 zero canceled buffers, so the controlled replay supplies the evidence
@@ -445,6 +455,14 @@ ahead on the same clock tick. The rendered waveform contains 1,280
 silent samples at 32 kHz and the probe reports one gap of 40 ms. A
 second restart after the replacement buffer expires also registers as
 late.
+
+The playback probe regression uses the production app in Chromium. WebGL
+unavailability before warm-up gives a Pixel window. A context-loss event
+inside the window gives a mixed window with a recorded field and time offset.
+The same event after window close leaves the completed trial labeled CRT.
+The production Wasm build, Rust workspace checks and 11 focused Chromium
+checks for CRT fallback and catch-up, queued audio and the Pages subpath
+passed after the display probe fix.
 
 The focused Chromium run passed seven checks, covering catch-up, Mode 5
 and Mode 6, the local Pages subpath, and both demo replays. The eighth
