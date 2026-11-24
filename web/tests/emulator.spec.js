@@ -95,8 +95,7 @@ test('failed SRAM writes block cartridge changes until the save can be recovered
   await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
   await load(page); await expect(page.locator('#status')).toHaveText('Playing');
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
-  // Storage can become unavailable during asynchronous file reading/hashing,
-  // after the initial save succeeded but before the machine is replaced.
+  // A storage failure during hashing must still block cartridge replacement.
   await page.evaluate(() => {
     const digest = crypto.subtle.digest.bind(crypto.subtle);
     crypto.subtle.digest = async (...args) => { await new Promise((resolve) => { window.releaseHash = resolve; }); return digest(...args); };

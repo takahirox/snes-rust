@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { setTabHidden } from './playback.js';
 
 const buffer = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
@@ -131,16 +132,21 @@ test('Reset guards absent, loading and unresolved save restoration without overw
   await expect(page.locator('#reset')).toBeDisabled();
   await page.locator('#reset').dispatchEvent('click');
   await page.evaluate(() => {
-    window.savedBytes = Object.entries(localStorage);
     window.getSave = Storage.prototype.getItem;
     Storage.prototype.getItem = () => { throw new Error('Read unavailable'); };
     releaseHash();
   });
   await expect(page.locator('#error')).toContainText('Save could not be restored');
+  // The outgoing save is written after hashing, before attempting restoration.
+  const savedBytes = await page.evaluate(() => Object.entries(localStorage));
+  const hash = createHash('sha256').update(buffer).digest('hex');
+  const savedSram = new Map(savedBytes).get(`snes-rust:sram:${hash}`);
+  expect(savedSram).toBeDefined();
+  expect(Buffer.from(savedSram, 'base64')[3]).toBe(0x79);
   await expect(page.locator('#reset')).toBeDisabled();
   await page.locator('#reset').dispatchEvent('click');
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-  expect(await page.evaluate(() => Object.entries(localStorage))).toEqual(await page.evaluate(() => savedBytes));
+  expect(await page.evaluate(() => Object.entries(localStorage))).toEqual(savedBytes);
   expect(await sram(page)).toBe(0x79);
   expect(await page.evaluate(() => resetMetrics.calls)).toBe(0);
   await page.evaluate(() => { Storage.prototype.getItem = getSave; });
