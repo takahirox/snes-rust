@@ -393,7 +393,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (expectedHash !== activeHash) setStatus(`Loading ${name}…`);
     let data = await read();
     if (data.length > maxRomBytes) throw new Error(romSizeError);
-    if (!demo && !fromLibrary && data.length % 1024 === 512) data = data.slice(512);
+    if (!demo && data.length % 1024 === 512) data = data.slice(512);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
     const hash = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
     if (demo && (data.length !== demo.size || hash !== demo.hash)) throw new Error('Demo download does not match the published ROM');
@@ -433,10 +433,12 @@ picker.addEventListener('keydown', event => {
 let lastRemoveClick;
 document.addEventListener('click', event => {
   if (!event.detail || !lastRemoveClick) return;
-  const { click, hash } = lastRemoveClick;
+  const { click, hash, bounds } = lastRemoveClick;
   // A committed removal can move another control under the pointer. Taps can
-  // each have a click count of one, so also check their timing and position.
-  const nearby = Math.hypot(event.clientX - click.clientX, event.clientY - click.clientY) <= 6;
+  // each have a click count of one and land anywhere within the old button.
+  const { clientX: x, clientY: y } = event;
+  const inside = x >= bounds.left && x < bounds.right && y >= bounds.top && y < bounds.bottom;
+  const nearby = inside || Math.hypot(x - click.clientX, y - click.clientY) <= 6;
   const repeated = event.detail > 1 || event.timeStamp - click.timeStamp <= 500;
   if (!click.target.isConnected && nearby && repeated) {
     const remove = event.target.closest('.remove-cartridge');
@@ -527,7 +529,7 @@ function renderLibrary(entries) {
     remove.textContent = 'Remove';
     remove.setAttribute('aria-label', `Remove ${name}`);
     remove.addEventListener('click', event => {
-      if (event.detail > 0) lastRemoveClick = { click: event, hash };
+      if (event.detail > 0) lastRemoveClick = { click: event, hash, bounds: remove.getBoundingClientRect() };
       removeCartridge(hash, name, remove);
     });
     if (nameCounts.get(name) > 1) {

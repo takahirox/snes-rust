@@ -243,6 +243,7 @@ const touchTest = test.extend({ hasTouch: true });
 for (const { width, height, count, touch } of [
   { width: 320, height: 568, count: 1 },
   { width: 667, height: 320, count: 4 },
+  { width: 320, height: 568, count: 1, touch: true },
   { width: 667, height: 320, count: 4, touch: true },
 ]) {
   const testPointer = touch ? touchTest : test;
@@ -269,9 +270,12 @@ for (const { width, height, count, touch } of [
     // Let IndexedDB commit and move the controls before sending the second click.
     await expect(remove).toHaveCount(0);
     const next = count === 1 ? page.locator('#demo-yonaki') : picker(page).getByRole('button', { name: 'Remove spare-1.sfc' });
-    expect(await next.evaluate((button, { x, y }) => button.contains(document.elementFromPoint(x, y)), { x, y })).toBe(true);
-    if (touch) await page.touchscreen.tap(x, y);
-    else await page.mouse.click(x, y, { clickCount: 2 });
+    // The second tap can drift within the original Remove button.
+    const nextX = touch ? x - 10 : x;
+    expect(nextX).toBeGreaterThan(box.x);
+    expect(await next.evaluate((button, { x, y }) => button.contains(document.elementFromPoint(x, y)), { x: nextX, y })).toBe(true);
+    if (touch) await page.touchscreen.tap(nextX, y);
+    else await page.mouse.click(nextX, y, { clickCount: 2 });
 
     await expect(picker(page)).toBeVisible();
     await expect(current(page)).toHaveText('active.sfc');
@@ -510,6 +514,37 @@ test('reports missing and mismatched bytes, preserves the active guest, and repa
   await removeSaved(page, firstHash, 'target.sfc');
   await expect(saved(page, firstHash)).toHaveCount(0);
   await expect(status(page)).toHaveText('Playing');
+});
+
+test('saved ROMs with copier headers must match the normalized SRAM identity', async ({ page }) => {
+  await instrument(page);
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'original.sfc', first);
+  await page.keyboard.down('z');
+  await expect.poll(() => sram(page)).toBe(0x79);
+  await page.keyboard.up('z');
+  await importRom(page, 'active.sfc', second);
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(2);
+
+  const headered = withHeader(first);
+  const rawHash = hashOf(headered);
+  await putStoredCartridge(page, { hash: rawHash, name: 'wrong-key.smc' }, headered);
+  await changeStoredBytes(page, firstHash, headered);
+  await page.keyboard.press('Escape');
+  await openPicker(page);
+  await selectSaved(page, rawHash, 'wrong-key.smc');
+  await expect(page.locator('#error')).toContainText('Reopen the original file or remove the saved entry');
+  await expect(current(page)).toHaveText('active.sfc');
+  await expect(status(page)).toHaveText('Playing');
+  expect(await commits(page)).toBe(2);
+
+  await openPicker(page);
+  await selectSaved(page, firstHash, 'original.sfc');
+  await expect.poll(() => bootSave(page)).toBe(0x79);
+  await expect(status(page)).toHaveText('Playing');
+  expect(await commits(page)).toBe(3);
+  expect(await page.evaluate(hash => localStorage.getItem(`snes-rust:sram:${hash}`), rawHash)).toBeNull();
 });
 
 test('writes a ROM only after restoring SRAM, including on retry', async ({ page }) => {
