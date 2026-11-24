@@ -261,8 +261,8 @@ impl SystemBus {
             if self.v == 0 && old_h < HDMA_INIT && self.h >= HDMA_INIT {
                 self.hdma_init = true;
             }
-            // During run_frame, compose at PPU writes or at the two
-            // observable raster edges. STAT77 publishes at HBlank, four
+            // During run_frame, compose at relevant PPU accesses or at the
+            // two raster edges. STAT77 starts publishing at HBlank, four
             // pixels before the end of the picture.
             if (1..=224).contains(&self.v)
                 && (!self.defer_raster
@@ -430,9 +430,14 @@ impl SystemBus {
             match lo {
                 0..=0x1fff => return self.wram[lo],
                 0x2100..=0x213f => {
-                    // OAMDATA reads advance the address used by priority
-                    // rotation. Preserve the first visible OBJ evaluation.
-                    if lo == 0x2138 && self.defer_raster && (1..=224).contains(&self.v) {
+                    // OAMDATA reads advance the priority rotation address.
+                    // STAT77 can first see overflow in the HBlank picture
+                    // tail if OBJ evaluation was delayed by forced blank.
+                    if self.defer_raster
+                        && (lo == 0x2138
+                            || (lo == 0x213e && (HBLANK..PICTURE_END).contains(&self.h)))
+                        && (1..=224).contains(&self.v)
+                    {
                         self.ppu.render_until(self.v as usize - 1, self.h);
                     }
                     return self.ppu.read((lo - 0x2100) as u8, self.open);
