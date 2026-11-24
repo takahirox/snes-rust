@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installAudioProbe } from './browser-audio.mjs';
+import { installPlaybackProbe } from './browser-playback.mjs';
 
 const require = createRequire(new URL('../../web/package.json', import.meta.url));
 const { chromium } = require('@playwright/test');
@@ -54,55 +55,7 @@ try {
         if (mobile) await session.send('Emulation.setCPUThrottlingRate', { rate: 4 });
         await session.send('Performance.enable');
         await page.addInitScript(installAudioProbe);
-        await page.addInitScript(({ masks, warmup, frames, mode }) => {
-          localStorage.setItem('snes-rust:display', mode);
-          const probe = window.bench = {
-            frames: 0, timings: [], core: [], arrivals: [], audio: 0, gaps: 0,
-            late: 0, gapSeconds: 0, cancelledAudio: 0, lastFrame: 0,
-          };
-          const withinWindow = () => probe.start !== undefined && probe.end === undefined;
-          const instantiate = WebAssembly.instantiate;
-          WebAssembly.instantiate = async (...args) => {
-            const result = await instantiate(...args);
-            const exports = result.instance.exports;
-            return { ...result, instance: { exports: {
-              ...exports,
-              run_frame(buttons) {
-                if (probe.end !== undefined) return exports.run_frame(buttons);
-                const start = performance.now();
-                const ok = exports.run_frame(masks[probe.frames] ?? 0);
-                if (!ok) return ok;
-                ++probe.frames;
-                if (withinWindow()) probe.core.push(performance.now() - start);
-                return ok;
-              },
-            } } };
-          };
-          const raf = window.requestAnimationFrame;
-          window.requestAnimationFrame = callback => raf.call(window, time => {
-            const before = probe.frames;
-            const start = performance.now();
-            callback(time);
-            if (probe.frames === before) return;
-            const end = performance.now();
-            // Catch-up callbacks schedule audio per field but present only once.
-            // Use whole callbacks at both boundaries to measure the same work.
-            if (probe.start === undefined) {
-              if (probe.frames >= warmup) {
-                probe.start = end;
-                probe.warmupFields = probe.frames;
-                probe.lastFrame = time;
-              }
-              return;
-            }
-            probe.timings.push(end - start);
-            probe.arrivals.push(time - probe.lastFrame);
-            probe.lastFrame = time;
-            if (probe.frames - probe.warmupFields >= frames) {
-              probe.end = end;
-            }
-          });
-        }, { masks, warmup, frames, mode });
+        await page.addInitScript(installPlaybackProbe, { masks, warmup, frames, mode });
         const launchStart = performance.now();
         await page.goto(`http://127.0.0.1:${server.address().port}/`);
         const romBytes = await readFile(join(root, rom));
@@ -117,8 +70,7 @@ try {
         await page.waitForFunction(() => window.bench.end, null, { timeout: 120_000 });
         const after = await session.send('Performance.getMetrics');
         const result = await page.evaluate(() => ({
-          ...window.bench, mode: document.querySelector('#display').value,
-          status: document.querySelector('#display-status').textContent,
+          ...window.bench,
           error: document.querySelector('#error').textContent,
           audioStatus: document.querySelector('#audio-status').textContent,
           viewport: [innerWidth, innerHeight, devicePixelRatio],
