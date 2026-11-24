@@ -102,18 +102,19 @@ async function changeStoredBytes(page, hash, bytes) {
   }), { hash, bytes: bytes && [...bytes] });
 }
 
-async function removeStoredName(page, hash) {
-  await page.evaluate(hash => new Promise((resolve, reject) => {
+async function putStoredCartridge(page, entry, bytes) {
+  await page.evaluate(({ entry, bytes }) => new Promise((resolve, reject) => {
     const request = indexedDB.open('snes-rust:cartridges', 1);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
-      const tx = db.transaction('cartridges', 'readwrite');
+      const tx = db.transaction(bytes ? ['cartridges', 'roms'] : 'cartridges', 'readwrite');
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onabort = () => { db.close(); reject(tx.error); };
-      tx.objectStore('cartridges').put({ hash });
+      tx.objectStore('cartridges').put(entry);
+      if (bytes) tx.objectStore('roms').put(Uint8Array.from(bytes), entry.hash);
     };
-  }), hash);
+  }), { entry, bytes: bytes && [...bytes] });
 }
 
 test('remembers normalized ROMs, restores guest progress after reload and revisit, and removes without ejecting', async ({ page, context }) => {
@@ -350,7 +351,7 @@ test('a missing stored name leaves healthy cartridges visible and can be repaire
   await importRom(page, 'original.sfc', second);
   await openPicker(page);
   await expect(rows(page)).toHaveCount(2);
-  await removeStoredName(page, secondHash);
+  await putStoredCartridge(page, { hash: secondHash });
 
   await page.reload(); await ready(page);
   await openPicker(page);
@@ -370,12 +371,64 @@ test('a missing stored name leaves healthy cartridges visible and can be repaire
   await openPicker(page);
   await expect(repaired).toBeVisible();
   await expect(healthy).toBeVisible();
-  await removeStoredName(page, secondHash);
+  await putStoredCartridge(page, { hash: secondHash });
   await page.keyboard.press('Escape');
   await openPicker(page);
   await expect(unnamed).toBeVisible();
   await removeSaved(page, secondHash, 'Unnamed cartridge');
   await expect(saved(page, secondHash)).toHaveCount(0);
+  await expect(healthy).toBeVisible();
+});
+
+test('rejects a saved cartridge with an empty hash before reading its valid ROM bytes', async ({ page }) => {
+  await instrument(page);
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'active.sfc', second);
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(1);
+  await putStoredCartridge(page, { hash: '', name: 'broken.sfc' }, first);
+  await page.keyboard.press('Escape');
+  await openPicker(page);
+  await selectSaved(page, '', 'broken.sfc');
+  await expect(page.locator('#error')).toContainText('Reopen the original file or remove the saved entry');
+  await expect(current(page)).toHaveText('active.sfc');
+  await expect(status(page)).toHaveText('Playing');
+  expect(await commits(page)).toBe(1);
+  expect(await page.evaluate(() => libraryReads)).not.toContain('roms');
+
+  await openPicker(page);
+  await removeSaved(page, '', 'broken.sfc');
+  await expect(rows(page)).toHaveCount(1);
+  await expect(saved(page, secondHash)).toBeVisible();
+});
+
+test('a numeric storage key sharing a filename leaves the healthy ROM playable and the broken entry removable', async ({ page }) => {
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'shared.sfc', first);
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(1);
+  await putStoredCartridge(page, { hash: 7, name: 'shared.sfc' }, second);
+
+  await page.reload(); await ready(page);
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(2);
+  const healthy = saved(page, firstHash);
+  await expect(healthy.getByRole('button', { name: 'shared.sfc', exact: true })).toHaveAccessibleDescription(firstHash.slice(0, 12));
+  await selectSaved(page, firstHash, 'shared.sfc');
+  await expect(status(page)).toHaveText('Playing');
+  await expect(current(page)).toHaveText('shared.sfc');
+  await openPicker(page);
+  const brokenRemove = picker(page).getByRole('button', { name: 'Remove shared.sfc', description: 'Invalid saved entry' });
+  await brokenRemove.focus();
+  await page.keyboard.press('Enter');
+  await expect(rows(page)).toHaveCount(1);
+  await expect(healthy).toBeVisible();
+  await expect(status(page)).toHaveText('Playing');
+  await expect(healthy.getByRole('button', { name: 'shared.sfc', exact: true })).toBeFocused();
+
+  await page.reload(); await ready(page);
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(1);
   await expect(healthy).toBeVisible();
 });
 
