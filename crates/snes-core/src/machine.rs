@@ -78,6 +78,15 @@ pub struct SystemBus {
     hdma_init: bool,
     math: Option<(u8, u16, u16)>,
     defer_raster: bool,
+    // `tick` may skip its event scan while H stays strictly below this
+    // limit on line `fast_v`; zero forces the full scan.
+    fast_limit: u64,
+    fast_v: u16,
+    // Inside run_frame, master clocks owed to the APU. The SPC and DSP see
+    // the CPU only through the ports, so catching up before every port
+    // access and at the end of the field runs the same SPC instructions.
+    defer_apu: bool,
+    apu_lag: u64,
 }
 impl Machine {
     pub fn new(rom: &[u8]) -> Result<Self, String> {
@@ -96,6 +105,13 @@ impl Machine {
         self.cpu.reset(&mut self.bus);
     }
     pub fn step(&mut self) {
+        if self.cpu.waiting
+            && !self.cpu.stopped
+            && !(self.bus.nmi_pending || self.bus.irq)
+            && self.bus.idle_run()
+        {
+            return;
+        }
         if self.bus.hdma_init || self.bus.hdma_pending || self.bus.dma_pending != 0 {
             self.bus.events();
         }
@@ -109,8 +125,17 @@ impl Machine {
     }
     pub fn run_frame(&mut self) -> Result<(), String> {
         self.bus.defer_raster = true;
+        self.bus.defer_apu = true;
+        self.bus.fast_limit = 0;
         let result = self.run_field();
+        self.bus.sync_apu();
+        self.bus.defer_apu = false;
         self.bus.defer_raster = false;
+        self.bus.fast_limit = 0;
+        let result = result.and_then(|()| match self.bus.apu.error.take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        });
         if (1..=224).contains(&self.bus.v) {
             self.bus
                 .ppu
@@ -135,9 +160,6 @@ impl Machine {
                     self.cpu.pb, self.cpu.pc, self.bus.frames
                 ));
             }
-        }
-        if let Some(error) = self.bus.apu.error.take() {
-            return Err(error);
         }
         Ok(())
     }
@@ -210,10 +232,88 @@ impl SystemBus {
             hdma_init: false,
             math: None,
             defer_raster: false,
+            fast_limit: 0,
+            fast_v: 0,
+            defer_apu: false,
+            apu_lag: 0,
         }
     }
+    fn sync_apu(&mut self) {
+        let lag = std::mem::take(&mut self.apu_lag);
+        if lag != 0 {
+            self.apu.tick(lag);
+        }
+    }
+    // Run consecutive WAI idle cycles at once while each would take the
+    // `bus_tick` and `tick` fast paths: no DMA/HDMA, refresh, raster, IRQ,
+    // NMI, joypad or line event can occur, so the CPU keeps waiting.
+    // Returns false when the next idle needs the ordinary path.
+    fn idle_run(&mut self) -> bool {
+        if self.hdma_init
+            || self.hdma_pending
+            || self.dma_pending != 0
+            || self.math.is_some()
+            || self.v != self.fast_v
+            || self.h == 538
+        {
+            return false;
+        }
+        let limit = if self.h < 538 {
+            self.fast_limit.min(538)
+        } else {
+            self.fast_limit
+        };
+        let idles = limit.saturating_sub(self.h + 1) / 6;
+        if idles == 0 {
+            return false;
+        }
+        self.tick(idles * 6);
+        true
+    }
     fn tick(&mut self, n: u64) {
-        self.apu.tick(n);
+        if self.defer_apu && !self.apu.chunk_sensitive() {
+            self.apu_lag += n;
+        } else {
+            self.sync_apu();
+            self.apu.tick(n);
+        }
+        if self.h + n < self.fast_limit && self.v == self.fast_v {
+            // No raster, IRQ, HDMA, joypad or line event lies in this interval.
+            self.clocks += n;
+            self.h += n;
+            self.ppu.h = self.h as u16;
+            return;
+        }
+        self.tick_events(n);
+        self.update_fast_limit();
+    }
+    // The earliest H on this line at which `tick_events` could act. Both
+    // horizontal IRQ candidates are included, independent of mode/VTIME.
+    fn update_fast_limit(&mut self) {
+        let line = self.ppu.line_clocks();
+        let htime = (u16::from_le_bytes([self.io[7], self.io[8] & 1]) as u64) * 4;
+        let mut limit = [4, V_ONLY_IRQ, HDMA_INIT, OAM_RELOAD, htime, htime + 14]
+            .into_iter()
+            .chain([PICTURE_END, HDMA_SCANLINE])
+            .filter(|&t| t > self.h)
+            .fold(line, u64::min);
+        if let Some(next) = self.auto_start {
+            limit = limit.min(self.h + (next - self.clocks));
+        }
+        if let Some(poll) = &self.auto_poll {
+            limit = limit.min(self.h + (poll.next - self.clocks));
+        }
+        if !self.defer_raster && (1..=224).contains(&self.v) {
+            limit = 0;
+        }
+        #[cfg(test)]
+        if self.raster_quantum != u64::MAX {
+            limit = 0;
+        }
+        self.fast_limit = limit;
+        self.fast_v = self.v;
+    }
+    fn tick_events(&mut self, n: u64) {
         let mut n = n;
         let htime = (u16::from_le_bytes([self.io[7], self.io[8] & 1]) as u64) * 4;
         let vtime = u16::from_le_bytes([self.io[9], self.io[10] & 1]);
@@ -262,12 +362,11 @@ impl SystemBus {
                 self.hdma_init = true;
             }
             // During run_frame, compose at relevant PPU accesses or at the
-            // two raster edges. STAT77 starts publishing at HBlank, four
-            // pixels before the end of the picture.
+            // picture end. STAT77 starts publishing at HBlank, four pixels
+            // before the end of the picture; $213E reads in that tail and
+            // every PPU write compose first, so no separate HBlank edge is needed.
             if (1..=224).contains(&self.v)
-                && (!self.defer_raster
-                    || (old_h < HBLANK && self.h >= HBLANK)
-                    || (old_h < PICTURE_END && self.h >= PICTURE_END))
+                && (!self.defer_raster || (old_h < PICTURE_END && self.h >= PICTURE_END))
             {
                 self.ppu.render_until(self.v as usize - 1, self.h);
             }
@@ -442,7 +541,10 @@ impl SystemBus {
                     }
                     return self.ppu.read((lo - 0x2100) as u8, self.open);
                 }
-                0x2140..=0x217f => return self.apu.port_read((lo - 0x2140) & 3),
+                0x2140..=0x217f => {
+                    self.sync_apu();
+                    return self.apu.port_read((lo - 0x2140) & 3);
+                }
                 0x2180 => {
                     let v = self.wram[self.waddr];
                     self.waddr = (self.waddr + 1) & 0x1ffff;
@@ -509,6 +611,7 @@ impl SystemBus {
                     return;
                 }
                 0x2140..=0x217f => {
+                    self.sync_apu();
                     self.apu.port_write((lo - 0x2140) & 3, v);
                     return;
                 }
@@ -536,6 +639,7 @@ impl SystemBus {
                 0x4200..=0x420d => {
                     let old = self.io[lo - 0x4200];
                     self.io[lo - 0x4200] = v;
+                    self.fast_limit = 0;
                     match lo {
                         0x4200 => {
                             if old & 128 == 0 && v & 128 != 0 && self.nmi_flag {
@@ -583,6 +687,10 @@ impl SystemBus {
     // A CPU/DMA access can straddle refresh. The 40-clock hold must advance
     // every other device, without consuming another CPU cycle or DMA byte.
     fn bus_tick(&mut self, mut clocks: u64) {
+        if self.h + clocks < 538 || (self.h > 538 && self.h + clocks < self.ppu.line_clocks()) {
+            self.tick(clocks);
+            return;
+        }
         while clocks > 0 {
             let boundary = if self.h < 538 {
                 538
@@ -646,7 +754,13 @@ impl SystemBus {
         }
         self.open = v;
     }
+    #[inline]
     fn events(&mut self) {
+        if self.hdma_init || self.hdma_pending || self.dma_pending != 0 {
+            self.service_events();
+        }
+    }
+    fn service_events(&mut self) {
         self.hdma_events();
         if self.dma_pending != 0 {
             let pending = std::mem::take(&mut self.dma_pending);

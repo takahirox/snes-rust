@@ -11,7 +11,11 @@ pub struct Cartridge {
     pub title: String,
     pub mapping: Mapping,
     pub battery: bool,
+    // ROM offset of each 4 KiB page of the 24-bit address space, or
+    // `SLOW_PAGE` where `read` must decode SRAM, open bus or a split page.
+    pages: Vec<u32>,
 }
+const SLOW_PAGE: u32 = u32::MAX;
 impl Cartridge {
     pub fn load(image: &[u8]) -> Result<Self, String> {
         let image = if image.len() % 1024 == 512 {
@@ -56,7 +60,7 @@ impl Cartridge {
         if size > 8 {
             return Err("Unsupported SRAM size".into());
         }
-        Ok(Self {
+        let mut cart = Self {
             rom: image.to_vec(),
             sram: vec![0; if size == 0 { 0 } else { 1024usize << size }],
             title: String::from_utf8_lossy(&image[h..h + 21])
@@ -64,7 +68,27 @@ impl Cartridge {
                 .to_string(),
             mapping,
             battery: chip == 2,
-        })
+            pages: Vec::new(),
+        };
+        cart.pages = (0..4096u32)
+            .map(|page| {
+                let base = page << 12;
+                let offset = |a| cart.rom_index(a).filter(|_| cart.sram_index(a).is_none());
+                match offset(base) {
+                    // Keep the page only if it is one linear ROM run.
+                    Some(first)
+                        if (0..4096)
+                            .step_by(64)
+                            .chain([4095])
+                            .all(|k| offset(base + k) == Some(first + k as usize)) =>
+                    {
+                        first as u32
+                    }
+                    _ => SLOW_PAGE,
+                }
+            })
+            .collect();
+        Ok(cart)
     }
     fn sram_index(&self, a: u32) -> Option<usize> {
         let bank = (a >> 16) as usize;
@@ -88,10 +112,7 @@ impl Cartridge {
         };
         Some(i % self.sram.len())
     }
-    pub fn read(&self, a: u32) -> Option<u8> {
-        if let Some(i) = self.sram_index(a) {
-            return Some(self.sram[i]);
-        }
+    fn rom_index(&self, a: u32) -> Option<usize> {
         let bank = (a >> 16) as usize;
         let lo = (a & 0xffff) as usize;
         let i = match self.mapping {
@@ -101,7 +122,18 @@ impl Cartridge {
             Mapping::HiRom if lo >= 0x8000 || bank & 0x7f >= 0x40 => ((bank & 0x3f) << 16) | lo,
             _ => return None,
         };
-        Some(self.rom[mirror(i, self.rom.len())])
+        Some(mirror(i, self.rom.len()))
+    }
+    #[inline]
+    pub fn read(&self, a: u32) -> Option<u8> {
+        let page = self.pages[(a >> 12) as usize & 4095];
+        if page != SLOW_PAGE {
+            return Some(self.rom[page as usize + (a & 4095) as usize]);
+        }
+        if let Some(i) = self.sram_index(a) {
+            return Some(self.sram[i]);
+        }
+        self.rom_index(a).map(|i| self.rom[i])
     }
     pub fn write(&mut self, a: u32, v: u8) {
         if let Some(i) = self.sram_index(a) {

@@ -99,13 +99,28 @@ impl Apu {
             self.count = 0;
         }
     }
+    // A pending IPL command or jump discards the remaining cycle debt when
+    // it fires (`begin`), so its outcome depends on how master clocks are
+    // grouped into `tick` calls. Otherwise only the total matters.
+    pub(crate) fn chunk_sensitive(&self) -> bool {
+        self.command.is_some() || self.pending.is_some()
+    }
     pub fn port_read(&mut self, port: usize) -> u8 {
         self.output[port]
     }
     pub fn tick(&mut self, master: u64) {
+        const MASTER: u64 = 21_477_272;
         self.clock += master * 1_024_000;
-        let n = self.clock / 21_477_272;
-        self.clock %= 21_477_272;
+        let n = if self.clock < MASTER * 2 {
+            // Bus accesses advance at most two SPC cycles; avoid a division.
+            let n = u64::from(self.clock >= MASTER);
+            self.clock -= n * MASTER;
+            n
+        } else {
+            let n = self.clock / MASTER;
+            self.clock %= MASTER;
+            n
+        };
         self.cycles += n as i64;
         while self.cycles > 0 {
             let cycles = if self.boot || self.cpu.halted {
@@ -114,6 +129,11 @@ impl Apu {
                 self.step()
             };
             self.cycles -= cycles as i64;
+            // Without boot work, only multiples of 16 cycles have events.
+            if !self.boot && self.pending.is_none() && (self.total & 15) + u64::from(cycles) < 16 {
+                self.total += u64::from(cycles);
+                continue;
+            }
             for _ in 0..cycles {
                 self.total += 1;
                 if self.boot {
