@@ -946,9 +946,22 @@ impl Ppu {
         // SETINI pseudo-hires keeps both screens at the same full dot.
         let samples = if hires { 2 } else { 1 };
         let count = (end - start) * samples;
+        // A Mode 5 BG shown on only one screen needs only that phase; keep
+        // it compact (one sample per dot) instead of interleaved.
+        let mut compact = 0u8;
         for bg in 0..4 {
-            if used & (1 << bg) != 0 {
-                self.fill_bg(bg, y, start * samples, &mut line.bg[bg][..count]);
+            if used & (1 << bg) == 0 {
+                continue;
+            }
+            let phases = (0..screens).fold(0, |phases, screen| {
+                phases | (u8::from(enables[screen] & (1 << bg) != 0) << usize::from(screen == 0))
+            });
+            if self.regs[5] & 7 == 5 && self.regs[6] & (1 << bg) == 0 && phases != 3 {
+                compact |= 1 << bg;
+                let phase = usize::from(phases == 2);
+                self.fill_bg(bg, y, start * 2 + phase, 2, &mut line.bg[bg][..end - start]);
+            } else {
+                self.fill_bg(bg, y, start * samples, 1, &mut line.bg[bg][..count]);
             }
         }
         for layer in 0..6 {
@@ -979,14 +992,17 @@ impl Ppu {
                 if enable & (1 << layer) == 0 {
                     continue;
                 }
-                let source = if layer < 4 {
-                    &bg[layer][..count]
-                } else {
+                let contiguous = layer == 4 || samples == 1 || compact & (1 << layer) != 0;
+                let source = if layer == 4 {
                     &self.obj_line[start..end]
+                } else if contiguous {
+                    &bg[layer][..n]
+                } else {
+                    &bg[layer][..count]
                 };
                 let windowed = masks[index] & (1 << layer) != 0;
                 let win = &win[layer][start..end];
-                if layer == 4 || samples == 1 {
+                if contiguous {
                     if windowed {
                         for ((c, &p), &w) in pixels.iter_mut().zip(source).zip(win) {
                             if !w && p >> 24 > *c >> 24 {
@@ -1081,24 +1097,37 @@ impl Ppu {
             self.line = Some(line);
             return;
         }
+        // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
+        // in true/pseudo hires. Leave the math operand intact.
+        let shown_sub = |sub_pixel: u32, clip: bool| {
+            if clip {
+                0
+            } else if (sub_pixel >> 16) & 7 == 5 {
+                back_color
+            } else {
+                sub_pixel as u16 & 0x7fff
+            }
+        };
+        if wide_output && repeats == 1 {
+            let out = &mut self.frame[(row + start * 2) * 4..(row + end * 2) * 4];
+            for (i, o) in out.chunks_exact_mut(8).enumerate() {
+                let (main_pixel, sub_pixel) = (screen[0][i], screen[1][i]);
+                let (clip, prevent) = window_modes(needs_color_window && win[5][start + i]);
+                o[..4].copy_from_slice(&rgba(shown_sub(sub_pixel, clip)).to_le_bytes());
+                o[4..].copy_from_slice(
+                    &rgba(blend(main_pixel, sub_pixel, clip, prevent)).to_le_bytes(),
+                );
+            }
+            self.line = Some(line);
+            return;
+        }
         for (i, x) in (start..end).enumerate() {
             let main_pixel = screen[0][i];
             let sub_pixel = screen[1][i];
             let (clip, prevent) = window_modes(needs_color_window && win[5][x]);
             for phase in 0..scale {
-                // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
-                // in true/pseudo hires. Leave the math operand intact.
                 let color = if wide_output && phase == 0 {
-                    let shown = if (sub_pixel >> 16) & 7 == 5 {
-                        BACKDROP | u32::from(back_color)
-                    } else {
-                        sub_pixel
-                    };
-                    if clip {
-                        0
-                    } else {
-                        shown as u16 & 0x7fff
-                    }
+                    shown_sub(sub_pixel, clip)
                 } else {
                     blend(main_pixel, sub_pixel, clip, prevent)
                 };
@@ -1113,7 +1142,8 @@ impl Ppu {
         self.line = Some(line);
     }
     // Fill packed BG samples [first, first + out.len()) of one scanline.
-    fn fill_bg(&self, bg: usize, y: usize, first: usize, out: &mut [u32]) {
+    // Fill packed BG samples first, first + step, ... (step 2 only in Mode 5).
+    fn fill_bg(&self, bg: usize, y: usize, first: usize, step: usize, out: &mut [u32]) {
         let mode = self.regs[5] & 7;
         if mode == 7 {
             if bg == 0 || (bg == 1 && self.regs[0x33] & 0x40 != 0) {
@@ -1134,11 +1164,12 @@ impl Ppu {
             // Mosaic uses the general sampler.
             let mut row = None;
             for (i, o) in out.iter_mut().enumerate() {
-                *o = pack(self.bg_pixel(bg, first + i, y, &mut row), bg);
+                *o = pack(self.bg_pixel(bg, first + i * step, y, &mut row), bg);
             }
             return;
         }
         let layout = self.bg_layout(bg, mode, bpp);
+        debug_assert!(step == 1 || mode == 5);
         if bg < 2 && matches!(mode, 2 | 4 | 6) {
             // Offset-per-tile: `bg_source` is constant within an offset
             // column and advances one source dot per sample, so resolve it
@@ -1153,7 +1184,7 @@ impl Ppu {
                 let group = (8 - (q & 7)) * scale - (x % scale);
                 let run = group.min(8 - (sx & 7)).min(out.len() - i);
                 let row = layout.map_row(sy);
-                self.emit_tile_row(&layout, row, sx, sy, &mut out[i..i + run]);
+                self.emit_tile_row::<1>(&layout, row, sx, sy, &mut out[i..i + run]);
                 i += run;
             }
             return;
@@ -1164,9 +1195,18 @@ impl Ppu {
         let sy = (y + 1 + self.scroll[bg][1] as usize) & 1023;
         let row = layout.map_row(sy);
         let mut i = 0;
+        if step == 2 {
+            while i < out.len() {
+                let run = ((9 - (sx & 7)) / 2).min(out.len() - i);
+                self.emit_tile_row::<2>(&layout, row, sx, sy, &mut out[i..i + run]);
+                i += run;
+                sx = (sx + run * 2) & 1023;
+            }
+            return;
+        }
         while i < out.len() {
             let run = (8 - (sx & 7)).min(out.len() - i);
-            self.emit_tile_row(&layout, row, sx, sy, &mut out[i..i + run]);
+            self.emit_tile_row::<1>(&layout, row, sx, sy, &mut out[i..i + run]);
             i += run;
             sx = (sx + run) & 1023;
         }
@@ -1193,10 +1233,17 @@ impl Ppu {
             }),
         }
     }
-    // Pack consecutive samples from source (sx, sy) within one tile row;
-    // `out` must not extend past the eight-dot boundary of sx.
+    // Pack samples from source (sx, sy), STEP dots apart, within one tile
+    // row; `out` must not extend past the eight-dot boundary of sx.
     #[inline(always)]
-    fn emit_tile_row(&self, l: &BgLayout, row: usize, sx: usize, sy: usize, out: &mut [u32]) {
+    fn emit_tile_row<const STEP: usize>(
+        &self,
+        l: &BgLayout,
+        row: usize,
+        sx: usize,
+        sy: usize,
+        out: &mut [u32],
+    ) {
         let tx = (sx >> l.width_shift) & if l.wide_map { 63 } else { 31 };
         let entry = self.vw(row + usize::from(tx >= 32) * 2048 + (tx & 31) * 2);
         let mut px = sx & (l.tile_width - 1);
@@ -1239,7 +1286,7 @@ impl Ppu {
             return;
         }
         for (k, o) in out.iter_mut().enumerate() {
-            let color = (colors >> (k * 8)) as u8;
+            let color = (colors >> (k * STEP * 8)) as u8;
             *o = if color == 0 {
                 0
             } else if l.direct {
