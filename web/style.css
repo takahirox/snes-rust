@@ -37,10 +37,28 @@ button:hover:enabled { background: #edf0ec; }
 #cartridge-label { color: #697078; font-size: 11px; }
 #current-game { margin: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #change-cartridge { white-space: nowrap; }
-#cartridge-picker { width: min(360px, calc(100vw - 32px)); padding: 16px; border: 1px solid #c9cdce; border-radius: 12px; background: #fff; color: inherit; box-shadow: 0 8px 32px #10201830; }
+#cartridge-picker {
+  --picker-top: max(16px, env(safe-area-inset-top));
+  --picker-right: max(16px, env(safe-area-inset-right));
+  --picker-bottom: max(16px, env(safe-area-inset-bottom));
+  --picker-left: max(16px, env(safe-area-inset-left));
+  inset: var(--picker-top) var(--picker-right) var(--picker-bottom) var(--picker-left);
+  width: min(360px, calc(100% - var(--picker-left) - var(--picker-right)));
+  max-height: calc(100dvh - var(--picker-top) - var(--picker-bottom));
+  overflow: auto; overscroll-behavior: contain;
+  padding: 16px; border: 1px solid #c9cdce; border-radius: 12px; background: #fff; color: inherit; box-shadow: 0 8px 32px #10201830;
+}
 #cartridge-title { font-size: 15px; margin: 0 0 12px; }
-#cartridge-picker button { display: block; width: 100%; text-align: left; }
-#cartridge-picker button + button { margin-top: 8px; }
+#cartridge-picker button { display: block; width: 100%; min-height: 44px; text-align: left; overflow-wrap: anywhere; }
+#cartridge-picker > button:not(:first-of-type), #my-cartridges { margin-top: 8px; }
+#my-cartridges-title { margin: 12px 0 4px; font-size: 13px; color: #58665f; }
+#saved-cartridges { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+#saved-cartridges li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; }
+#saved-cartridges small { display: block; color: #58665f; font-size: 11px; }
+#cartridge-picker .remove-cartridge { padding: 4px 8px; border-color: transparent; font-size: 12px; }
+.remove-cartridge[aria-disabled="true"] { opacity: .42; cursor: default; }
+#library-status { position: sticky; bottom: 0; background: #fff; color: #a32f29; overflow-wrap: anywhere; margin: 8px 0 0; }
+#library-status:empty { margin: 0; }
 .toolbar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .toolbar button { padding: 7px 12px; font-size: 13px; }
 #play { width: 64px; flex-shrink: 0; }
@@ -57,7 +75,7 @@ button:hover:enabled { background: #edf0ec; }
 #status:has(+ #fullscreen-status:not(:empty)) { display: none; }
 #fullscreen-status { color: #805511; }
 #fullscreen-status:empty { position: absolute; }
-#error { color: #a32f29; white-space: pre-wrap; }
+#error { color: #a32f29; white-space: pre-wrap; overflow-wrap: anywhere; }
 #audio-status, #display-status { color: #805511; }
 #error:empty, #audio-status:empty, #display-status:empty { display: none; }
 .touch-controls, #exit-fullscreen { display: none; }

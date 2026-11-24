@@ -68,7 +68,12 @@
           <h2 id="cartridge-title">Cartridges</h2>
           <button id="demo" autofocus disabled>Bundled demo — <span lang="ja">潮鳴りの密室</span></button>
           <button id="demo-yonaki" disabled>Bundled demo — <span lang="ja">夜鳴き鐘</span></button>
+          <section id="my-cartridges" aria-labelledby="my-cartridges-title" hidden>
+            <h3 id="my-cartridges-title">My cartridges</h3>
+            <ul id="saved-cartridges" role="list"></ul>
+          </section>
           <button id="open-local" disabled>Open local ROM…</button>
+          <p id="library-status" role="status"></p>
         </div>
         <input id="rom" type="file" hidden disabled accept=".sfc,.smc" aria-label="Open local ROM">
       </div>
