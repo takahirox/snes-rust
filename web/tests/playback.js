@@ -7,6 +7,10 @@ export function setTabHidden(page, hidden) {
   }, hidden);
 }
 
+export function waitForAnimationFrames(page) {
+  return page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
 // Hardware/replay checks drive frames directly and need the exact reset origin.
 // Pause in the same task as Reset so no animation frame can run in between.
 export async function resetAndPause(page) {

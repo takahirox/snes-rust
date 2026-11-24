@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { selectDemo } from './cartridge.js';
+import { setTabHidden, waitForAnimationFrames } from './playback.js';
 
 const smoke = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const demo = readFileSync(new URL('../../demos/shionari.sfc', import.meta.url));
@@ -50,14 +51,18 @@ async function instrument(page) {
   await page.addInitScript(() => {
     const instantiate = WebAssembly.instantiate;
     window.libraryCommits = 0;
+    window.libraryFrames = 0;
     WebAssembly.instantiate = async (...args) => {
       const result = await instantiate(...args);
       window.libraryCore = result.instance.exports;
-      return { instance: { exports: { ...libraryCore, commit_rom(...args) {
-        const ok = libraryCore.commit_rom(...args);
-        if (ok) libraryCommits++;
-        return ok;
-      } } } };
+      return { instance: { exports: { ...libraryCore,
+        commit_rom(...args) {
+          const ok = libraryCore.commit_rom(...args);
+          if (ok) libraryCommits++;
+          return ok;
+        },
+        run_frame(mask) { libraryFrames++; return libraryCore.run_frame(mask); },
+      } } };
     };
     window.libraryReads = [];
     const transaction = IDBDatabase.prototype.transaction;
@@ -69,6 +74,19 @@ async function instrument(page) {
 }
 async function ready(page) { await expect(status(page)).toHaveText('Ready'); }
 async function openPicker(page) { await page.locator('#change-cartridge').click(); await expect(picker(page)).toBeVisible(); }
+async function delaySavedVerification(page) {
+  await page.evaluate(() => {
+    const digest = crypto.subtle.digest;
+    window.savedDigests = [];
+    crypto.subtle.digest = function (...args) {
+      return new Promise(resolve => savedDigests.push(() => {
+        const result = digest.apply(this, args);
+        resolve(result);
+        return result;
+      }));
+    };
+  });
+}
 async function importRom(page, name, buffer) {
   await page.locator('#rom').setInputFiles(file(name, buffer));
   await expect(page.locator('#rom')).toBeEnabled();
@@ -239,17 +257,7 @@ test('Escape and Insert cartridge cancel a saved selection during hash verificat
   await expect(current(page)).toHaveText(demoName);
   await expect(status(page)).toHaveText('Playing');
   await openPicker(page);
-  await page.evaluate(() => {
-    const digest = crypto.subtle.digest;
-    window.savedDigests = [];
-    crypto.subtle.digest = function (...args) {
-      return new Promise(resolve => savedDigests.push(() => {
-        const result = digest.apply(this, args);
-        resolve(result);
-        return result;
-      }));
-    };
-  });
+  await delaySavedVerification(page);
 
   const select = saved(page, firstHash).getByRole('button', { name: 'saved.sfc', exact: true });
   const insert = page.locator('#change-cartridge');
@@ -277,6 +285,12 @@ test('Escape and Insert cartridge cancel a saved selection during hash verificat
   await expect(status(page)).toHaveText('Loading saved.sfc…');
   await expect(current(page)).toHaveText(demoName);
   expect(await commits(page)).toBe(2);
+  await setTabHidden(page, true);
+  const suspendedFrames = await page.evaluate(() => libraryFrames);
+  await setTabHidden(page, false);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => libraryFrames)).toBe(suspendedFrames);
+  await expect(play).toBeDisabled();
 
   // Send the pointer click even if the toggle is disabled during verification.
   await insert.click({ force: true });
@@ -290,15 +304,75 @@ test('Escape and Insert cartridge cancel a saved selection during hash verificat
   await expect(status(page)).toHaveText('Playing');
   await expect(current(page)).toHaveText(demoName);
   expect(await commits(page)).toBe(2);
+  await expect.poll(() => page.evaluate(() => libraryFrames)).toBeGreaterThan(suspendedFrames);
 
+  await page.evaluate(hash => {
+    const save = new Uint8Array(2048); save[3] = 0x79;
+    localStorage.setItem(`snes-rust:sram:${hash}`, btoa(String.fromCharCode(...save)));
+  }, firstHash);
   await openPicker(page);
   await select.press('Enter');
   await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(3);
+  await setTabHidden(page, true);
+  const beforeSaved = await page.evaluate(() => libraryFrames);
   await page.evaluate(() => savedDigests[2]());
   await expect(current(page)).toHaveText('saved.sfc');
+  await expect(status(page)).toHaveText('Suspended');
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => libraryFrames)).toBe(beforeSaved);
+  expect(await sram(page)).toBe(0x79);
+  expect(await bootSave(page)).toBe(0);
+  await setTabHidden(page, false);
   await expect(status(page)).toHaveText('Playing');
+  await expect.poll(() => bootSave(page)).toBe(0x79);
   expect(await commits(page)).toBe(3);
 });
+
+for (const verified of [true, false]) {
+  test(`saved ROM verification preserves outside focus when it ${verified ? 'succeeds' : 'fails'} while hidden`, async ({ page }) => {
+    await instrument(page);
+    await page.goto('/'); await ready(page);
+    await importRom(page, 'saved.sfc', first);
+    await openPicker(page);
+    await expect(rows(page)).toHaveCount(1);
+    if (!verified) await changeStoredBytes(page, firstHash, second);
+    await page.reload(); await ready(page);
+    await openPicker(page);
+    await delaySavedVerification(page);
+
+    const select = saved(page, firstHash).getByRole('button', { name: 'saved.sfc', exact: true });
+    const display = page.getByRole('combobox', { name: 'Display', exact: true });
+    await select.press('Enter');
+    await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(1);
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(display).toBeFocused();
+
+    await setTabHidden(page, true);
+    await page.evaluate(() => savedDigests[0]());
+    if (verified) {
+      await expect(picker(page)).toBeHidden();
+      await expect(current(page)).toHaveText('saved.sfc');
+      await expect(status(page)).toHaveText('Suspended');
+    } else {
+      await expect(savedLoadError(page)).toHaveText('Could not load saved.sfc.');
+      await expect(picker(page)).toBeVisible();
+    }
+    await expect(display).toBeFocused();
+    await waitForAnimationFrames(page);
+    expect(await page.evaluate(() => libraryFrames)).toBe(0);
+
+    await setTabHidden(page, false);
+    if (verified) {
+      await expect.poll(() => page.evaluate(() => libraryFrames)).toBeGreaterThan(0);
+    } else {
+      await expect(status(page)).toHaveText('Cartridge could not be loaded');
+      await waitForAnimationFrames(page);
+      expect(await page.evaluate(() => libraryFrames)).toBe(0);
+    }
+    await expect(display).toBeFocused();
+  });
+}
 
 test('holding Enter on Remove does not launch the next saved cartridge', async ({ page }) => {
   await instrument(page);
@@ -481,10 +555,15 @@ test('pausing on a rejected local file saves active guest SRAM and reports write
   await page.locator('#play').click();
   await expect(status(page)).toHaveText('Playing');
   await page.evaluate(() => { window.failPausedSave = true; });
+  await setTabHidden(page, true);
   await chooseRom(page, 'wrong.txt', second);
   await expect(status(page)).toHaveText('Paused');
   await expect(error).toContainText('Choose an .sfc or .smc');
   await expect(error).toContainText('Could not persist SRAM');
+  const frames = await page.evaluate(() => libraryFrames);
+  await setTabHidden(page, false);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => libraryFrames)).toBe(frames);
   await expect(current(page)).toHaveText('active.sfc');
   expect(await commits(page)).toBe(1);
   expect(await sram(page)).toBe(0x79);

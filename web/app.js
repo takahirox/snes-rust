@@ -3,7 +3,8 @@ const canvas = document.querySelector('canvas');
 const context = canvas.getContext('2d', { alpha: false });
 let image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
-let core, loaded = false, playing = false, activeHash = '', audio, masterGain, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
+let core, loaded = false, playRequested = false, running = false, activeHash = '';
+let audio, masterGain, nextAudio = 0, lastTime, debt = 0, saveClock = 0;
 let keyboard = 0;
 const virtualPointers = new Map(), virtualKeys = new Map();
 const touchButtons = [...document.querySelectorAll('[data-button]')];
@@ -297,25 +298,55 @@ function restoreSave() {
 $('retry-save').addEventListener('click', () => {
   if (!restorePending || loading) return;
   void activateAudio(); restoreSave();
-  if (!restorePending) { start(); canvas.focus({ preventScroll: true }); }
+  if (!restorePending) {
+    start();
+    if (isRunning()) canvas.focus({ preventScroll: true });
+  }
 });
 function flushAudio() { for (const source of sources) source.stop(); sources.clear(); nextAudio = 0; }
+function isRunning() { return running && !document.hidden; }
+function playbackStatus() { return isRunning() ? 'Playing' : playRequested ? 'Suspended' : 'Paused'; }
 function updatePlayback() {
-  $('play').textContent = playing ? 'Pause' : 'Play';
-  for (const button of touchButtons) button.disabled = !playing;
+  $('play').textContent = playRequested ? 'Pause' : 'Play';
+  const acceptsInput = isRunning();
+  const loadFocus = loading ? document.activeElement : null;
+  for (const button of touchButtons) {
+    // Suspension and the pause during replacement both gate controller input.
+    // Avoid blurring a focused button while the replacement is in progress.
+    button.disabled = !playRequested && button !== loadFocus;
+    if (!acceptsInput && !button.disabled) button.setAttribute('aria-disabled', 'true');
+    else button.removeAttribute('aria-disabled');
+  }
 }
 function clearInput() { keyboard = 0; held.clear(); clearVirtualInput(); }
-function stopPlayback() { playing = false; clearInput(); updatePlayback(); flushAudio(); if (loaded) setStatus('Paused'); }
+function syncPlayback(retryAudio = false) {
+  const wasRunning = running;
+  // An in-flight read can leave the old cartridge running. Once suspended,
+  // wait for the load to resolve before resuming either cartridge.
+  running = playRequested && !document.hidden && (wasRunning || !loading);
+  if (running && !wasRunning) {
+    debt = frameMilliseconds;
+    lastTime = undefined;
+    saveClock = performance.now();
+    if (retryAudio && audio && audio.state !== 'running') void activateAudio();
+  } else if (wasRunning && !running) {
+    clearInput(); flushAudio();
+  }
+  updatePlayback();
+  if (playRequested && !loading && $('status').textContent !== playbackStatus()) setStatus(playbackStatus());
+  return wasRunning && !running;
+}
+function stopPlayback() { playRequested = false; syncPlayback(); if (loaded) setStatus('Paused'); }
 function pause() { stopPlayback(); return save(); }
-function start() {
+function start(retryAudio = false) {
   if (!loaded || restorePending || loading) return;
-  debt = frameMilliseconds; lastTime = performance.now(); playing = true; updatePlayback(); setStatus('Playing');
+  playRequested = true; syncPlayback(retryAudio);
 }
 function togglePlayback(event) {
   if (!loaded || restorePending || loading) return;
-  if (playing) { pause(); return; }
+  if (playRequested) { pause(); return; }
   clearError(); void activateAudio(); start();
-  if (playing && event?.detail > 0) canvas.focus({ preventScroll: true });
+  if (isRunning() && event?.detail > 0) canvas.focus({ preventScroll: true });
 }
 async function activateAudio() {
   if (!volume) return;
@@ -327,7 +358,7 @@ async function activateAudio() {
       gain.gain.setValueAtTime(volume / 100, audio.currentTime);
       gain.connect(audio.destination); masterGain = gain;
     }
-    // Call resume during the activation gesture, before any asynchronous ROM read.
+    // For a launch gesture, call resume before any asynchronous ROM read.
     const resumed = audio.resume();
     $('audio-status').textContent = blocked();
     await resumed;
@@ -358,10 +389,10 @@ function buttons() {
 }
 function animate(time) {
   requestAnimationFrame(animate);
-  if (!playing) { lastTime = time; return; }
+  if (!isRunning()) return;
   // Discard stale wall time after a stall. Catch-up stays within three frames;
   // video and audio restart together instead of accumulating an unbounded debt.
-  debt = Math.min(debt + Math.max(time - lastTime, 0), frameMilliseconds * 3); lastTime = time;
+  debt = Math.min(debt + Math.max(time - (lastTime ?? time), 0), frameMilliseconds * 3); lastTime = time;
   try {
     const workStart = performance.now();
     let frames = 0;
@@ -380,11 +411,12 @@ async function romHash(data) {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
   return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
 }
-function finishCartridgeLoad() {
+function finishCartridgeLoad(playReplacement = false) {
   loading = undefined;
   enableSources(Boolean(core));
   $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
-  updatePlayback();
+  if (playReplacement) start(true);
+  else syncPlayback(true);
 }
 // All sources use the same identity, core validation and battery-save lifecycle.
 async function loadCartridge(name, read, { demo, savedHash } = {}) {
@@ -393,6 +425,8 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   const load = { fromLibrary };
   let sameCartridge = false;
   let savedLoadFailed = false;
+  let focusGame = false;
+  let playReplacement = false;
   loading = load;
   // Keep the native popover toggle available to dismiss a pending saved selection.
   enableSources(false, fromLibrary);
@@ -402,7 +436,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     const expectedHash = demo?.hash ?? savedHash;
     // Check a local file's identity before requiring a save to replace the machine.
     if (expectedHash && expectedHash !== activeHash && !(demo ? pause() : save())) {
-      if (playing) stopPlayback();
+      if (playRequested) stopPlayback();
       return;
     }
     clearError();
@@ -417,10 +451,12 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (demo && (data.length !== demo.size || hash !== demo.hash)) throw new Error('Demo download does not match the published ROM');
     if (fromLibrary && hash !== savedHash) throw new Error('Saved ROM identity mismatch');
     const remember = !demo && !fromLibrary && !bundledHashes.has(hash) ? data : null;
+    const focused = document.activeElement;
+    focusGame = !fromLibrary && (focused === document.body || focused === $('change-cartridge'));
     sameCartridge = hash === activeHash;
     if (sameCartridge) {
       if (remember) rememberCartridge(hash, name, remember);
-      setStatus(playing ? 'Playing' : 'Paused');
+      setStatus(playbackStatus());
     } else {
       // Save at the replacement boundary, after asynchronous reading and hashing.
       if (!pause()) return;
@@ -428,11 +464,12 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
       pendingCartridge = { hash, name, remember };
       restoreSave();
       if (restorePending) setStatus('Restore save before changing cartridge');
+      playReplacement = !restorePending && !operationError && !persistenceError;
     }
   } catch (e) {
     if (loading !== load) return;
-    if (!fromLibrary && playing) pause();
-    setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Cartridge could not be loaded');
+    if (!fromLibrary && playRequested) pause();
+    setStatus(loaded ? playbackStatus() : 'Cartridge could not be loaded');
     if (fromLibrary) {
       savedLoadFailed = true;
       if (picker.matches(':popover-open')) showSavedRecovery(savedHash, name);
@@ -440,21 +477,25 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     return;
   } finally {
     if (loading === load) {
-      finishCartridgeLoad();
-      if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) closePicker();
+      finishCartridgeLoad(playReplacement);
+      if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) {
+        focusGame = picker.contains(document.activeElement);
+        closePicker(focusGame);
+      }
     }
   }
-  if (sameCartridge) { canvas.focus({ preventScroll: true }); return; }
-  if (restorePending || operationError || persistenceError) return;
-  start();
-  if (playing) canvas.focus({ preventScroll: true });
+  if (sameCartridge) {
+    if (focusGame && !document.hidden) canvas.focus({ preventScroll: true });
+    return;
+  }
+  if (playReplacement && focusGame && isRunning()) canvas.focus({ preventScroll: true });
 }
 const picker = $('cartridge-picker');
 picker.addEventListener('beforetoggle', event => {
   if (event.newState !== 'closed' || !loading?.fromLibrary) return;
   // The read or digest may still be pending. Release the controls as soon as the picker closes.
   finishCartridgeLoad();
-  setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Ready');
+  setStatus(loaded ? playbackStatus() : 'Ready');
   $('change-cartridge').focus({ preventScroll: true });
 });
 picker.addEventListener('keydown', event => {
@@ -483,7 +524,10 @@ document.addEventListener('click', event => {
   }
   lastRemoveClick = undefined;
 }, { capture: true });
-function closePicker() { picker.hidePopover(); $('change-cartridge').focus({ preventScroll: true }); }
+function closePicker(restoreFocus = true) {
+  picker.hidePopover();
+  if (restoreFocus) $('change-cartridge').focus({ preventScroll: true });
+}
 
 // Keep metadata separate so listing cartridges never reads their ROM bytes.
 let libraryDatabase;
@@ -570,8 +614,10 @@ function showSavedRecovery(hash, name) {
   message.textContent = `Could not load ${name}.`;
   message.title = name;
   savedRecovery.hidden = false;
-  savedRecovery.scrollIntoView({ block: 'nearest' });
-  message.focus({ preventScroll: true });
+  if (picker.contains(document.activeElement)) {
+    savedRecovery.scrollIntoView({ block: 'nearest' });
+    message.focus({ preventScroll: true });
+  }
 }
 function clearSavedRecovery() {
   const hadFocus = savedRecovery.contains(document.activeElement);
@@ -765,7 +811,10 @@ for (const button of demoButtons) button.addEventListener('click', async () => {
   void activateAudio();
   const demo = demos[button.id];
   // Reselecting the inserted demo never reloads or changes playback state.
-  if (activeHash === demo.hash) { canvas.focus({ preventScroll: true }); return; }
+  if (activeHash === demo.hash) {
+    if (!document.hidden) canvas.focus({ preventScroll: true });
+    return;
+  }
   await loadCartridge(demo.name, async () => {
     const response = await fetch(demo.file, { mode: 'same-origin', redirect: 'error' });
     if (!response.ok) throw new Error(`Demo download failed: HTTP ${response.status}`);
@@ -779,7 +828,7 @@ $('reset').addEventListener('click', () => {
   try {
     check(core.reset()); draw(); clearError();
     void activateAudio(); start();
-    if (playing) canvas.focus({ preventScroll: true });
+    if (isRunning()) canvas.focus({ preventScroll: true });
   } catch (e) { report(e); }
 });
 $('mute').addEventListener('click', () => setVolume(volume ? 0 : lastNonzeroVolume));
@@ -870,12 +919,14 @@ for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) =
     }
     return;
   }
-  if (!keys[event.code] || !playing) return;
+  if (!keys[event.code] || !isRunning()) return;
   const inControl = (inHelp && help.open) || target.closest?.('#cartridge-picker') ||
     ['INPUT', 'SELECT'].includes(target.tagName) ||
     (['BUTTON', 'A', 'SUMMARY'].includes(target.tagName) && ['Enter', 'Space'].includes(event.code));
   if (inControl && !(type === 'keyup' && held.has(event.code))) return;
-  event.preventDefault(); if (type === 'keydown') held.add(event.code); else held.delete(event.code);
+  event.preventDefault();
+  if (type === 'keydown' && event.repeat) return;
+  if (type === 'keydown') held.add(event.code); else held.delete(event.code);
   keyboard = [...held].reduce((value, code) => value | keys[code], 0);
 });
 window.addEventListener('blur', clearInput);
@@ -913,7 +964,7 @@ function directionAt(event, element) {
 }
 touchControls.addEventListener('contextmenu', event => event.preventDefault());
 touchControls.addEventListener('pointerdown', event => {
-  if (!playing || (event.pointerType === 'mouse' && event.button !== 0)) return;
+  if (!isRunning() || (event.pointerType === 'mouse' && event.button !== 0)) return;
   const dpad = event.target.closest('.dpad');
   const button = event.target.closest('[data-button]');
   const element = dpad || button;
@@ -933,8 +984,10 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) touchCo
 });
 for (const button of touchButtons) {
   button.addEventListener('keydown', event => {
-    if (!playing || !['Space', 'Enter'].includes(event.code)) return;
-    event.preventDefault(); event.stopPropagation(); virtualKeys.set(button, Number(button.dataset.button)); paintVirtualInput();
+    if (!['Space', 'Enter'].includes(event.code)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (!isRunning() || event.repeat) return;
+    virtualKeys.set(button, Number(button.dataset.button)); paintVirtualInput();
   });
   button.addEventListener('keyup', event => {
     if (!['Space', 'Enter'].includes(event.code)) return;
@@ -942,7 +995,9 @@ for (const button of touchButtons) {
   });
   button.addEventListener('blur', () => { virtualKeys.delete(button); paintVirtualInput(); });
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
+document.addEventListener('visibilitychange', () => {
+  if (syncPlayback(true)) save();
+});
 window.addEventListener('pagehide', save);
 try {
   const response = await fetch('snes_wasm.wasm'); if (!response.ok) throw new Error(`Wasm download failed: HTTP ${response.status}`);

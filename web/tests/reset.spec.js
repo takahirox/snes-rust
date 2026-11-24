@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { setTabHidden } from './playback.js';
+import { setTabHidden, waitForAnimationFrames } from './playback.js';
 
 const buffer = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const sram = page => page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3]);
@@ -26,7 +26,11 @@ test.beforeEach(async ({ page }) => {
           resetMetrics.snapshots.push({ frame: core.peek(0x10), audio: core.audio_len(), active: active.size });
           return ok;
         },
-        run_frame(mask) { resetMetrics.frames++; return core.run_frame(mask); },
+        run_frame(mask) {
+          resetMetrics.frames++;
+          if (window.failFrame) throw new Error('Injected frame failure');
+          return core.run_frame(mask);
+        },
       } } };
     };
     const resume = AudioContext.prototype.resume;
@@ -119,7 +123,10 @@ for (const failure of ['return', 'throw']) test(`failed core reset (${failure}) 
 test('Reset guards absent, loading and unresolved save restoration without overwriting recoverable bytes', async ({ page }) => {
   await expect(page.locator('#reset')).toBeDisabled();
   await page.locator('#reset').dispatchEvent('click');
-  expect(await page.evaluate(() => resetMetrics.calls)).toBe(0);
+  await setTabHidden(page, true);
+  await setTabHidden(page, false);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  expect(await page.evaluate(() => [resetMetrics.calls, resetMetrics.frames])).toEqual([0, 0]);
   await load(page);
   await page.evaluate(() => {
     new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79;
@@ -131,6 +138,7 @@ test('Reset guards absent, loading and unresolved save restoration without overw
   await expect.poll(() => page.evaluate(() => typeof releaseHash)).toBe('function');
   await expect(page.locator('#reset')).toBeDisabled();
   await page.locator('#reset').dispatchEvent('click');
+  await setTabHidden(page, true);
   await page.evaluate(() => {
     window.getSave = Storage.prototype.getItem;
     Storage.prototype.getItem = () => { throw new Error('Read unavailable'); };
@@ -149,23 +157,115 @@ test('Reset guards absent, loading and unresolved save restoration without overw
   expect(await page.evaluate(() => Object.entries(localStorage))).toEqual(savedBytes);
   expect(await sram(page)).toBe(0x79);
   expect(await page.evaluate(() => resetMetrics.calls)).toBe(0);
+  const frames = await page.evaluate(() => resetMetrics.frames);
+  await setTabHidden(page, false);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => resetMetrics.frames)).toBe(frames);
+  await expect(page.locator('#play')).toBeDisabled();
+  await expect(page.locator('#error')).toContainText('Save could not be restored');
+  await setTabHidden(page, true);
   await page.evaluate(() => { Storage.prototype.getItem = getSave; });
-  await page.locator('#retry-save').click(); await expect(page.locator('#status')).toHaveText('Playing');
+  await page.locator('#retry-save').click(); await expect(page.locator('#status')).toHaveText('Suspended');
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => resetMetrics.frames)).toBe(frames);
+  await setTabHidden(page, false);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect.poll(() => frame(page)).toBeGreaterThan(3);
+  await expect(page.locator('#error')).toBeEmpty();
 });
 
-test('explicit Reset starts playback even while the document is hidden', async ({ page }) => {
+test('hidden Reset and Play set playback intent, and hidden Pause cancels it', async ({ page }) => {
   await load(page);
+  await page.evaluate(() => { new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79; });
   await page.locator('#play').click();
   await setTabHidden(page, true);
   await expect(page.locator('#status')).toHaveText('Paused');
   const frames = await page.evaluate(() => resetMetrics.frames);
-  await page.locator('#reset').dispatchEvent('click');
-  await expect(page.locator('#status')).toHaveText('Playing');
+  const reset = page.getByRole('button', { name: 'Reset', exact: true });
+  await expect(reset).toBeVisible();
+  await reset.click();
+  await expect(page.locator('#status')).toHaveText('Suspended');
   await expect(page.locator('#play')).toHaveText('Pause');
   expect(await page.evaluate(() => resetMetrics.calls)).toBe(1);
+  expect(await sram(page)).toBe(0x79);
+  await waitForAnimationFrames(page);
+  expect(await frame(page)).toBe(0);
+  expect(await page.evaluate(() => resetMetrics.frames)).toBe(frames);
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
   await setTabHidden(page, false);
-  await expect.poll(() => page.evaluate(() => resetMetrics.frames)).toBeGreaterThan(frames);
+  await expect(page.locator('#status')).toHaveText('Paused');
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => resetMetrics.frames)).toBe(frames);
+  await setTabHidden(page, true);
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.locator('#status')).toHaveText('Suspended');
+  await waitForAnimationFrames(page);
+  expect(await frame(page)).toBe(0);
+  await setTabHidden(page, false);
+  await expect.poll(() => frame(page)).toBeGreaterThan(3);
   await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#play')).toBeFocused();
+  expect(await sram(page)).toBe(0x79);
+  await setTabHidden(page, true);
+  await reset.click();
+  await expect(page.locator('#status')).toHaveText('Suspended');
+  expect(await frame(page)).toBe(0);
+  await setTabHidden(page, false);
+  await expect.poll(() => frame(page)).toBeGreaterThan(3);
+  await expect(reset).toBeFocused();
+});
+
+test('a fatal frame failure stops playback across later visibility changes', async ({ page }) => {
+  await load(page);
+  await setTabHidden(page, true);
+  await page.evaluate(() => { window.failFrame = true; });
+  await setTabHidden(page, false);
+  await expect(page.locator('#error')).toContainText('Injected frame failure');
+  const frames = await page.evaluate(() => { window.failFrame = false; return resetMetrics.frames; });
+  await setTabHidden(page, true);
+  await setTabHidden(page, false);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => resetMetrics.frames)).toBe(frames);
+  await expect(page.locator('#status')).toHaveText('Paused');
+  await expect(page.locator('#error')).toContainText('Injected frame failure');
+});
+
+test('suspension saves SRAM once and preserves write failures until saving succeeds', async ({ page }) => {
+  await load(page);
+  const key = `snes-rust:sram:${createHash('sha256').update(buffer).digest('hex')}`;
+  await page.evaluate(key => {
+    const set = Storage.prototype.setItem;
+    window.saveAttempts = 0;
+    window.denySave = false;
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key) {
+        saveAttempts++;
+        if (denySave) throw new DOMException('Storage full', 'QuotaExceededError');
+      }
+      return set.call(this, name, value);
+    };
+    new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79;
+  }, key);
+  await setTabHidden(page, true);
+  await setTabHidden(page, true);
+  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key);
+  expect(await stored()).toBe(0x79);
+  expect(await page.evaluate(() => saveAttempts)).toBe(1);
+  await setTabHidden(page, false);
+  await page.evaluate(() => {
+    new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x48;
+    window.denySave = true;
+  });
+  await setTabHidden(page, true);
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  expect(await stored()).toBe(0x79);
+  await setTabHidden(page, false);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  expect(await sram(page)).toBe(0x48);
+  await page.evaluate(() => { window.denySave = false; window.dispatchEvent(new Event('pagehide')); });
+  expect(await stored()).toBe(0x48);
+  await expect(page.locator('#error')).toBeEmpty();
 });
 
 for (const failure of ['rejected', 'pending', 'unavailable']) test(`Reset retries ${failure} audio in the gesture and starts video without waiting`, async ({ page }) => {
@@ -192,6 +292,11 @@ for (const failure of ['rejected', 'pending', 'unavailable']) test(`Reset retrie
   await expect(page.locator('#audio-status')).toContainText('Sound');
   await expect.poll(() => page.evaluate(() => resetMetrics.frames)).toBeGreaterThan(frames + 3);
   if (failure !== 'unavailable') expect(await page.evaluate(() => resetMetrics.resumes.at(-1))).toBe(true);
+  await setTabHidden(page, true);
+  const before = await page.evaluate(() => resetMetrics.frames);
+  await setTabHidden(page, false);
+  await expect.poll(() => page.evaluate(() => resetMetrics.frames)).toBeGreaterThan(before + 3);
+  await expect(page.locator('#audio-status')).toContainText('Sound');
   await page.keyboard.down('ArrowRight');
   await expect.poll(() => page.evaluate(() => testCore.peek(0x11))).toBe(1);
   await page.keyboard.up('ArrowRight');

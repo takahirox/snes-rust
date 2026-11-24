@@ -1,7 +1,7 @@
-import { selectDemo } from './cartridge.js';
+import { delayLocalFileRead, selectDemo } from './cartridge.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { setTabHidden } from './playback.js';
+import { setTabHidden, waitForAnimationFrames } from './playback.js';
 
 test.use({ hasTouch: true, isMobile: true, viewport: { width: 320, height: 740 } });
 const masks = { Up: 0x800, Down: 0x400, Left: 0x200, Right: 0x100, A: 0x80, B: 0x8000, X: 0x40, Y: 0x4000, L: 0x20, R: 0x10, Start: 0x1000, Select: 0x2000 };
@@ -140,11 +140,17 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await page.keyboard.down('ArrowLeft'); await touch.down('Select');
   await expect.poll(() => controller(page)).toBe(masks.Left | masks.Select);
   await setTabHidden(page, true);
-  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#status')).toHaveText('Suspended');
   await expect(page.locator('#play')).toHaveText('Pause');
   await expect(page.locator('[data-button].pressed')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'SNES Select', exact: true })).toBeDisabled();
+  const frame = await page.evaluate(() => testCore.peek(0x10));
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => testCore.peek(0x10))).toBe(frame);
   await setTabHidden(page, false);
   // The guest sees both releases before the original physical inputs are released.
+  await page.keyboard.down('ArrowLeft'); // Auto-repeat from the key still held at suspension.
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x10))).not.toBe(frame);
   await expect.poll(() => controller(page)).toBe(0);
   await touch.up(); await page.keyboard.up('ArrowLeft');
   await page.keyboard.down('ArrowRight'); await touch.down('B');
@@ -156,6 +162,68 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await expect.poll(() => controller(page)).toBe(0);
   await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#play')).toHaveText('Pause');
+});
+
+test('visibility suspension preserves controller focus and blocks input until playback resumes', async ({ page }) => {
+  await boot(page);
+  const button = page.getByRole('button', { name: 'SNES B', exact: true });
+  await button.focus();
+  await page.keyboard.down('Space');
+  await expect.poll(() => controller(page)).toBe(masks.B);
+
+  await setTabHidden(page, true);
+  await expect(button).toBeFocused();
+  await expect(button).toBeDisabled();
+  await expect(button).not.toHaveClass(/pressed/);
+  await page.keyboard.up('Space');
+  await page.keyboard.down('Enter');
+  await expect(button).not.toHaveClass(/pressed/);
+
+  await setTabHidden(page, false);
+  await expect(button).toBeFocused();
+  await expect(button).toBeEnabled();
+  await expect.poll(() => controller(page)).toBe(0);
+  await page.keyboard.up('Enter');
+  await page.keyboard.down('Space');
+  await expect.poll(() => controller(page)).toBe(masks.B);
+  await page.keyboard.up('Space');
+  await expect.poll(() => controller(page)).toBe(0);
+});
+
+test('a replacement committed while hidden retains controller focus and resumes with released input', async ({ page }) => {
+  await boot(page, false);
+  const releaseRead = await delayLocalFileRead(page);
+  await page.locator('#rom').setInputFiles({ name: 'controller-probe.sfc', mimeType: 'application/octet-stream', buffer: probe });
+  await expect(page.locator('#status')).toHaveText('Loading controller-probe.sfc…');
+  const button = page.getByRole('button', { name: 'SNES B', exact: true });
+  await button.focus();
+  await page.keyboard.down('Space');
+  await expect(button).toHaveClass(/pressed/);
+
+  await setTabHidden(page, true);
+  await expect(button).toBeFocused();
+  await releaseRead();
+  await expect(page.locator('#current-game')).toHaveText('controller-probe.sfc');
+  await expect(page.locator('#status')).toHaveText('Suspended');
+  await expect(button).toBeFocused();
+  await expect(button).toBeDisabled();
+  await expect(button).not.toHaveClass(/pressed/);
+  await page.keyboard.up('Space');
+  await page.keyboard.down('Enter');
+  await expect(button).not.toHaveClass(/pressed/);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => testCore.peek(0x10))).toBe(0);
+
+  await setTabHidden(page, false);
+  await expect(button).toBeFocused();
+  await expect(button).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x10))).not.toBe(0);
+  expect(await controller(page)).toBe(0);
+  await page.keyboard.up('Enter');
+  await page.keyboard.down('Space');
+  await expect.poll(() => controller(page)).toBe(masks.B);
+  await page.keyboard.up('Space');
+  await expect.poll(() => controller(page)).toBe(0);
 });
 
 for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }, { width: 424, height: 320 }, { width: 400, height: 320 }]) {
@@ -396,6 +464,14 @@ test('fullscreen entry/exit release virtual input and preserve running guest geo
   await touch.down('Right'); await touch.down('A', 2);
   await expect.poll(() => controller(page)).toBe(masks.Right | masks.A);
   await touch.cancel(); await expect.poll(() => controller(page)).toBe(0);
+  await touch.down('B'); await expect.poll(() => controller(page)).toBe(masks.B);
+  await setTabHidden(page, true);
+  await expect(page.locator('[data-button].pressed')).toHaveCount(0);
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  await setTabHidden(page, false);
+  await expect.poll(() => controller(page)).toBe(0); await touch.up();
+  await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
+  await expect(page.locator('#video')).toBeFocused();
   await touch.down('A'); await expect.poll(() => controller(page)).toBe(masks.A);
   await page.locator('#exit-fullscreen').click();
   await expect(page.locator(':fullscreen')).toHaveCount(0);

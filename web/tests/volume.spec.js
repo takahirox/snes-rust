@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { selectDemo } from './cartridge.js';
+import { setTabHidden, waitForAnimationFrames } from './playback.js';
 
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const preferenceKey = 'snes-rust:volume';
@@ -196,10 +197,21 @@ test('native keyboard, mute restore, pause/reset/cartridge/fullscreen and reload
   await mute(page).click(); await expect(slider(page)).toHaveValue('50');
   await local(page); await measuredLevel(page, 50);
   await mute(page).click(); await level(page, 25); await measuredLevel(page, 25); // Slider unmutes.
+  await setTabHidden(page, true);
+  await setTabHidden(page, false);
+  await measuredLevel(page, 25);
   await page.locator('#play').click(); await level(page, 50);
   await expect(page.locator('#status')).toHaveText('Paused');
   await page.locator('#play').click(); await measuredLevel(page, 50);
   await mute(page).click();
+  await setTabHidden(page, true);
+  const before = await page.evaluate(() => ({ ...volumeMetrics }));
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => volumeMetrics)).toEqual(before);
+  await setTabHidden(page, false);
+  await expect(slider(page)).toHaveValue('0'); await expect(mute(page)).toHaveAccessibleName('Unmute');
+  await measuredLevel(page, 0);
+  expect(await page.evaluate(() => volumeMetrics.resumes)).toEqual(before.resumes);
   for (const id of ['demo', 'demo-yonaki']) {
     await selectDemo(page, id); await page.locator('#reset').click();
     await expect(slider(page)).toHaveValue('0'); await expect(mute(page)).toHaveAccessibleName('Unmute');

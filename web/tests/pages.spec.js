@@ -68,6 +68,7 @@ test('Pages artifact boots and plays a local diagnostic under /snes-rust/', asyn
   await expect(page.getByRole('combobox', { name: 'Display', exact: true })).toBeVisible();
   await expect(page.locator('#display')).toHaveValue('crt');
   await expect(page.locator('#video')).toHaveCSS('image-rendering', 'pixelated');
+  await expect(page.getByRole('button', { name: 'Reset', exact: true })).toBeVisible();
   await loadDemo(page);
   await expect(page.getByRole('combobox', { name: 'Scale', exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Display', exact: true })).toBeVisible();
