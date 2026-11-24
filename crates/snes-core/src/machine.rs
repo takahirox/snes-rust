@@ -991,11 +991,14 @@ impl SystemBus {
                 for j in 0..count {
                     // HDMA owns the bus between DMA bytes; do not collapse
                     // multiple HBlanks into one event after a long transfer.
-                    self.hdma_events();
+                    if self.hdma_init || self.hdma_pending {
+                        self.hdma_events();
+                    }
+                    // Pattern lengths are powers of two.
                     self.transfer(
                         i,
                         ((d[4] as u32) << 16) | addr as u32,
-                        pattern[j % pattern.len()],
+                        pattern[j & (pattern.len() - 1)],
                     );
                     if d[0] & 8 == 0 {
                         addr = addr.wrapping_add(if d[0] & 16 != 0 { 65535 } else { 1 });
