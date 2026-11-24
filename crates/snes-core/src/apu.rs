@@ -129,9 +129,15 @@ impl Apu {
                 self.step()
             };
             self.cycles -= cycles as i64;
-            // Without boot work, only multiples of 16 cycles have events.
-            if !self.boot && self.pending.is_none() && (self.total & 15) + u64::from(cycles) < 16 {
+            // Without boot work, only multiples of 16 cycles have events,
+            // and one instruction (at most 14 cycles) reaches at most one.
+            if !self.boot && self.pending.is_none() {
+                debug_assert!(cycles < 16);
+                let before = self.total;
                 self.total += u64::from(cycles);
+                if before >> 4 != self.total >> 4 {
+                    self.timer_edge(self.total & !15);
+                }
                 continue;
             }
             for _ in 0..cycles {
@@ -168,6 +174,20 @@ impl Apu {
             }
         }
     }
+    // The timer and sample events of SPC cycle `total`, a multiple of 16,
+    // in the same order as the per-cycle loop.
+    fn timer_edge(&mut self, total: u64) {
+        if total.is_multiple_of(128) {
+            self.clock_timer(0);
+            self.clock_timer(1);
+        }
+        self.clock_timer(2);
+        if total.is_multiple_of(32) {
+            let (l, r) = self.dsp.sample(&mut self.ram);
+            self.samples.push(l as f32 / 32768.0);
+            self.samples.push(r as f32 / 32768.0);
+        }
+    }
     fn clock_timer(&mut self, timer: usize) {
         if self.control & (1 << timer) != 0 {
             // Eight-bit post-increment equality: a live lowered target is
@@ -179,7 +199,11 @@ impl Apu {
             }
         }
     }
+    #[inline]
     pub fn read(&mut self, a: u16) -> u8 {
+        if a & 0xfff0 != 0x00f0 {
+            return self.ram[a as usize];
+        }
         match a {
             // Write-only register overlay (Anomie SPC700 Doc, rev. 1126).
             // Keep backing bytes for writes/live targets; reads have no effects.
@@ -195,7 +219,12 @@ impl Apu {
             _ => self.ram[a as usize],
         }
     }
+    #[inline]
     pub fn write(&mut self, a: u16, v: u8) {
+        if a & 0xfff0 != 0x00f0 {
+            self.ram[a as usize] = v;
+            return;
+        }
         match a {
             0xf1 => {
                 if let Some((pc, due)) = self.pending {

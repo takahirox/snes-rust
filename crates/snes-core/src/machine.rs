@@ -898,7 +898,24 @@ impl SystemBus {
         let d = self.dma[channel];
         let b = 0x2100 | d[1].wrapping_add(offset) as u32;
         let wram = matches!(a >> 16, 0x7e | 0x7f) || (a & 0x400000 == 0 && a & 0xffff < 0x2000);
-        self.bus_tick(4);
+        // Both four-clock halves on the `bus_tick`/`tick` fast paths: no
+        // refresh, timing event or pending HDMA, with the APU deferred.
+        let quick = self.defer_apu
+            && !self.apu.chunk_sensitive()
+            && !self.hdma_init
+            && !self.hdma_pending
+            && self.v == self.fast_v
+            && self.h + 8
+                < if self.h < 538 {
+                    self.fast_limit.min(538)
+                } else {
+                    self.fast_limit
+                };
+        if quick {
+            self.quick_advance(4);
+        } else {
+            self.bus_tick(4);
+        }
         let v = if d[0] & 128 == 0 {
             self.dma_read_a(a)
         } else if b == 0x2180 && wram {
@@ -909,7 +926,11 @@ impl SystemBus {
         } else {
             self.read_raw(b)
         };
-        self.bus_tick(4);
+        if quick {
+            self.quick_advance(4);
+        } else {
+            self.bus_tick(4);
+        }
         if d[0] & 128 == 0 {
             // WRAM cannot drive A and the WRAM B ports simultaneously.
             // Suppress data/address writes (including WMDATA's increment), but retain
