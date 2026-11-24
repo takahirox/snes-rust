@@ -837,8 +837,9 @@ impl Ppu {
             },
         }
     }
-    fn objects(&mut self, y: usize) -> [u32; WIDTH] {
-        let mut pixels = [0; WIDTH];
+    // Evaluate and draw this line's objects into `obj_line`.
+    fn objects(&mut self, y: usize) {
+        self.obj_line.fill(0);
         let sizes = [
             ((8, 8), (16, 16)),
             ((8, 8), (32, 32)),
@@ -936,12 +937,11 @@ impl Ppu {
                     if color == 0 {
                         continue;
                     }
-                    pixels[screen as usize] =
+                    self.obj_line[screen as usize] =
                         tag | INDEXED | (128 + pal * 16 + color as usize) as u32;
                 }
             }
         }
-        pixels
     }
     pub fn framebuffer_width(&self) -> usize {
         self.frame_width
@@ -1015,7 +1015,7 @@ impl Ppu {
         // state is sampled only for the newly emitted span.
         if !self.obj_line_valid {
             let overflow = self.obj_overflow;
-            self.obj_line = self.objects(y);
+            self.objects(y);
             self.obj_line_valid = true;
             self.raster_overflow |= self.obj_overflow;
             self.obj_overflow = overflow;

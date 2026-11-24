@@ -356,16 +356,38 @@ impl SystemBus {
         self.tick_events(n);
         self.update_fast_limit();
     }
-    // The earliest H on this line at which `tick_events` could act. Both
-    // horizontal IRQ candidates are included, independent of mode/VTIME.
+    // The earliest H on this line at which `tick_events` could act: a
+    // superset of its line-specific events. Both horizontal IRQ candidates
+    // are included while H-IRQ is enabled, independent of VTIME. Writes to
+    // $4200-$420D invalidate this limit.
     fn update_fast_limit(&mut self) {
-        let line = self.ppu.line_clocks();
-        let htime = (u16::from_le_bytes([self.io[7], self.io[8] & 1]) as u64) * 4;
-        let mut limit = [4, V_ONLY_IRQ, HDMA_INIT, OAM_RELOAD, htime, htime + 14]
-            .into_iter()
-            .chain([PICTURE_END, HDMA_SCANLINE])
-            .filter(|&t| t > self.h)
-            .fold(line, u64::min);
+        let h = self.h;
+        let mut limit = self.ppu.line_clocks();
+        let mut event = |t: u64| {
+            if t > h {
+                limit = limit.min(t);
+            }
+        };
+        let mode = self.io[0] & 0x30;
+        if self.v == 0 {
+            event(4);
+            event(HDMA_INIT);
+        }
+        if self.v == 225 {
+            event(OAM_RELOAD);
+        }
+        if self.v <= 224 {
+            event(PICTURE_END);
+            event(HDMA_SCANLINE);
+        }
+        if mode & 0x10 != 0 {
+            let htime = (u16::from_le_bytes([self.io[7], self.io[8] & 1]) as u64) * 4;
+            event(htime);
+            event(htime + 14);
+        }
+        if mode & 0x20 != 0 {
+            event(V_ONLY_IRQ);
+        }
         if let Some(next) = self.auto_start {
             limit = limit.min(self.h + (next - self.clocks));
         }
