@@ -1019,65 +1019,94 @@ impl Ppu {
             ])
         };
         let subtract = math_control & 128 != 0;
-        let row = y * self.frame_width;
-        for (i, x) in (start..end).enumerate() {
-            let main_pixel = screen[0][i];
-            let sub_pixel = screen[1][i];
-            let sub_layer = (sub_pixel >> 16) & 7;
-            let in_window = needs_color_window && win[5][x];
-            let clip = match clip_mode {
+        let halve_enabled = math_control & 64 != 0;
+        let window_modes = |in_window: bool| {
+            let apply = |mode: u8| match mode {
                 0 => false,
                 1 => !in_window,
                 2 => in_window,
                 _ => true,
             };
-            let prevent = match math_window_mode {
-                0 => false,
-                1 => !in_window,
-                2 => in_window,
-                _ => true,
-            };
+            (apply(clip_mode), apply(math_window_mode))
+        };
+        // Color math on one displayed main-screen color; `sub_pixel` is the
+        // subscreen (or COLDATA backdrop) operand.
+        let blend = |pixel: u32, sub_pixel: u32, clip: bool, prevent: bool| -> u16 {
+            let color = if clip { 0 } else { pixel as u16 & 0x7fff };
+            let math =
+                !prevent && pixel & MATH != 0 && math_control & (1 << ((pixel >> 16) & 7)) != 0;
+            if !math {
+                return color;
+            }
             let sub = if use_sub {
                 sub_pixel as u16 & 0x7fff
             } else {
                 fixed_color
             };
-            let halve = math_control & 64 != 0 && !clip && (!use_sub || sub_layer != 5);
+            let halve = halve_enabled && !clip && (!use_sub || (sub_pixel >> 16) & 7 != 5);
+            let mut result = 0;
+            for ch in 0..3 {
+                let a = ((color >> (ch * 5)) & 31) as i16;
+                let b = ((sub >> (ch * 5)) & 31) as i16;
+                let mut v = if subtract { a - b } else { a + b };
+                if halve {
+                    v /= 2;
+                }
+                result |= (v.clamp(0, 31) as u16) << (ch * 5);
+            }
+            result
+        };
+        let row = y * self.frame_width;
+        if !wide_output && repeats == 1 {
+            let out = &mut self.frame[(row + start) * 4..(row + end) * 4];
+            let pixels = screen[0][..n].iter().zip(&screen[1][..n]);
+            if !needs_color_window {
+                let (clip, prevent) = window_modes(false);
+                for (o, (&main_pixel, &sub_pixel)) in out.chunks_exact_mut(4).zip(pixels) {
+                    o.copy_from_slice(
+                        &rgba(blend(main_pixel, sub_pixel, clip, prevent)).to_le_bytes(),
+                    );
+                }
+            } else {
+                let pixels = pixels.zip(&win[5][start..end]);
+                for (o, ((&main_pixel, &sub_pixel), &in_window)) in
+                    out.chunks_exact_mut(4).zip(pixels)
+                {
+                    let (clip, prevent) = window_modes(in_window);
+                    o.copy_from_slice(
+                        &rgba(blend(main_pixel, sub_pixel, clip, prevent)).to_le_bytes(),
+                    );
+                }
+            }
+            self.line = Some(line);
+            return;
+        }
+        for (i, x) in (start..end).enumerate() {
+            let main_pixel = screen[0][i];
+            let sub_pixel = screen[1][i];
+            let (clip, prevent) = window_modes(needs_color_window && win[5][x]);
             for phase in 0..scale {
-                let visible_sub = wide_output && phase == 0;
-                let pixel = if visible_sub { sub_pixel } else { main_pixel };
-                let layer = (pixel >> 16) & 7;
                 // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
                 // in true/pseudo hires. Leave the math operand intact.
-                let main = if visible_sub && sub_layer == 5 {
-                    back_color
-                } else {
-                    pixel as u16 & 0x7fff
-                };
-                let color = if clip { 0 } else { main };
-                let math = !visible_sub
-                    && !prevent
-                    && pixel & MATH != 0
-                    && math_control & (1 << layer) != 0;
-                let out = if math {
-                    let mut channels = [0; 3];
-                    for (ch, value) in channels.iter_mut().enumerate() {
-                        let a = ((color >> (ch * 5)) & 31) as i16;
-                        let b = ((sub >> (ch * 5)) & 31) as i16;
-                        let mut v = if subtract { a - b } else { a + b };
-                        if halve {
-                            v /= 2;
-                        }
-                        *value = v.clamp(0, 31) as u16;
+                let color = if wide_output && phase == 0 {
+                    let shown = if (sub_pixel >> 16) & 7 == 5 {
+                        BACKDROP | u32::from(back_color)
+                    } else {
+                        sub_pixel
+                    };
+                    if clip {
+                        0
+                    } else {
+                        shown as u16 & 0x7fff
                     }
-                    rgba(channels[0] | (channels[1] << 5) | (channels[2] << 10))
                 } else {
-                    rgba(color)
+                    blend(main_pixel, sub_pixel, clip, prevent)
                 };
+                let out = rgba(color).to_le_bytes();
                 let i = (row + (x * scale + phase) * repeats) * 4;
-                self.frame[i..i + 4].copy_from_slice(&out.to_le_bytes());
+                self.frame[i..i + 4].copy_from_slice(&out);
                 if repeats == 2 {
-                    self.frame[i + 4..i + 8].copy_from_slice(&out.to_le_bytes());
+                    self.frame[i + 4..i + 8].copy_from_slice(&out);
                 }
             }
         }
@@ -1101,89 +1130,149 @@ impl Ppu {
             out.fill(0);
             return;
         }
-        if self.regs[6] & (1 << bg) != 0 || (bg < 2 && matches!(mode, 2 | 4 | 6)) {
-            // Mosaic and offset-per-tile columns use the general sampler.
+        if self.regs[6] & (1 << bg) != 0 {
+            // Mosaic uses the general sampler.
             let mut row = None;
             for (i, o) in out.iter_mut().enumerate() {
                 *o = pack(self.bg_pixel(bg, first + i, y, &mut row), bg);
             }
             return;
         }
-        // Unmodified columns: the same map/character addressing as
-        // `bg_map_word` and `bg_row`, with this span's constants hoisted.
+        let layout = self.bg_layout(bg, mode, bpp);
+        if bg < 2 && matches!(mode, 2 | 4 | 6) {
+            // Offset-per-tile: `bg_source` is constant within an offset
+            // column and advances one source dot per sample, so resolve it
+            // once per run that stays inside one column group and one tile.
+            let hofs = self.scroll[bg][0] as usize;
+            let scale = if mode == 6 { 2 } else { 1 };
+            let mut i = 0;
+            while i < out.len() {
+                let x = first + i;
+                let (sx, sy) = self.bg_source(bg, x, y);
+                let q = x / scale + (hofs & 7);
+                let group = (8 - (q & 7)) * scale - (x % scale);
+                let run = group.min(8 - (sx & 7)).min(out.len() - i);
+                let row = layout.map_row(sy);
+                self.emit_tile_row(&layout, row, sx, sy, &mut out[i..i + run]);
+                i += run;
+            }
+            return;
+        }
+        // Unmodified columns: one source row, advancing one dot per sample.
         let hofs = self.scroll[bg][0] as usize;
         let mut sx = (first + hofs * if self.bg_hires() { 2 } else { 1 }) & 1023;
         let sy = (y + 1 + self.scroll[bg][1] as usize) & 1023;
-        let size = self.bg_tile_size(bg);
-        let tile_width = self.bg_tile_width(bg);
-        let width_shift = tile_width.trailing_zeros();
-        let sc = self.regs[7 + bg] as usize;
-        let wide_map = sc & 1 != 0;
-        let column_mask = if wide_map { 63 } else { 31 };
-        let ty = (sy >> size.trailing_zeros()) & if sc & 2 != 0 { 63 } else { 31 };
-        let row_base = ((sc & 0xfc) << 9)
-            + usize::from(ty >= 32) * if wide_map { 4096 } else { 2048 }
-            + (ty & 31) * 64;
-        let char_base = ((self.regs[0x0b + bg / 2] >> ((bg & 1) * 4)) as usize & 15) * 8192;
-        let palette_offset = if mode == 0 { bg * 32 } else { 0 };
-        let direct = bpp == 8 && self.regs[0x30] & 1 != 0;
-        let ranks = [false, true].map(|high| {
-            (u32::from(self.bg_rank(mode, bg, high)) << 24) | MATH | ((bg as u32) << 16)
-        });
+        let row = layout.map_row(sy);
         let mut i = 0;
         while i < out.len() {
-            let tx = (sx >> width_shift) & column_mask;
-            let entry = self.vw(row_base + usize::from(tx >= 32) * 2048 + (tx & 31) * 2);
-            let mut px = sx & (tile_width - 1);
-            let mut py = sy & (size - 1);
-            if entry & 0x4000 != 0 {
-                px = tile_width - 1 - px;
-            }
-            if entry & 0x8000 != 0 {
-                py = size - 1 - py;
-            }
-            let tile = ((entry as usize & 1023) + (px / 8) + (py / 8) * 16) & 1023;
-            let address = char_base + tile * bpp * 8 + (py & 7) * 2;
-            let mut planes = u64::from(self.vw(address));
-            if bpp >= 4 {
-                planes |= u64::from(self.vw(address + 16)) << 16;
-            }
-            if bpp == 8 {
-                planes |= u64::from(self.vw(address + 32)) << 32;
-                planes |= u64::from(self.vw(address + 48)) << 48;
-            }
-            let palette = ((entry >> 10) & 7) as usize;
-            let palette_base = if bpp == 8 {
-                0
-            } else {
-                palette * (1 << bpp) + palette_offset
-            };
-            let rank = ranks[usize::from(entry & 0x2000 != 0)];
-            let first_column = sx & 7;
-            let run = (8 - first_column).min(out.len() - i);
-            // Eight color indices, one byte per column (column 0 first).
-            let colors = (0..bpp).fold(0u64, |colors, plane| {
-                colors | (SPREAD[(planes >> (plane * 8)) as usize & 255] << plane)
-            });
-            let colors = if entry & 0x4000 != 0 {
-                colors.swap_bytes()
-            } else {
-                colors
-            };
-            for (k, o) in out[i..i + run].iter_mut().enumerate() {
-                let color = (colors >> ((first_column + k) * 8)) as u8;
-                *o = if color == 0 {
-                    0
-                } else if direct {
-                    rank | u32::from(Self::direct_color(color, palette as u8))
-                } else {
-                    rank | u32::from(self.palette(palette_base + usize::from(color)))
-                };
-            }
+            let run = (8 - (sx & 7)).min(out.len() - i);
+            self.emit_tile_row(&layout, row, sx, sy, &mut out[i..i + run]);
             i += run;
             sx = (sx + run) & 1023;
         }
     }
+    // Per-span constants of the `bg_map_word` / `bg_row` addressing.
+    fn bg_layout(&self, bg: usize, mode: u8, bpp: usize) -> BgLayout {
+        let size = self.bg_tile_size(bg);
+        let tile_width = self.bg_tile_width(bg);
+        let sc = self.regs[7 + bg] as usize;
+        BgLayout {
+            bpp,
+            size,
+            tile_width,
+            width_shift: tile_width.trailing_zeros(),
+            size_shift: size.trailing_zeros(),
+            wide_map: sc & 1 != 0,
+            tall_map: sc & 2 != 0,
+            map_base: (sc & 0xfc) << 9,
+            char_base: ((self.regs[0x0b + bg / 2] >> ((bg & 1) * 4)) as usize & 15) * 8192,
+            palette_offset: if mode == 0 { bg * 32 } else { 0 },
+            direct: bpp == 8 && self.regs[0x30] & 1 != 0,
+            tags: [false, true].map(|high| {
+                (u32::from(self.bg_rank(mode, bg, high)) << 24) | MATH | ((bg as u32) << 16)
+            }),
+        }
+    }
+    // Pack consecutive samples from source (sx, sy) within one tile row;
+    // `out` must not extend past the eight-dot boundary of sx.
+    #[inline(always)]
+    fn emit_tile_row(&self, l: &BgLayout, row: usize, sx: usize, sy: usize, out: &mut [u32]) {
+        let tx = (sx >> l.width_shift) & if l.wide_map { 63 } else { 31 };
+        let entry = self.vw(row + usize::from(tx >= 32) * 2048 + (tx & 31) * 2);
+        let mut px = sx & (l.tile_width - 1);
+        let mut py = sy & (l.size - 1);
+        if entry & 0x4000 != 0 {
+            px = l.tile_width - 1 - px;
+        }
+        if entry & 0x8000 != 0 {
+            py = l.size - 1 - py;
+        }
+        let tile = ((entry as usize & 1023) + (px / 8) + (py / 8) * 16) & 1023;
+        let address = l.char_base + tile * l.bpp * 8 + (py & 7) * 2;
+        let mut planes = u64::from(self.vw(address));
+        if l.bpp >= 4 {
+            planes |= u64::from(self.vw(address + 16)) << 16;
+        }
+        if l.bpp == 8 {
+            planes |= u64::from(self.vw(address + 32)) << 32;
+            planes |= u64::from(self.vw(address + 48)) << 48;
+        }
+        let palette = ((entry >> 10) & 7) as usize;
+        let palette_base = if l.bpp == 8 {
+            0
+        } else {
+            palette * (1 << l.bpp) + l.palette_offset
+        };
+        let tag = l.tags[usize::from(entry & 0x2000 != 0)];
+        // Eight color indices, one byte per column (column 0 first).
+        let colors = (0..l.bpp).fold(0u64, |colors, plane| {
+            colors | (SPREAD[(planes >> (plane * 8)) as usize & 255] << plane)
+        });
+        let colors = if entry & 0x4000 != 0 {
+            colors.swap_bytes()
+        } else {
+            colors
+        };
+        let colors = colors >> ((sx & 7) * 8);
+        if colors == 0 {
+            out.fill(0);
+            return;
+        }
+        for (k, o) in out.iter_mut().enumerate() {
+            let color = (colors >> (k * 8)) as u8;
+            *o = if color == 0 {
+                0
+            } else if l.direct {
+                tag | u32::from(Self::direct_color(color, palette as u8))
+            } else {
+                tag | u32::from(self.palette(palette_base + usize::from(color)))
+            };
+        }
+    }
+}
+
+impl BgLayout {
+    // Screen-map address of source row sy, at column zero of its page.
+    fn map_row(&self, sy: usize) -> usize {
+        let ty = (sy >> self.size_shift) & if self.tall_map { 63 } else { 31 };
+        self.map_base
+            + usize::from(ty >= 32) * if self.wide_map { 4096 } else { 2048 }
+            + (ty & 31) * 64
+    }
+}
+struct BgLayout {
+    bpp: usize,
+    size: usize,
+    tile_width: usize,
+    width_shift: u32,
+    size_shift: u32,
+    wide_map: bool,
+    tall_map: bool,
+    map_base: usize,
+    char_base: usize,
+    palette_offset: usize,
+    direct: bool,
+    tags: [u32; 2],
 }
 
 #[cfg(test)]
