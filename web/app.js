@@ -369,14 +369,20 @@ function animate(time) {
 }
 const maxRomBytes = 4 * 1024 * 1024 + 512;
 const romSizeError = 'Maximum ROM size is 4 MiB plus a copier header';
-const savedRomError = 'Could not load the saved ROM. Reopen the original file or remove the saved entry.';
 function isRomHash(hash) {
   return typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash);
+}
+function normalizeRom(data) { return data.length % 1024 === 512 ? data.slice(512) : data; }
+async function romHash(data) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 // All sources use the same identity, core validation and battery-save lifecycle.
 async function loadCartridge(name, read, { demo, savedHash } = {}) {
   if (loading || restorePending) return;
   const fromLibrary = savedHash !== undefined;
+  let sameCartridge = false;
+  let savedLoadFailed = false;
   loading = true;
   enableSources(false);
   $('play').disabled = true; $('reset').disabled = true;
@@ -393,34 +399,39 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (expectedHash !== activeHash) setStatus(`Loading ${name}…`);
     let data = await read();
     if (data.length > maxRomBytes) throw new Error(romSizeError);
-    if (!demo && data.length % 1024 === 512) data = data.slice(512);
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
-    const hash = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+    if (!demo) data = normalizeRom(data);
+    const hash = await romHash(data);
     if (demo && (data.length !== demo.size || hash !== demo.hash)) throw new Error('Demo download does not match the published ROM');
     if (fromLibrary && hash !== savedHash) throw new Error('Saved ROM identity mismatch');
     const remember = !demo && !fromLibrary && !bundledHashes.has(hash) ? data : null;
-    if (hash === activeHash) {
+    sameCartridge = hash === activeHash;
+    if (sameCartridge) {
       if (remember) rememberCartridge(hash, name, remember);
       setStatus(playing ? 'Playing' : 'Paused');
-      canvas.focus({ preventScroll: true });
-      return;
+    } else {
+      // Save at the replacement boundary, after asynchronous reading and hashing.
+      if (!pause()) return;
+      copyInput(data); check(core.prepare_rom());
+      pendingCartridge = { hash, name, remember };
+      restoreSave();
+      if (restorePending) setStatus('Restore save before changing cartridge');
     }
-    // Save at the replacement boundary, after asynchronous reading and hashing.
-    if (!pause()) return;
-    copyInput(data); check(core.prepare_rom());
-    pendingCartridge = { hash, name, remember };
-    restoreSave();
-    if (restorePending) setStatus('Restore save before changing cartridge');
   } catch (e) {
     if (!fromLibrary && playing) pause();
     setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Cartridge could not be loaded');
-    report(fromLibrary ? savedRomError : e);
+    if (fromLibrary) {
+      savedLoadFailed = true;
+      if (picker.matches(':popover-open')) showSavedRecovery(savedHash, name);
+    } else report(e);
+    return;
   } finally {
     loading = false;
     enableSources(Boolean(core));
     $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
     updatePlayback();
+    if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) closePicker();
   }
+  if (sameCartridge) { canvas.focus({ preventScroll: true }); return; }
   if (restorePending || operationError || persistenceError) return;
   start();
   if (playing) canvas.focus({ preventScroll: true });
@@ -441,7 +452,7 @@ document.addEventListener('click', event => {
   const inside = x >= bounds.left && x < bounds.right && y >= bounds.top && y < bounds.bottom;
   const nearby = inside || Math.hypot(x - click.clientX, y - click.clientY) <= 6;
   const repeated = event.detail > 1 || (nearby && event.timeStamp - click.timeStamp <= 500);
-  if (!click.target.isConnected && repeated) {
+  if (repeated && !click.target.getClientRects().length) {
     const remove = event.target.closest('.remove-cartridge');
     // A refresh can rebuild the same cartridge's Remove button.
     if (!remove || !sameCartridgeKey(hash, rowKeys.get(remove.parentElement))) {
@@ -488,6 +499,8 @@ async function libraryTransaction(stores, mode, run) {
 
 const savedList = $('saved-cartridges');
 const libraryStatus = $('library-operation-status');
+const savedRecovery = $('library-recovery');
+let recoveryCartridge;
 const retentionNotice = $('rom-retention-warning');
 const retentionFailures = new Map();
 let retentionNoticeDismissed = false;
@@ -529,9 +542,29 @@ function isRemoving(hash) {
   for (const key of removing) if (sameCartridgeKey(key, hash)) return true;
   return false;
 }
+function showSavedRecovery(hash, name) {
+  recoveryCartridge = { hash, name };
+  rowKeys.set(savedRecovery, hash);
+  $('remove-broken-cartridge').setAttribute('aria-disabled', String(isRemoving(hash)));
+  const message = $('library-load-error');
+  message.textContent = `Could not load ${name}.`;
+  message.title = name;
+  savedRecovery.hidden = false;
+  savedRecovery.scrollIntoView({ block: 'nearest' });
+  message.focus({ preventScroll: true });
+}
+function clearSavedRecovery() {
+  const hadFocus = savedRecovery.contains(document.activeElement);
+  recoveryCartridge = undefined;
+  savedRecovery.hidden = true;
+  if (hadFocus && picker.matches(':popover-open')) $('open-local').focus();
+}
 function renderLibrary(entries) {
   entries = entries.filter(({ hash }) => !bundledHashes.has(hash))
     .map(entry => hasCartridgeName(entry) ? entry : { hash: entry.hash, name: 'Unnamed cartridge' });
+  if (recoveryCartridge && !entries.some(({ hash }) => sameCartridgeKey(hash, recoveryCartridge.hash))) {
+    clearSavedRecovery();
+  }
   entries.sort((a, b) => a.name.localeCompare(b.name) || indexedDB.cmp(a.hash, b.hash));
   const previous = [...savedList.children];
   if (entries.length === previous.length && entries.every(({ hash, name }, i) =>
@@ -553,10 +586,7 @@ function renderLibrary(entries) {
     remove.className = 'remove-cartridge';
     remove.textContent = 'Remove';
     remove.setAttribute('aria-label', `Remove ${name}`);
-    remove.addEventListener('click', event => {
-      if (event.detail > 0) lastRemoveClick = { click: event, hash, bounds: remove.getBoundingClientRect() };
-      removeCartridge(hash, name, remove);
-    });
+    remove.addEventListener('click', event => removeCartridge(hash, name, event));
     if (nameCounts.get(name) > 1) {
       const suffix = document.createElement('small');
       suffix.id = `rom-${i}`;
@@ -587,14 +617,44 @@ async function refreshLibrary() {
     libraryStatus.textContent = 'Could not read My cartridges. Try reopening the picker or choose Open local ROM.';
   }
 }
+async function isCartridgeRetained(hash) {
+  try {
+    let entry;
+    const data = await libraryTransaction(libraryStores, 'readonly', tx => {
+      const metadata = tx.objectStore('cartridges').get(hash);
+      metadata.onsuccess = () => { entry = metadata.result; };
+      return tx.objectStore('roms').get(hash);
+    });
+    return Boolean(entry) && data instanceof Uint8Array && data.length <= maxRomBytes &&
+      await romHash(normalizeRom(data)) === hash;
+  } catch {
+    return false;
+  }
+}
+async function reconcileRetentionWarnings() {
+  let changed = false;
+  for (const hash of retentionFailures.keys()) {
+    if (await isCartridgeRetained(hash)) {
+      retentionFailures.delete(hash);
+      changed = true;
+    }
+  }
+  if (changed) updateRetentionWarnings();
+}
 // Order UI refreshes and mutations in this tab. IndexedDB orders read/write
 // transactions across tabs and keeps metadata and bytes in sync on abort.
 function queueLibrary(update) { libraryUpdates = libraryUpdates.then(update); }
-function refreshOpenPicker() {
-  if (picker.matches(':popover-open')) queueLibrary(refreshLibrary);
+function refreshLibraryState() {
+  queueLibrary(async () => {
+    await reconcileRetentionWarnings();
+    if (picker.matches(':popover-open')) await refreshLibrary();
+  });
 }
-picker.addEventListener('toggle', refreshOpenPicker);
-libraryChanges?.addEventListener('message', refreshOpenPicker);
+picker.addEventListener('toggle', event => {
+  if (event.newState === 'open') refreshLibraryState();
+  else clearSavedRecovery();
+});
+libraryChanges?.addEventListener('message', refreshLibraryState);
 
 function rememberCartridge(hash, name, data) {
   queueLibrary(async () => {
@@ -610,8 +670,10 @@ function rememberCartridge(hash, name, data) {
       });
     } catch {
       retentionFailures.delete(hash);
-      retentionFailures.set(hash, name);
-      retentionNoticeDismissed = false;
+      if (!await isCartridgeRetained(hash)) {
+        retentionFailures.set(hash, name);
+        retentionNoticeDismissed = false;
+      }
       updateRetentionWarnings();
       return;
     }
@@ -620,8 +682,10 @@ function rememberCartridge(hash, name, data) {
     if (picker.matches(':popover-open')) await refreshLibrary();
   });
 }
-function removeCartridge(hash, name, button) {
+function removeCartridge(hash, name, event) {
   if (isRemoving(hash)) return;
+  const button = event.currentTarget;
+  if (event.detail > 0) lastRemoveClick = { click: event, hash, bounds: button.getBoundingClientRect() };
   removing.add(hash);
   button.setAttribute('aria-disabled', 'true');
   queueLibrary(async () => {
@@ -640,13 +704,15 @@ function removeCartridge(hash, name, button) {
     } finally {
       removing.delete(hash);
       button.removeAttribute('aria-disabled');
+      if (recoveryCartridge && sameCartridgeKey(hash, recoveryCartridge.hash)) {
+        $('remove-broken-cartridge').removeAttribute('aria-disabled');
+      }
     }
   });
 }
 function selectSavedCartridge(hash, name) {
   if (loading || !core || isRemoving(hash)) return;
-  closePicker();
-  if (restorePending) { $('retry-save').focus(); return; }
+  if (restorePending) { closePicker(); $('retry-save').focus(); return; }
   void activateAudio();
   void loadCartridge(name, async () => {
     const data = await libraryTransaction('roms', 'readonly', tx => tx.objectStore('roms').get(hash));
@@ -655,10 +721,15 @@ function selectSavedCartridge(hash, name) {
   }, { savedHash: hash });
 }
 
-$('open-local').addEventListener('click', () => {
+function openLocalRom() {
   if (loading || !core) return;
   // Unlock before the native file chooser can consume transient activation.
   void activateAudio(); closePicker(); $('rom').click();
+}
+$('open-local').addEventListener('click', openLocalRom);
+$('reopen-original-rom').addEventListener('click', openLocalRom);
+$('remove-broken-cartridge').addEventListener('click', event => {
+  if (recoveryCartridge) removeCartridge(recoveryCartridge.hash, recoveryCartridge.name, event);
 });
 $('rom').addEventListener('change', async (event) => {
   const file = event.target.files[0]; if (!file) return;
