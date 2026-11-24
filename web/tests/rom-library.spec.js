@@ -239,6 +239,54 @@ test('holding Enter on Remove does not launch the next saved cartridge', async (
   expect(await commits(page)).toBe(3);
 });
 
+const touchTest = test.extend({ hasTouch: true });
+for (const { width, height, count, touch } of [
+  { width: 320, height: 568, count: 1 },
+  { width: 667, height: 320, count: 4 },
+  { width: 667, height: 320, count: 4, touch: true },
+]) {
+  const testPointer = touch ? touchTest : test;
+  const gesture = touch ? 'double-tapping' : 'double-clicking';
+  testPointer(`${gesture} Remove at ${width}×${height} only removes the intended cartridge`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await instrument(page);
+    await page.goto('/'); await ready(page);
+    const otherNames = [];
+    for (let i = 1; i < count; i++) {
+      const name = `spare-${i}.sfc`;
+      await importRom(page, name, batteryGuest(i));
+      otherNames.push(name);
+    }
+    await importRom(page, 'active.sfc', first);
+    await openPicker(page);
+    await expect(rows(page)).toHaveCount(count);
+    const remove = saved(page, firstHash).getByRole('button', { name: 'Remove active.sfc' });
+    await remove.scrollIntoViewIfNeeded();
+    const box = await remove.boundingBox();
+    const x = box.x + box.width / 2, y = box.y + 2;
+    if (touch) await page.touchscreen.tap(x, y);
+    else await page.mouse.click(x, y);
+    // Let IndexedDB commit and move the controls before sending the second click.
+    await expect(remove).toHaveCount(0);
+    const next = count === 1 ? page.locator('#demo-yonaki') : picker(page).getByRole('button', { name: 'Remove spare-1.sfc' });
+    expect(await next.evaluate((button, { x, y }) => button.contains(document.elementFromPoint(x, y)), { x, y })).toBe(true);
+    if (touch) await page.touchscreen.tap(x, y);
+    else await page.mouse.click(x, y, { clickCount: 2 });
+
+    await expect(picker(page)).toBeVisible();
+    await expect(current(page)).toHaveText('active.sfc');
+    await expect(status(page)).toHaveText('Playing');
+    expect(await commits(page)).toBe(count);
+    await page.reload(); await ready(page);
+    await openPicker(page);
+    await expect(rows(page)).toHaveCount(count - 1);
+    await expect(remove).toHaveCount(0);
+    for (const name of otherNames) {
+      await expect(picker(page).getByRole('button', { name, exact: true })).toBeVisible();
+    }
+  });
+}
+
 test('remembers an identical local reimport during an SRAM write failure without interrupting play', async ({ page }) => {
   await instrument(page);
   await page.goto('/'); await ready(page);
