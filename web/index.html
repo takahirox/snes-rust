@@ -10,6 +10,10 @@
 </head>
 <body>
   <main>
+    <div id="rom-retention-notice">
+      <p id="rom-retention-warning" role="alert"></p>
+      <button id="dismiss-rom-warning" type="button" aria-label="Dismiss ROM storage warning">×</button>
+    </div>
     <header>
       <h1>snes-rust</h1>
       <nav aria-label="Information">
@@ -73,7 +77,10 @@
             <ul id="saved-cartridges" role="list"></ul>
           </section>
           <button id="open-local" disabled>Open local ROM…</button>
-          <p id="library-status" role="status"></p>
+          <div id="library-status" role="status">
+            <span id="library-operation-status"></span>
+            <span id="library-retention-warning"></span>
+          </div>
         </div>
         <input id="rom" type="file" hidden disabled accept=".sfc,.smc" aria-label="Open local ROM">
       </div>

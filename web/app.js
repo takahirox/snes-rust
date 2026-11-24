@@ -7,7 +7,7 @@ let core, loaded = false, playing = false, activeHash = '', audio, masterGain, n
 let keyboard = 0;
 const virtualPointers = new Map(), virtualKeys = new Map();
 const touchButtons = [...document.querySelectorAll('[data-button]')];
-let operationError = '', persistenceError = '', libraryWarning = '', restorePending = false, loading = false, pendingCartridge;
+let operationError = '', persistenceError = '', restorePending = false, loading = false, pendingCartridge;
 // Bundled demos by picker button id; each is fetched from the same origin and pinned.
 const demos = {
   demo: { file: 'shionari.sfc', name: '潮鳴りの密室 / Shionari no Misshitsu', size: 524288, hash: '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca' },
@@ -253,7 +253,7 @@ function draw() {
 }
 function showErrors() {
   const error = $('error');
-  const message = [operationError, persistenceError, libraryWarning].filter(Boolean).join('\n');
+  const message = [operationError, persistenceError].filter(Boolean).join('\n');
   if (error.textContent !== message) error.textContent = message;
 }
 function report(error) { operationError = error.message || String(error); showErrors(); }
@@ -487,7 +487,16 @@ async function libraryTransaction(stores, mode, run) {
 }
 
 const savedList = $('saved-cartridges');
-const libraryStatus = $('library-status');
+const libraryStatus = $('library-operation-status');
+const retentionNotice = $('rom-retention-warning');
+function setRetentionWarning(message) {
+  retentionNotice.textContent = message;
+  $('library-retention-warning').textContent = message;
+}
+$('dismiss-rom-warning').addEventListener('click', () => {
+  retentionNotice.textContent = '';
+  canvas.focus({ preventScroll: true });
+});
 const libraryStores = ['cartridges', 'roms'];
 let libraryUpdates = Promise.resolve();
 const removing = new Set();
@@ -585,12 +594,10 @@ function rememberCartridge(hash, name, data) {
         tx.objectStore('roms').put(data, hash);
       });
     } catch {
-      libraryWarning = `Could not remember ${name}. Check browser storage and reopen the original file to retry.`;
-      showErrors();
+      setRetentionWarning(`Could not remember ${name}. Check browser storage and reopen the original file to retry.`);
       return;
     }
-    libraryWarning = '';
-    showErrors();
+    setRetentionWarning('');
     libraryChanges?.postMessage(null);
     if (picker.matches(':popover-open')) await refreshLibrary();
   });
@@ -679,7 +686,7 @@ const presentation = $('game-presentation'), fullscreenButton = $('fullscreen');
 const fullscreenStatus = $('fullscreen-status');
 const touchControls = document.querySelector('.touch-controls');
 const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 1100px)');
-const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save');
+const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save, #rom-retention-notice');
 let gameplayFullscreen = false;
 let fullscreenEnteredWithKeyboard = false;
 let fullscreenWarningTimeout;
