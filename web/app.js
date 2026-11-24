@@ -7,7 +7,7 @@ let core, loaded = false, playing = false, activeHash = '', audio, masterGain, n
 let keyboard = 0;
 const virtualPointers = new Map(), virtualKeys = new Map();
 const touchButtons = [...document.querySelectorAll('[data-button]')];
-let operationError = '', persistenceError = '', restorePending = false, loading = false, pendingCartridge;
+let operationError = '', persistenceError = '', restorePending = false, loading, pendingCartridge;
 // Bundled demos by picker button id; each is fetched from the same origin and pinned.
 const demos = {
   demo: { file: 'shionari.sfc', name: '潮鳴りの密室 / Shionari no Misshitsu', size: 524288, hash: '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca' },
@@ -377,15 +377,20 @@ async function romHash(data) {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
   return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
 }
+function finishCartridgeLoad() {
+  loading = undefined;
+  enableSources(Boolean(core));
+  $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
+  updatePlayback();
+}
 // All sources use the same identity, core validation and battery-save lifecycle.
 async function loadCartridge(name, read, { demo, savedHash } = {}) {
   if (loading || restorePending) return;
   const fromLibrary = savedHash !== undefined;
-  const pickerDismissalsAtSelection = pickerDismissals;
-  const pickerDismissed = () => fromLibrary && pickerDismissals !== pickerDismissalsAtSelection;
+  const load = { fromLibrary };
   let sameCartridge = false;
   let savedLoadFailed = false;
-  loading = true;
+  loading = load;
   enableSources(false);
   $('play').disabled = true; $('reset').disabled = true;
   try {
@@ -400,11 +405,11 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (!core) throw new Error('Emulator has not loaded');
     if (expectedHash !== activeHash) setStatus(`Loading ${name}…`);
     let data = await read();
-    if (pickerDismissed()) return;
+    if (loading !== load) return;
     if (data.length > maxRomBytes) throw new Error(romSizeError);
     if (!demo) data = normalizeRom(data);
     const hash = await romHash(data);
-    if (pickerDismissed()) return;
+    if (loading !== load) return;
     if (demo && (data.length !== demo.size || hash !== demo.hash)) throw new Error('Demo download does not match the published ROM');
     if (fromLibrary && hash !== savedHash) throw new Error('Saved ROM identity mismatch');
     const remember = !demo && !fromLibrary && !bundledHashes.has(hash) ? data : null;
@@ -421,7 +426,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
       if (restorePending) setStatus('Restore save before changing cartridge');
     }
   } catch (e) {
-    if (pickerDismissed()) return;
+    if (loading !== load) return;
     if (!fromLibrary && playing) pause();
     setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Cartridge could not be loaded');
     if (fromLibrary) {
@@ -430,12 +435,10 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     } else report(e);
     return;
   } finally {
-    loading = false;
-    enableSources(Boolean(core));
-    $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
-    updatePlayback();
-    if (pickerDismissed()) setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Ready');
-    else if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) closePicker();
+    if (loading === load) {
+      finishCartridgeLoad();
+      if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) closePicker();
+    }
   }
   if (sameCartridge) { canvas.focus({ preventScroll: true }); return; }
   if (restorePending || operationError || persistenceError) return;
@@ -443,10 +446,12 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   if (playing) canvas.focus({ preventScroll: true });
 }
 const picker = $('cartridge-picker');
-let pickerDismissals = 0;
 picker.addEventListener('beforetoggle', event => {
-  // Invalidate a pending saved selection as soon as the picker closes.
-  if (event.newState === 'closed') pickerDismissals++;
+  if (event.newState !== 'closed' || !loading?.fromLibrary) return;
+  // The read or digest may still be pending. Release the controls as soon as the picker closes.
+  finishCartridgeLoad();
+  setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Ready');
+  $('change-cartridge').focus({ preventScroll: true });
 });
 picker.addEventListener('keydown', event => {
   // Removing a row can move focus to another button while Enter is still held.
@@ -642,30 +647,26 @@ async function isCartridgeRetained(hash) {
     return false;
   }
 }
-async function reconcileRetentionWarnings() {
-  let changed = false;
-  for (const hash of retentionFailures.keys()) {
-    if (await isCartridgeRetained(hash)) {
-      retentionFailures.delete(hash);
-      changed = true;
-    }
-  }
-  if (changed) updateRetentionWarnings();
-}
 // Order UI refreshes and mutations in this tab. IndexedDB orders read/write
 // transactions across tabs and keeps metadata and bytes in sync on abort.
 function queueLibrary(update) { libraryUpdates = libraryUpdates.then(update); }
-function refreshLibraryState() {
-  queueLibrary(async () => {
-    await reconcileRetentionWarnings();
-    if (picker.matches(':popover-open')) await refreshLibrary();
-  });
+async function refreshOpenLibrary() {
+  if (picker.matches(':popover-open')) await refreshLibrary();
 }
 picker.addEventListener('toggle', event => {
-  if (event.newState === 'open') refreshLibraryState();
+  if (event.newState === 'open') queueLibrary(refreshOpenLibrary);
   else clearSavedRecovery();
 });
-libraryChanges?.addEventListener('message', refreshLibraryState);
+libraryChanges?.addEventListener('message', event => {
+  const hash = event.data?.savedHash;
+  queueLibrary(async () => {
+    await refreshOpenLibrary();
+    if (retentionFailures.has(hash) && await isCartridgeRetained(hash)) {
+      retentionFailures.delete(hash);
+      updateRetentionWarnings();
+    }
+  });
+});
 
 function rememberCartridge(hash, name, data) {
   queueLibrary(async () => {
@@ -689,8 +690,8 @@ function rememberCartridge(hash, name, data) {
       return;
     }
     if (retentionFailures.delete(hash)) updateRetentionWarnings();
-    libraryChanges?.postMessage(null);
-    if (picker.matches(':popover-open')) await refreshLibrary();
+    libraryChanges?.postMessage({ savedHash: hash });
+    await refreshOpenLibrary();
   });
 }
 function removeCartridge(hash, name, event) {

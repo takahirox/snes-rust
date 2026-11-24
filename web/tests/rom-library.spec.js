@@ -241,28 +241,47 @@ test('Escape cancels a saved cartridge selection during hash verification', asyn
   await openPicker(page);
   await page.evaluate(() => {
     const digest = crypto.subtle.digest;
-    crypto.subtle.digest = async function (...args) {
-      await new Promise(resolve => { window.resumeSavedDigest = resolve; });
-      crypto.subtle.digest = digest;
-      return digest.apply(this, args);
+    window.savedDigests = [];
+    crypto.subtle.digest = function (...args) {
+      return new Promise(resolve => savedDigests.push(() => {
+        const result = digest.apply(this, args);
+        resolve(result);
+        return result;
+      }));
     };
   });
 
-  await saved(page, firstHash).getByRole('button', { name: 'saved.sfc', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => typeof window.resumeSavedDigest)).toBe('function');
+  const select = saved(page, firstHash).getByRole('button', { name: 'saved.sfc', exact: true });
+  const insert = page.locator('#change-cartridge');
+  const play = page.locator('#play');
+  await select.press('Enter');
+  await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(1);
   await page.keyboard.press('Escape');
   await expect(picker(page)).toBeHidden();
-  await page.evaluate(() => window.resumeSavedDigest());
+  await expect(insert).toBeEnabled();
+  await expect(insert).toBeFocused();
   await expect(page.locator('#rom')).toBeEnabled();
+  await expect(play).toBeEnabled();
+  await expect(play).toHaveText('Pause');
   await expect(current(page)).toHaveText(demoName);
   await expect(status(page)).toHaveText('Playing');
-  await expect(page.locator('#play')).toHaveText('Pause');
   expect(await commits(page)).toBe(2);
 
-  await openPicker(page);
-  await selectSaved(page, firstHash, 'saved.sfc');
+  await page.keyboard.press('Enter');
+  await select.press('Enter');
+  await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(2);
+  await page.evaluate(() => savedDigests[0]());
+  await expect(picker(page)).toBeVisible();
+  await expect(insert).toBeDisabled();
+  await expect(play).toBeDisabled();
+  await expect(status(page)).toHaveText('Loading saved.sfc…');
+  await expect(current(page)).toHaveText(demoName);
+  expect(await commits(page)).toBe(2);
+
+  await page.evaluate(() => savedDigests[1]());
   await expect(current(page)).toHaveText('saved.sfc');
   await expect(status(page)).toHaveText('Playing');
+  expect(await commits(page)).toBe(3);
 });
 
 test('holding Enter on Remove does not launch the next saved cartridge', async ({ page }) => {
@@ -662,6 +681,7 @@ test('aborted read, write and delete transactions preserve the committed library
 });
 
 test('an aborted reimport only warns if the committed ROM is missing or corrupt', async ({ page }) => {
+  await instrument(page);
   await page.goto('/'); await ready(page);
   await importRom(page, 'saved.sfc', first);
   await openPicker(page);
@@ -683,7 +703,9 @@ test('an aborted reimport only warns if the committed ROM is missing or corrupt'
     const name = badBytes ? 'corrupt.sfc' : 'missing.sfc';
     await importRom(page, name, first);
     await expect(page.locator('#rom-retention-warning')).toContainText(`Could not remember ${name}`);
+    await page.evaluate(() => { libraryReads.length = 0; });
     await openPicker(page);
+    await expect.poll(() => page.evaluate(() => libraryReads)).toEqual(['cartridges']);
     await expect(saved(page, firstHash)).toBeVisible();
     await expect(warning).toContainText(`Could not remember ${name}`);
     await page.keyboard.press('Escape');
@@ -692,6 +714,7 @@ test('an aborted reimport only warns if the committed ROM is missing or corrupt'
 });
 
 test('a commit in another tab clears the warning for the same ROM identity', async ({ page, context }) => {
+  await instrument(page);
   const other = await context.newPage();
   await Promise.all([page.goto('/'), other.goto('/')]);
   await Promise.all([ready(page), ready(other)]);
@@ -701,8 +724,11 @@ test('a commit in another tab clears the warning for the same ROM identity', asy
   await expect(warning).toContainText('Could not remember shared.sfc');
 
   await openPicker(page);
+  await expect.poll(() => page.evaluate(() => libraryReads.includes('cartridges'))).toBe(true);
+  await page.evaluate(() => { libraryReads.length = 0; });
   await importRom(other, 'shared.sfc', second);
   await expect(saved(page, secondHash)).toBeVisible();
+  expect(await page.evaluate(() => libraryReads)).toEqual(['cartridges']);
   await expect(page.locator('#library-retention-warning')).toContainText('Could not remember shared.sfc');
   await page.keyboard.press('Escape');
   await importRom(other, 'alias.smc', withHeader(first));
