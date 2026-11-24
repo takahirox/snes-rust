@@ -1135,18 +1135,15 @@ impl Ppu {
                 };
                 let windowed = masks[index] & (1 << layer) != 0;
                 let win = &win[layer][start..end];
+                // Branch-free selects so these passes vectorize.
                 if contiguous {
                     if windowed {
                         for ((c, &p), &w) in pixels.iter_mut().zip(source).zip(win) {
-                            if !w && p >> 24 > *c >> 24 {
-                                *c = p;
-                            }
+                            *c = if !w & (p >> 24 > *c >> 24) { p } else { *c };
                         }
                     } else {
                         for (c, &p) in pixels.iter_mut().zip(source) {
-                            if p >> 24 > *c >> 24 {
-                                *c = p;
-                            }
+                            *c = if p >> 24 > *c >> 24 { p } else { *c };
                         }
                     }
                 } else {
@@ -1219,7 +1216,6 @@ impl Ppu {
         }
         self.line = Some(line);
     }
-    // Fill packed BG samples [first, first + out.len()) of one scanline.
     // Fill packed BG samples first, first + step, ... (step 2 only in Mode 5).
     fn fill_bg(&self, bg: usize, y: usize, first: usize, step: usize, out: &mut [u32]) {
         let mode = self.regs[5] & 7;
@@ -1375,6 +1371,17 @@ impl Ppu {
             return;
         }
         let tag = tag | INDEXED | palette_base as u32;
+        if STEP == 1 {
+            if let Ok(out) = <&mut [u32; 8]>::try_from(&mut *out) {
+                // Whole aligned tile: a fixed-width loop that vectorizes.
+                let bytes = colors.to_le_bytes();
+                for (o, &color) in out.iter_mut().zip(&bytes) {
+                    let color = u32::from(color);
+                    *o = if color == 0 { 0 } else { tag + color };
+                }
+                return;
+            }
+        }
         for (k, o) in out.iter_mut().enumerate() {
             let color = u32::from((colors >> (k * STEP * 8)) as u8);
             *o = if color == 0 { 0 } else { tag + color };
