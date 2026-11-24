@@ -230,7 +230,7 @@ test('remembers normalized ROMs, restores guest progress after reload and revisi
   }
 });
 
-test('Escape cancels a saved cartridge selection during hash verification', async ({ page }) => {
+test('Escape and Insert cartridge cancel a saved selection during hash verification', async ({ page }) => {
   await instrument(page);
   await page.goto('/'); await ready(page);
   await importRom(page, 'saved.sfc', first);
@@ -272,13 +272,29 @@ test('Escape cancels a saved cartridge selection during hash verification', asyn
   await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(2);
   await page.evaluate(() => savedDigests[0]());
   await expect(picker(page)).toBeVisible();
-  await expect(insert).toBeDisabled();
+  await expect(page.locator('#rom')).toBeDisabled();
   await expect(play).toBeDisabled();
   await expect(status(page)).toHaveText('Loading saved.sfc…');
   await expect(current(page)).toHaveText(demoName);
   expect(await commits(page)).toBe(2);
 
+  // Send the pointer click even if the toggle is disabled during verification.
+  await insert.click({ force: true });
+  await expect(picker(page)).toBeHidden();
+  await expect(insert).toBeFocused();
   await page.evaluate(() => savedDigests[1]());
+  await expect(picker(page)).toBeHidden();
+  await expect(insert).toBeFocused();
+  await expect(play).toBeEnabled();
+  await expect(play).toHaveText('Pause');
+  await expect(status(page)).toHaveText('Playing');
+  await expect(current(page)).toHaveText(demoName);
+  expect(await commits(page)).toBe(2);
+
+  await openPicker(page);
+  await select.press('Enter');
+  await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(3);
+  await page.evaluate(() => savedDigests[2]());
   await expect(current(page)).toHaveText('saved.sfc');
   await expect(status(page)).toHaveText('Playing');
   expect(await commits(page)).toBe(3);

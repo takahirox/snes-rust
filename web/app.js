@@ -14,7 +14,10 @@ const demos = {
   'demo-yonaki': { file: 'yonaki.sfc', name: '夜鳴き鐘 / Yonaki Kane', size: 4194304, hash: '0989f29a892abcc9cb215a5d8eed2970c02b85fcf5001d06a807292b92097bcc' },
 };
 const demoButtons = Object.keys(demos).map($);
-function enableSources(enabled) { for (const button of [$('rom'), $('open-local'), $('change-cartridge'), ...demoButtons]) button.disabled = !enabled; }
+function enableSources(enabled, pickerEnabled = enabled) {
+  for (const button of [$('rom'), $('open-local'), ...demoButtons]) button.disabled = !enabled;
+  $('change-cartridge').disabled = !pickerEnabled;
+}
 const bundledHashes = new Set(Object.values(demos).map(demo => demo.hash));
 const sources = new Set();
 // Pace by the confirmed 714732-master-clock NTSC non-interlaced field pair.
@@ -391,7 +394,8 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   let sameCartridge = false;
   let savedLoadFailed = false;
   loading = load;
-  enableSources(false);
+  // Keep the native popover toggle available to dismiss a pending saved selection.
+  enableSources(false, fromLibrary);
   $('play').disabled = true; $('reset').disabled = true;
   try {
     if (fromLibrary && !isRomHash(savedHash)) throw new Error('Invalid saved ROM hash');
