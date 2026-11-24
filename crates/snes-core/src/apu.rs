@@ -30,7 +30,6 @@ pub struct Apu {
     clock: u64,
     cycles: i64,
     total: u64,
-    timer_div: [u16; 3],
     timer_stage: [u8; 3],
     timer_out: [u8; 3],
     control: u8,
@@ -59,7 +58,6 @@ impl Default for Apu {
             clock: 0,
             cycles: 0,
             total: 0,
-            timer_div: [0; 3],
             timer_stage: [0; 3],
             timer_out: [0; 3],
             control: 0x80,
@@ -133,28 +131,31 @@ impl Apu {
                         self.cpu.pc = pc;
                     }
                 }
-                for i in 0..3 {
-                    // The first scaler runs even while counting is disabled.
-                    self.timer_div[i] += 1;
-                    if self.timer_div[i] == if i == 2 { 16 } else { 128 } {
-                        self.timer_div[i] = 0;
-                        if self.control & (1 << i) == 0 {
-                            continue;
-                        }
-                        // Eight-bit post-increment equality: a live lowered
-                        // target is reached after wrap; zero matches on wrap.
-                        self.timer_stage[i] = self.timer_stage[i].wrapping_add(1);
-                        if self.timer_stage[i] == self.ram[0xfa + i] {
-                            self.timer_stage[i] = 0;
-                            self.timer_out[i] = (self.timer_out[i] + 1) & 15;
-                        }
-                    }
+                // The first scalers start at power-on and run even when
+                // counting is disabled. Their edges are phases of total.
+                if self.total.is_multiple_of(128) {
+                    self.clock_timer(0);
+                    self.clock_timer(1);
+                }
+                if self.total.is_multiple_of(16) {
+                    self.clock_timer(2);
                 }
                 if self.total.is_multiple_of(32) {
                     let (l, r) = self.dsp.sample(&mut self.ram);
                     self.samples.push(l as f32 / 32768.0);
                     self.samples.push(r as f32 / 32768.0);
                 }
+            }
+        }
+    }
+    fn clock_timer(&mut self, timer: usize) {
+        if self.control & (1 << timer) != 0 {
+            // Eight-bit post-increment equality: a live lowered target is
+            // reached after wrap; zero matches on wrap.
+            self.timer_stage[timer] = self.timer_stage[timer].wrapping_add(1);
+            if self.timer_stage[timer] == self.ram[0xfa + timer] {
+                self.timer_stage[timer] = 0;
+                self.timer_out[timer] = (self.timer_out[timer] + 1) & 15;
             }
         }
     }
