@@ -116,7 +116,7 @@ test('local choice unlocks audio before the picker and delayed file read, then s
 });
 
 for (const source of ['demo', 'local']) {
-  test(`${source} completing after visibility returns preserves focus on Display`, async ({ page }) => {
+  test(`${source} completing after visibility returns retries audio and preserves focus on Display`, async ({ page }) => {
     let releaseLoad;
     if (source === 'demo') {
       await page.route('**/shionari.sfc', route => {
@@ -135,13 +135,40 @@ for (const source of ['demo', 'local']) {
     const display = page.getByRole('combobox', { name: 'Display', exact: true });
     await display.focus();
     await setTabHidden(page, true);
+    const delayAudio = source === 'local';
+    await page.evaluate(async delayAudio => {
+      const context = testAudio;
+      await context.suspend();
+      const start = AudioBufferSourceNode.prototype.start;
+      window.freshAudioBuffers = 0;
+      AudioBufferSourceNode.prototype.start = function (...args) {
+        start.apply(this, args);
+        if (this.context === context && this.buffer?.getChannelData(0).some(sample => sample !== 0)) freshAudioBuffers++;
+      };
+      if (delayAudio) {
+        const resume = AudioContext.prototype.resume;
+        AudioContext.prototype.resume = function () {
+          return new Promise(resolve => { window.releaseAudio = () => resolve(resume.call(this)); });
+        };
+      }
+    }, delayAudio);
     await setTabHidden(page, false);
     await expect(display).toBeFocused();
     expect(await page.evaluate(() => launchMetrics.frames)).toBe(0);
+    expect(await page.evaluate(() => testAudio.state)).toBe('suspended');
 
     await releaseLoad();
     await expect(page.locator('#status')).toHaveText('Playing');
     await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
+    const audioStatus = page.locator('#audio-status');
+    if (delayAudio) {
+      await expect(audioStatus).toContainText('Sound blocked. Adjust volume or unmute to retry.');
+      expect(await page.evaluate(() => freshAudioBuffers)).toBe(0);
+      await page.evaluate(() => releaseAudio());
+    }
+    await expect.poll(() => page.evaluate(() => testAudio.state)).toBe('running');
+    await expect.poll(() => page.evaluate(() => freshAudioBuffers)).toBeGreaterThan(0);
+    await expect(audioStatus).toBeEmpty();
     await expect(display).toBeFocused();
   });
 }

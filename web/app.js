@@ -338,9 +338,9 @@ function syncPlayback(retryAudio = false) {
 }
 function stopPlayback() { playRequested = false; syncPlayback(); if (loaded) setStatus('Paused'); }
 function pause() { stopPlayback(); return save(); }
-function start() {
+function start(retryAudio = false) {
   if (!loaded || restorePending || loading) return;
-  playRequested = true; syncPlayback();
+  playRequested = true; syncPlayback(retryAudio);
 }
 function togglePlayback(event) {
   if (!loaded || restorePending || loading) return;
@@ -358,7 +358,7 @@ async function activateAudio() {
       gain.gain.setValueAtTime(volume / 100, audio.currentTime);
       gain.connect(audio.destination); masterGain = gain;
     }
-    // Call resume during the activation gesture, before any asynchronous ROM read.
+    // For a launch gesture, call resume before any asynchronous ROM read.
     const resumed = audio.resume();
     $('audio-status').textContent = blocked();
     await resumed;
@@ -415,7 +415,7 @@ function finishCartridgeLoad(playReplacement = false) {
   loading = undefined;
   enableSources(Boolean(core));
   $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
-  if (playReplacement) start();
+  if (playReplacement) start(true);
   else syncPlayback(true);
 }
 // All sources use the same identity, core validation and battery-save lifecycle.
