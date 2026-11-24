@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { installAudioProbe } from './browser-audio.mjs';
 
 const require = createRequire(new URL('../../web/package.json', import.meta.url));
 const { chromium } = require('@playwright/test');
@@ -52,11 +53,12 @@ try {
         const session = await context.newCDPSession(page);
         if (mobile) await session.send('Emulation.setCPUThrottlingRate', { rate: 4 });
         await session.send('Performance.enable');
+        await page.addInitScript(installAudioProbe);
         await page.addInitScript(({ masks, warmup, frames, mode }) => {
           localStorage.setItem('snes-rust:display', mode);
           const probe = window.bench = {
             frames: 0, timings: [], core: [], arrivals: [], audio: 0, gaps: 0,
-            late: 0, gapSeconds: 0, audioEnd: 0, lastFrame: 0,
+            late: 0, gapSeconds: 0, cancelledAudio: 0, lastFrame: 0,
           };
           const withinWindow = () => probe.start !== undefined && probe.end === undefined;
           const instantiate = WebAssembly.instantiate;
@@ -100,19 +102,6 @@ try {
               probe.end = end;
             }
           });
-          const start = AudioBufferSourceNode.prototype.start;
-          AudioBufferSourceNode.prototype.start = function (time, ...args) {
-            if (withinWindow()) {
-              ++probe.audio;
-              if (probe.audioEnd && time > probe.audioEnd + 0.001) {
-                ++probe.gaps;
-                probe.gapSeconds += time - probe.audioEnd;
-                if (this.context.currentTime > probe.audioEnd) ++probe.late;
-              }
-            }
-            if (probe.end === undefined) probe.audioEnd = time + this.buffer.duration;
-            return start.call(this, time, ...args);
-          };
         }, { masks, warmup, frames, mode });
         const launchStart = performance.now();
         await page.goto(`http://127.0.0.1:${server.address().port}/`);

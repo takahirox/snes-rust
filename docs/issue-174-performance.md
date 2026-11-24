@@ -57,8 +57,8 @@ release profile (opt-level 3, LTO, one codegen unit). Snes9x libretro
 Makefile's default optimized release flags, including `-O3 -DNDEBUG`.
 Native used Apple clang 21.0.0 and Wasm used Emscripten 6.0.13-git.
 Node 26.12.1 ran both Wasm builds. Python 3.13.13 scheduled child processes.
-The matched uncapped and browser trials were rerun on 2026-11-24. Each
-trial records its build's `source_revision`.
+The matched uncapped trials were rerun on 2026-11-24. Each trial records
+its build's `source_revision`.
 
 | Build | Source revision |
 | --- | --- |
@@ -70,8 +70,10 @@ The final binaries were built from the review checkpoint `b22a9b9`,
 whose Git tree matches the listed PR revision. The STAT77 fix composes
 elapsed pixels before reads during the HBlank picture tail so that delayed
 OBJ overflow remains visible there. Both native Rust builds use the same
-benchmark example. The browser comparison uses the revised playback probe
-for both builds.
+benchmark example. The browser comparison uses the cancellation-aware
+playback probe for both builds. The final playback build used PR revision
+`c168772cb5406695c78b4ef32669033407e8eaea`, which has the same production
+sources as the final uncapped build.
 
 The drivers start a fresh guest for each trial, use controller masks from
 [the workload manifest](../tools/performance/workloads.json) from reset,
@@ -186,6 +188,7 @@ python3 tools/performance/suite.py \
 ```sh
 npm ci --prefix web
 npx --prefix web playwright install chromium
+node --test tools/performance/browser-audio.test.mjs
 export SNES_BENCH_METAL=1
 run_playback() {
   workload=$1 trials=$2 device=$3
@@ -265,8 +268,9 @@ SHA-256 of each measured workload
 
 ### Browser playback
 
-Chromium 149.0.7827.55 used ANGLE Metal on the M4 Max. Desktop viewport was
-1280×800 at DPR 2. The emulated mobile runs used a 390×844 viewport at DPR 3
+The playback trials were rerun on 2026-11-24. Chromium 149.0.7827.55 used
+ANGLE Metal on the M4 Max. Desktop viewport was 1280×800 at DPR 2.
+The emulated mobile runs used a 390×844 viewport at DPR 3
 and 4× CDP CPU throttling on the same host, with the same GPU. Timing starts
 when the animation callback that reaches the warm-up target finishes. It ends
 when the first callback with at least 600 measured calls finishes. Catch-up
@@ -276,14 +280,18 @@ give the actual warm-up and measured field counts. Fields beyond the scripted
 replay use idle input. The measured callbacks include framebuffer upload,
 Pixel/CRT presentation and Web Audio scheduling. Each counted field must have
 a matching core timing and scheduled audio buffer. The 40 trials measured
-600 fields in 38 windows, 601 fields in one, and 602 in one. Both longer
-windows occurred in the throttled Yonaki baseline. Audio buffer counts
-matched field counts in all 40 trials.
+600 fields in 39 windows and 602 in one throttled Yonaki baseline window.
+Audio buffer counts matched field counts in all 40 trials.
 
-A scheduled audio gap is a discontinuity greater than 1 ms. A late gap
-also starts after the prior scheduled audio has expired on the Web Audio
-clock. These are proxies for underruns at the Web Audio boundary. The
-physical output device was outside the measurement.
+The probe follows the audio queue through starts and stops, including
+buffers scheduled during warm-up. A stop drops a queued buffer or
+shortens an active buffer to the stop time. A restart scheduled during
+the window counts as an audio gap if it leaves more than 1 ms between
+the effective end of the prior audio and the new start. A gap is late
+when the new start is scheduled after that effective end on the Web
+Audio clock. The trial records include canceled buffers and the total
+duration of detected gaps. These are Web Audio scheduling measurements.
+The physical output device was outside the measurement.
 
 Rows give median rates and percentile metrics across repeats. Counts are
 the sums across repeats. A late arrival is a render callback with guest
@@ -291,24 +299,31 @@ progress arriving more than 1.1 times the nominal 16.64 ms period since
 the previous such callback, using the last warm-up callback for the first
 arrival. The work threshold uses the nominal period.
 
-| Device / workload | Build | Mode | Guest fields/s | Work p50/p95/p99 ms | Arrival p50/p95/p99 ms | Over-budget work / late arrivals | Late audio / all gaps |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| desktop / shionari | baseline | pixel | 60.1 | 3.9/4.1/4.1 | 16.7/18.4/25.0 | 0 / 66 | 0 / 0 |
-| desktop / shionari | baseline | crt | 60.1 | 4.4/4.5/4.8 | 16.6/18.5/24.8 | 0 / 95 | 0 / 0 |
-| desktop / shionari | final | pixel | 60.1 | 2.5/2.7/2.8 | 16.7/18.2/25.1 | 0 / 50 | 0 / 0 |
-| desktop / shionari | final | crt | 60.1 | 2.9/3.1/3.2 | 16.7/18.0/24.4 | 0 / 28 | 0 / 0 |
-| desktop / yonaki | baseline | pixel | 60.1 | 4.5/4.6/4.7 | 16.7/18.1/25.1 | 0 / 55 | 0 / 0 |
-| desktop / yonaki | baseline | crt | 60.1 | 4.8/5.0/5.1 | 16.7/18.1/25.2 | 0 / 51 | 0 / 0 |
-| desktop / yonaki | final | pixel | 60.1 | 2.8/3.0/3.2 | 16.7/18.3/25.1 | 0 / 78 | 0 / 0 |
-| desktop / yonaki | final | crt | 60.1 | 3.3/3.4/3.6 | 16.7/18.2/25.2 | 0 / 68 | 0 / 0 |
-| desktop / hires | baseline | pixel | 60.1 | 4.9/5.0/5.1 | 16.7/18.0/25.0 | 0 / 44 | 0 / 0 |
-| desktop / hires | baseline | crt | 60.1 | 5.2/5.4/5.5 | 16.7/18.0/25.2 | 0 / 51 | 0 / 0 |
-| desktop / hires | final | pixel | 60.1 | 2.8/3.1/3.4 | 16.7/18.3/25.1 | 0 / 72 | 0 / 0 |
-| desktop / hires | final | crt | 60.1 | 3.1/3.9/4.2 | 16.7/18.3/25.2 | 0 / 68 | 0 / 0 |
-| mobile / yonaki | baseline | pixel | 55.7 | 52.4/55.4/58.4 | 49.9/58.7/62.6 | 446 / 446 | 38 / 38 |
-| mobile / yonaki | baseline | crt → Pixel | 55.9 | 52.2/55.7/56.5 | 49.7/58.7/59.5 | 449 / 449 | 35 / 35 |
-| mobile / yonaki | final | pixel | 60.1 | 10.8/11.7/12.2 | 16.6/21.1/25.0 | 0 / 94 | 0 / 0 |
-| mobile / yonaki | final | crt | 60.1 | 11.4/12.3/12.9 | 16.7/18.6/25.2 | 0 / 86 | 0 / 0 |
+| Device / workload | Build | Mode | Guest fields/s | Work p50/p95/p99 ms | Arrival p50/p95/p99 ms | Over-budget work / late arrivals | Late audio / all gaps | Total audio gap ms |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| desktop / shionari | baseline | pixel | 60.1 | 3.9/4.0/4.1 | 16.7/18.1/25.2 | 0 / 34 | 0 / 0 | 0 |
+| desktop / shionari | baseline | crt | 60.1 | 4.3/4.5/4.5 | 16.7/18.5/25.1 | 0 / 82 | 0 / 0 | 0 |
+| desktop / shionari | final | pixel | 60.1 | 2.4/2.6/2.8 | 16.7/18.1/24.4 | 0 / 30 | 0 / 0 | 0 |
+| desktop / shionari | final | crt | 60.1 | 2.8/3.0/3.1 | 16.7/18.1/25.0 | 0 / 38 | 0 / 0 | 0 |
+| desktop / yonaki | baseline | pixel | 60.1 | 4.5/4.7/4.8 | 16.7/18.1/25.1 | 0 / 53 | 0 / 0 | 0 |
+| desktop / yonaki | baseline | crt | 60.1 | 5.0/5.2/5.3 | 16.7/18.2/25.1 | 0 / 51 | 0 / 0 | 0 |
+| desktop / yonaki | final | pixel | 60.1 | 2.9/3.0/3.1 | 16.7/18.2/25.3 | 0 / 87 | 0 / 0 | 0 |
+| desktop / yonaki | final | crt | 60.1 | 3.3/3.4/3.6 | 16.7/18.2/25.3 | 0 / 72 | 0 / 0 | 0 |
+| desktop / hires | baseline | pixel | 60.1 | 5.2/5.4/5.5 | 16.7/18.2/25.1 | 0 / 66 | 0 / 0 | 0 |
+| desktop / hires | baseline | crt | 60.1 | 5.7/5.9/6.0 | 16.7/18.2/25.1 | 0 / 55 | 0 / 0 | 0 |
+| desktop / hires | final | pixel | 60.1 | 2.8/2.9/2.9 | 16.7/17.9/25.1 | 0 / 46 | 0 / 0 | 0 |
+| desktop / hires | final | crt | 60.1 | 3.4/3.5/3.6 | 16.7/18.2/25.1 | 0 / 67 | 0 / 0 | 0 |
+| mobile / yonaki | baseline | pixel | 57.1 | 43.9/53.6/54.4 | 46.1/58.3/58.9 | 467 / 467 | 24 / 24 | 1009 |
+| mobile / yonaki | baseline | crt → Pixel | 57.0 | 50.8/53.1/53.9 | 48.9/58.2/58.7 | 467 / 467 | 25 / 25 | 1064 |
+| mobile / yonaki | final | pixel | 60.1 | 10.4/11.1/11.5 | 16.7/23.6/25.3 | 0 / 98 | 0 / 0 | 0 |
+| mobile / yonaki | final | crt | 60.1 | 11.4/12.3/12.9 | 16.7/18.6/25.2 | 0 / 87 | 0 / 0 | 0 |
+
+The four throttled baseline trials recorded 49 late gaps totaling about
+2.07 seconds. Both baseline CRT requests fell back to Pixel. The final
+build sustained about 60.1 fields/s in both modes under throttling.
+Every other trial recorded zero audio gaps. The live trials recorded
+zero canceled buffers, so the controlled replay supplies the evidence
+for the probe's cancellation handling.
 
 The browser evidence also records scheduled buffers, guest calls, main-thread
 CPU time, JS heap estimates and launch latency. The opt-in driver records
@@ -424,11 +439,23 @@ eleven-band HDMA gate passed on the same revision. The benchmark probe
 was also checked with a controlled replay that forced catch-up at both
 boundaries and verified that the samples stay fixed after the final callback.
 
+The audio probe regression uses Chromium's offline audio renderer. It
+stops one active and eight queued buffers and schedules a restart 40 ms
+ahead on the same clock tick. The rendered waveform contains 1,280
+silent samples at 32 kHz and the probe reports one gap of 40 ms. A
+second restart after the replacement buffer expires also registers as
+late.
+
 The focused Chromium run passed seven checks, covering catch-up, Mode 5
 and Mode 6, the local Pages subpath, and both demo replays. The eighth
 check, live display selection, timed out expecting CRT after the keyboard
 shortcut. It passed on an isolated rerun with the same production build
 and Playwright configuration.
+
+After the audio probe fix, 83 of 84 focused Chromium checks passed on
+the first run, covering emulator playback, reset, volume, display and
+the local Pages subpath. The clean-storage CRT startup check saw Pixel
+on the first run and passed on an isolated rerun.
 
 ### Initial optimization checkpoint
 
