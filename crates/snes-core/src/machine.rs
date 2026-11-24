@@ -82,6 +82,11 @@ pub struct SystemBus {
     // limit on line `fast_v`; zero forces the full scan.
     fast_limit: u64,
     fast_v: u16,
+    // A CPU access of c clocks may skip events, `bus_tick` and `tick`
+    // entirely while H + c stays below this limit on line `fast_v`: no
+    // DMA/HDMA is pending, no refresh or timing event intervenes and the
+    // APU is deferred. Zero forces the ordinary path.
+    access_limit: u64,
     // Inside run_frame, master clocks owed to the APU. The SPC and DSP see
     // the CPU only through the ports, so catching up before every port
     // access and at the end of the field runs the same SPC instructions.
@@ -126,12 +131,12 @@ impl Machine {
     pub fn run_frame(&mut self) -> Result<(), String> {
         self.bus.defer_raster = true;
         self.bus.defer_apu = true;
-        self.bus.fast_limit = 0;
+        self.bus.invalidate_fast();
         let result = self.run_field();
         self.bus.sync_apu();
         self.bus.defer_apu = false;
         self.bus.defer_raster = false;
-        self.bus.fast_limit = 0;
+        self.bus.invalidate_fast();
         let result = result.and_then(|()| match self.bus.apu.error.take() {
             Some(error) => Err(error),
             None => Ok(()),
@@ -234,6 +239,7 @@ impl SystemBus {
             defer_raster: false,
             fast_limit: 0,
             fast_v: 0,
+            access_limit: 0,
             defer_apu: false,
             apu_lag: 0,
         }
@@ -312,6 +318,43 @@ impl SystemBus {
         }
         self.fast_limit = limit;
         self.fast_v = self.v;
+        self.refresh_access_limit();
+    }
+    fn invalidate_fast(&mut self) {
+        self.fast_limit = 0;
+        self.access_limit = 0;
+    }
+    fn refresh_access_limit(&mut self) {
+        self.access_limit = if self.defer_apu
+            && !self.apu.chunk_sensitive()
+            && !self.hdma_init
+            && !self.hdma_pending
+            && self.dma_pending == 0
+        {
+            if self.h < 538 {
+                self.fast_limit.min(538)
+            } else {
+                self.fast_limit
+            }
+        } else {
+            0
+        };
+    }
+    // One CPU bus cycle of `clocks`: service DMA/HDMA, advance time and
+    // count the cycle for the math unit.
+    #[inline(always)]
+    fn access(&mut self, clocks: u64) {
+        if self.h + clocks < self.access_limit && self.v == self.fast_v {
+            self.apu_lag += clocks;
+            self.clocks += clocks;
+            self.h += clocks;
+            self.ppu.h = self.h as u16;
+        } else {
+            self.events();
+            self.bus_tick(clocks);
+            self.refresh_access_limit();
+        }
+        self.cpu_cycle();
     }
     fn tick_events(&mut self, n: u64) {
         let mut n = n;
@@ -522,6 +565,12 @@ impl SystemBus {
         let a = a & 0xffffff;
         let bank = a >> 16;
         let lo = (a & 65535) as usize;
+        // Linear ROM pages never overlap I/O, SRAM or low WRAM mirrors.
+        if bank & 0xfe != 0x7e {
+            if let Some(v) = self.cart.read_rom_page(a) {
+                return v;
+            }
+        }
         if bank == 0x7e || bank == 0x7f {
             return self.wram[a as usize & 0x1ffff];
         }
@@ -604,7 +653,10 @@ impl SystemBus {
                 0x2100..=0x2133 => {
                     // CPU and DMA/HDMA writes must commit after the elapsed
                     // pixels have sampled the former registers and memory.
-                    if (1..=224).contains(&self.v) {
+                    // VMAIN/VMADD/VMDATA cannot alter them: VRAM writes are
+                    // blocked while displaying, and pending forced-blank
+                    // pixels are black regardless of VRAM.
+                    if (1..=224).contains(&self.v) && !(0x2115..=0x2119).contains(&lo) {
                         self.ppu.render_until(self.v as usize - 1, self.h);
                     }
                     self.ppu.write((lo - 0x2100) as u8, v);
@@ -613,6 +665,7 @@ impl SystemBus {
                 0x2140..=0x217f => {
                     self.sync_apu();
                     self.apu.port_write((lo - 0x2140) & 3, v);
+                    self.access_limit = 0;
                     return;
                 }
                 0x2180 => {
@@ -639,7 +692,7 @@ impl SystemBus {
                 0x4200..=0x420d => {
                     let old = self.io[lo - 0x4200];
                     self.io[lo - 0x4200] = v;
-                    self.fast_limit = 0;
+                    self.invalidate_fast();
                     match lo {
                         0x4200 => {
                             if old & 128 == 0 && v & 128 != 0 && self.nmi_flag {
@@ -885,24 +938,18 @@ impl SystemBus {
 }
 impl Bus for SystemBus {
     fn read(&mut self, a: u32) -> u8 {
-        self.events();
-        self.bus_tick(self.speed(a));
-        self.cpu_cycle();
+        self.access(self.speed(a));
         let v = self.read_raw(a);
         self.open = v;
         v
     }
     fn write(&mut self, a: u32, v: u8) {
-        self.events();
-        self.bus_tick(self.speed(a));
-        self.cpu_cycle();
+        self.access(self.speed(a));
         self.open = v;
         self.write_raw(a, v);
     }
     fn idle(&mut self) {
-        self.events();
-        self.bus_tick(6);
-        self.cpu_cycle();
+        self.access(6);
     }
 }
 

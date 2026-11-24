@@ -124,6 +124,12 @@ impl Cartridge {
         };
         Some(mirror(i, self.rom.len()))
     }
+    // The byte at `a` when it lies in a linear ROM page.
+    #[inline(always)]
+    pub(crate) fn read_rom_page(&self, a: u32) -> Option<u8> {
+        let page = self.pages[(a >> 12) as usize & 4095];
+        (page != SLOW_PAGE).then(|| self.rom[page as usize + (a & 4095) as usize])
+    }
     #[inline]
     pub fn read(&self, a: u32) -> Option<u8> {
         let page = self.pages[(a >> 12) as usize & 4095];
