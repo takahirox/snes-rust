@@ -110,6 +110,96 @@ struct LineBuffers {
 }
 const MATH: u32 = 1 << 23;
 const BACKDROP: u32 = MATH | (5 << 16);
+// The low byte is a CGRAM index, resolved only for the composited winner;
+// otherwise the low 15 bits are the color itself.
+const INDEXED: u32 = 1 << 15;
+// Output-stage constants of one span. CGRAM cannot change within a span.
+struct Blend<'a> {
+    cgram: &'a [u8; 512],
+    levels: [u8; 32],
+    back_color: u16,
+    fixed_color: u16,
+    math_control: u8,
+    use_sub: bool,
+    clip_mode: u8,
+    math_window_mode: u8,
+}
+impl Blend<'_> {
+    #[inline(always)]
+    fn resolve(&self, pixel: u32) -> u16 {
+        if pixel & INDEXED != 0 {
+            let i = (pixel & 255) as usize * 2;
+            u16::from_le_bytes([self.cgram[i], self.cgram[i + 1]]) & 0x7fff
+        } else {
+            pixel as u16 & 0x7fff
+        }
+    }
+    // (clip to black, prevent color math) for a color-window state.
+    #[inline(always)]
+    fn windows(&self, in_window: bool) -> (bool, bool) {
+        let apply = |mode: u8| match mode {
+            0 => false,
+            1 => !in_window,
+            2 => in_window,
+            _ => true,
+        };
+        (apply(self.clip_mode), apply(self.math_window_mode))
+    }
+    // Color math on one displayed main-screen pixel; `sub_pixel` is the
+    // subscreen (or COLDATA backdrop) operand.
+    #[inline(always)]
+    fn blend(&self, pixel: u32, sub_pixel: u32, clip: bool, prevent: bool) -> u16 {
+        let color = if clip { 0 } else { self.resolve(pixel) };
+        let math =
+            !prevent && pixel & MATH != 0 && self.math_control & (1 << ((pixel >> 16) & 7)) != 0;
+        if !math {
+            return color;
+        }
+        let sub = if self.use_sub {
+            self.resolve(sub_pixel)
+        } else {
+            self.fixed_color
+        };
+        let halve =
+            self.math_control & 64 != 0 && !clip && (!self.use_sub || (sub_pixel >> 16) & 7 != 5);
+        let mut result = 0;
+        for ch in 0..3 {
+            let a = ((color >> (ch * 5)) & 31) as i16;
+            let b = ((sub >> (ch * 5)) & 31) as i16;
+            let mut v = if self.math_control & 128 != 0 {
+                a - b
+            } else {
+                a + b
+            };
+            if halve {
+                v /= 2;
+            }
+            result |= (v.clamp(0, 31) as u16) << (ch * 5);
+        }
+        result
+    }
+    // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0] in
+    // true/pseudo hires. The math operand keeps COLDATA.
+    #[inline(always)]
+    fn shown_sub(&self, sub_pixel: u32, clip: bool) -> u16 {
+        if clip {
+            0
+        } else if (sub_pixel >> 16) & 7 == 5 {
+            self.back_color
+        } else {
+            self.resolve(sub_pixel)
+        }
+    }
+    #[inline(always)]
+    fn rgba(&self, color: u16) -> [u8; 4] {
+        [
+            self.levels[usize::from(color & 31)],
+            self.levels[usize::from((color >> 5) & 31)],
+            self.levels[usize::from((color >> 10) & 31)],
+            255,
+        ]
+    }
+}
 const DEPTHS: [[usize; 4]; 8] = [
     [2, 2, 2, 2],
     [4, 4, 2, 0],
@@ -825,7 +915,7 @@ impl Ppu {
                         continue;
                     }
                     pixels[screen as usize] =
-                        tag | u32::from(self.palette(128 + pal * 16 + color as usize));
+                        tag | INDEXED | (128 + pal * 16 + color as usize) as u32;
                 }
             }
         }
@@ -1026,61 +1116,26 @@ impl Ppu {
                 }
             }
         }
-        let rgba = |color: u16| {
-            u32::from_le_bytes([
-                levels[usize::from(color & 31)],
-                levels[usize::from((color >> 5) & 31)],
-                levels[usize::from((color >> 10) & 31)],
-                255,
-            ])
+        let blend = Blend {
+            cgram: &self.cgram,
+            levels,
+            back_color,
+            fixed_color,
+            math_control,
+            use_sub,
+            clip_mode,
+            math_window_mode,
         };
-        let subtract = math_control & 128 != 0;
-        let halve_enabled = math_control & 64 != 0;
-        let window_modes = |in_window: bool| {
-            let apply = |mode: u8| match mode {
-                0 => false,
-                1 => !in_window,
-                2 => in_window,
-                _ => true,
-            };
-            (apply(clip_mode), apply(math_window_mode))
-        };
-        // Color math on one displayed main-screen color; `sub_pixel` is the
-        // subscreen (or COLDATA backdrop) operand.
-        let blend = |pixel: u32, sub_pixel: u32, clip: bool, prevent: bool| -> u16 {
-            let color = if clip { 0 } else { pixel as u16 & 0x7fff };
-            let math =
-                !prevent && pixel & MATH != 0 && math_control & (1 << ((pixel >> 16) & 7)) != 0;
-            if !math {
-                return color;
-            }
-            let sub = if use_sub {
-                sub_pixel as u16 & 0x7fff
-            } else {
-                fixed_color
-            };
-            let halve = halve_enabled && !clip && (!use_sub || (sub_pixel >> 16) & 7 != 5);
-            let mut result = 0;
-            for ch in 0..3 {
-                let a = ((color >> (ch * 5)) & 31) as i16;
-                let b = ((sub >> (ch * 5)) & 31) as i16;
-                let mut v = if subtract { a - b } else { a + b };
-                if halve {
-                    v /= 2;
-                }
-                result |= (v.clamp(0, 31) as u16) << (ch * 5);
-            }
-            result
-        };
+        let frame = &mut self.frame;
         let row = y * self.frame_width;
         if !wide_output && repeats == 1 {
-            let out = &mut self.frame[(row + start) * 4..(row + end) * 4];
+            let out = &mut frame[(row + start) * 4..(row + end) * 4];
             let pixels = screen[0][..n].iter().zip(&screen[1][..n]);
             if !needs_color_window {
-                let (clip, prevent) = window_modes(false);
+                let (clip, prevent) = blend.windows(false);
                 for (o, (&main_pixel, &sub_pixel)) in out.chunks_exact_mut(4).zip(pixels) {
                     o.copy_from_slice(
-                        &rgba(blend(main_pixel, sub_pixel, clip, prevent)).to_le_bytes(),
+                        &blend.rgba(blend.blend(main_pixel, sub_pixel, clip, prevent)),
                     );
                 }
             } else {
@@ -1088,54 +1143,39 @@ impl Ppu {
                 for (o, ((&main_pixel, &sub_pixel), &in_window)) in
                     out.chunks_exact_mut(4).zip(pixels)
                 {
-                    let (clip, prevent) = window_modes(in_window);
+                    let (clip, prevent) = blend.windows(in_window);
                     o.copy_from_slice(
-                        &rgba(blend(main_pixel, sub_pixel, clip, prevent)).to_le_bytes(),
+                        &blend.rgba(blend.blend(main_pixel, sub_pixel, clip, prevent)),
                     );
                 }
             }
-            self.line = Some(line);
-            return;
-        }
-        // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
-        // in true/pseudo hires. Leave the math operand intact.
-        let shown_sub = |sub_pixel: u32, clip: bool| {
-            if clip {
-                0
-            } else if (sub_pixel >> 16) & 7 == 5 {
-                back_color
-            } else {
-                sub_pixel as u16 & 0x7fff
-            }
-        };
-        if wide_output && repeats == 1 {
-            let out = &mut self.frame[(row + start * 2) * 4..(row + end * 2) * 4];
+        } else if wide_output && repeats == 1 {
+            let out = &mut frame[(row + start * 2) * 4..(row + end * 2) * 4];
             for (i, o) in out.chunks_exact_mut(8).enumerate() {
                 let (main_pixel, sub_pixel) = (screen[0][i], screen[1][i]);
-                let (clip, prevent) = window_modes(needs_color_window && win[5][start + i]);
-                o[..4].copy_from_slice(&rgba(shown_sub(sub_pixel, clip)).to_le_bytes());
+                let (clip, prevent) = blend.windows(needs_color_window && win[5][start + i]);
+                o[..4].copy_from_slice(&blend.rgba(blend.shown_sub(sub_pixel, clip)));
                 o[4..].copy_from_slice(
-                    &rgba(blend(main_pixel, sub_pixel, clip, prevent)).to_le_bytes(),
+                    &blend.rgba(blend.blend(main_pixel, sub_pixel, clip, prevent)),
                 );
             }
-            self.line = Some(line);
-            return;
-        }
-        for (i, x) in (start..end).enumerate() {
-            let main_pixel = screen[0][i];
-            let sub_pixel = screen[1][i];
-            let (clip, prevent) = window_modes(needs_color_window && win[5][x]);
-            for phase in 0..scale {
-                let color = if wide_output && phase == 0 {
-                    shown_sub(sub_pixel, clip)
-                } else {
-                    blend(main_pixel, sub_pixel, clip, prevent)
-                };
-                let out = rgba(color).to_le_bytes();
-                let i = (row + (x * scale + phase) * repeats) * 4;
-                self.frame[i..i + 4].copy_from_slice(&out);
-                if repeats == 2 {
-                    self.frame[i + 4..i + 8].copy_from_slice(&out);
+        } else {
+            for (i, x) in (start..end).enumerate() {
+                let main_pixel = screen[0][i];
+                let sub_pixel = screen[1][i];
+                let (clip, prevent) = blend.windows(needs_color_window && win[5][x]);
+                for phase in 0..scale {
+                    let color = if wide_output && phase == 0 {
+                        blend.shown_sub(sub_pixel, clip)
+                    } else {
+                        blend.blend(main_pixel, sub_pixel, clip, prevent)
+                    };
+                    let out = blend.rgba(color);
+                    let i = (row + (x * scale + phase) * repeats) * 4;
+                    frame[i..i + 4].copy_from_slice(&out);
+                    if repeats == 2 {
+                        frame[i + 4..i + 8].copy_from_slice(&out);
+                    }
                 }
             }
         }
@@ -1285,15 +1325,21 @@ impl Ppu {
             out.fill(0);
             return;
         }
+        if l.direct {
+            for (k, o) in out.iter_mut().enumerate() {
+                let color = (colors >> (k * STEP * 8)) as u8;
+                *o = if color == 0 {
+                    0
+                } else {
+                    tag | u32::from(Self::direct_color(color, palette as u8))
+                };
+            }
+            return;
+        }
+        let tag = tag | INDEXED | palette_base as u32;
         for (k, o) in out.iter_mut().enumerate() {
-            let color = (colors >> (k * STEP * 8)) as u8;
-            *o = if color == 0 {
-                0
-            } else if l.direct {
-                tag | u32::from(Self::direct_color(color, palette as u8))
-            } else {
-                tag | u32::from(self.palette(palette_base + usize::from(color)))
-            };
+            let color = u32::from((colors >> (k * STEP * 8)) as u8);
+            *o = if color == 0 { 0 } else { tag + color };
         }
     }
 }
