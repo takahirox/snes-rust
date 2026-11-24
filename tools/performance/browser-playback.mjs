@@ -54,6 +54,7 @@ export function installPlaybackProbe({ masks, warmup, frames, mode }) {
         probe.warmupFields = probe.frames;
         probe.lastFrame = time;
         probe.modeAtStart = activeMode;
+        window.benchAudio?.begin();
       }
       return;
     }
@@ -62,6 +63,7 @@ export function installPlaybackProbe({ masks, warmup, frames, mode }) {
     probe.lastFrame = time;
     if (probe.frames - probe.warmupFields >= frames) {
       probe.end = end;
+      window.benchAudio?.finish();
       probe.modeAtEnd = activeMode;
       probe.mode = displayChanges.some(change => !change.beforeWindow) ? 'mixed' : probe.modeAtStart;
       probe.displayChanges = displayChanges.map(({ mode, beforeWindow, fields, time }) => ({
