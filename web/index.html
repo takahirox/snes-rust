@@ -29,6 +29,10 @@
         </details>
         <a href="https://github.com/takahirox/snes-rust">GitHub</a>
       </nav>
+      <div id="rom-retention-notice">
+        <p id="rom-retention-warning" role="alert"></p>
+        <button id="dismiss-rom-warning" type="button" aria-label="Dismiss ROM storage warning">×</button>
+      </div>
     </header>
     <section class="player" aria-label="SNES player">
       <div class="game-presentation" id="game-presentation">
@@ -66,8 +70,21 @@
         <button id="change-cartridge" popovertarget="cartridge-picker" aria-haspopup="dialog" disabled>Insert cartridge</button>
         <div id="cartridge-picker" popover role="dialog" aria-labelledby="cartridge-title">
           <h2 id="cartridge-title">Cartridges</h2>
+          <div id="library-status" role="status">
+            <span id="library-operation-status"></span>
+            <span id="library-retention-warning"></span>
+          </div>
+          <div id="library-recovery" hidden>
+            <p id="library-load-error" tabindex="-1"></p>
+            <button id="reopen-original-rom">Reopen original file…</button>
+            <button id="remove-broken-cartridge" class="remove-cartridge" aria-describedby="library-load-error">Remove saved entry</button>
+          </div>
           <button id="demo" autofocus disabled>Bundled demo — <span lang="ja">潮鳴りの密室</span></button>
           <button id="demo-yonaki" disabled>Bundled demo — <span lang="ja">夜鳴き鐘</span></button>
+          <section id="my-cartridges" aria-labelledby="my-cartridges-title" hidden>
+            <h3 id="my-cartridges-title">My cartridges</h3>
+            <ul id="saved-cartridges" role="list"></ul>
+          </section>
           <button id="open-local" disabled>Open local ROM…</button>
         </div>
         <input id="rom" type="file" hidden disabled accept=".sfc,.smc" aria-label="Open local ROM">

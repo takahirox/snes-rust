@@ -37,10 +37,48 @@ button:hover:enabled { background: #edf0ec; }
 #cartridge-label { color: #697078; font-size: 11px; }
 #current-game { margin: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #change-cartridge { white-space: nowrap; }
-#cartridge-picker { width: min(360px, calc(100vw - 32px)); padding: 16px; border: 1px solid #c9cdce; border-radius: 12px; background: #fff; color: inherit; box-shadow: 0 8px 32px #10201830; }
+#cartridge-picker {
+  --picker-top: max(16px, env(safe-area-inset-top));
+  --picker-right: max(16px, env(safe-area-inset-right));
+  --picker-bottom: max(16px, env(safe-area-inset-bottom));
+  --picker-left: max(16px, env(safe-area-inset-left));
+  inset: var(--picker-top) var(--picker-right) var(--picker-bottom) var(--picker-left);
+  width: min(360px, calc(100% - var(--picker-left) - var(--picker-right)));
+  max-height: calc(100dvh - var(--picker-top) - var(--picker-bottom));
+  overflow: auto; overscroll-behavior: contain;
+  padding: 16px; border: 1px solid #c9cdce; border-radius: 12px; background: #fff; color: inherit; box-shadow: 0 8px 32px #10201830;
+}
 #cartridge-title { font-size: 15px; margin: 0 0 12px; }
-#cartridge-picker button { display: block; width: 100%; text-align: left; }
-#cartridge-picker button + button { margin-top: 8px; }
+#cartridge-picker button { display: block; width: 100%; min-height: 44px; text-align: left; overflow-wrap: anywhere; }
+#cartridge-picker > button:not(:first-of-type), #my-cartridges { margin-top: 8px; }
+#my-cartridges-title { margin: 12px 0 4px; font-size: 13px; color: #58665f; }
+#saved-cartridges { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+#saved-cartridges li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px; }
+#saved-cartridges small { display: block; color: #58665f; font-size: 11px; }
+#cartridge-picker .remove-cartridge { padding: 4px 8px; border-color: transparent; font-size: 12px; }
+.remove-cartridge[aria-disabled="true"] { opacity: .42; cursor: default; }
+#library-status { color: #a32f29; overflow-wrap: anywhere; }
+#library-status > span:not(:empty) { display: block; margin-bottom: 8px; }
+#library-recovery:not([hidden]) {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
+  margin-bottom: 12px; padding: 8px; border: 1px solid #e1bfbb; border-radius: 8px;
+}
+#library-load-error {
+  grid-column: 1 / -1; color: #a32f29; margin: 0 0 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#library-recovery button { padding: 4px 8px; font-size: 13px; }
+#rom-retention-notice {
+  flex: 1 0 min(280px, 100%); max-width: 460px; margin-inline: auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; gap: 8px; padding: 4px 4px 4px 12px;
+  background: #fff8e9; color: #805511; border: 1px solid #dbbf8c; border-radius: 8px;
+}
+#rom-retention-warning { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.rom-retention-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dismiss-rom-warning { width: 44px; height: 44px; padding: 0; font-size: 20px; }
+#rom-retention-notice:has(#rom-retention-warning:empty) { display: none; }
+main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hidden; }
 .toolbar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .toolbar button { padding: 7px 12px; font-size: 13px; }
 #play { width: 64px; flex-shrink: 0; }
@@ -57,7 +95,7 @@ button:hover:enabled { background: #edf0ec; }
 #status:has(+ #fullscreen-status:not(:empty)) { display: none; }
 #fullscreen-status { color: #805511; }
 #fullscreen-status:empty { position: absolute; }
-#error { color: #a32f29; white-space: pre-wrap; }
+#error { color: #a32f29; white-space: pre-wrap; overflow-wrap: anywhere; }
 #audio-status, #display-status { color: #805511; }
 #error:empty, #audio-status:empty, #display-status:empty { display: none; }
 .touch-controls, #exit-fullscreen { display: none; }
@@ -95,8 +133,18 @@ button:hover:enabled { background: #edf0ec; }
   @media (orientation: portrait) {
     /* Reserve space for both toolbar rows, the cartridge and 44px controls. */
     main {
-      --portrait-screen-height: max(1px, 100svh - 484px
+      --portrait-screen-height: max(var(--portrait-screen-min, 1px), 100svh - 484px
+        - var(--rom-notice-space, 0px)
         - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)));
+    }
+    /* Fit the header notice above the player without covering any touch targets. */
+    main:has(#rom-retention-warning:not(:empty)) { --rom-notice-space: 64px; --portrait-screen-min: 48px; }
+    #rom-retention-warning { line-height: 1.25; }
+    @media (max-height: 600px) {
+      main:has(#rom-retention-warning:not(:empty)) { --portrait-warning-gap: 4px; }
+      header { margin-bottom: var(--portrait-warning-gap, 12px); }
+      .player { row-gap: var(--portrait-warning-gap, 12px); }
+      .left-controls, .right-controls { row-gap: var(--portrait-warning-gap, 8px); }
     }
     .video-frame {
       /* Let the recovery messages scroll below the controls when space runs out. */

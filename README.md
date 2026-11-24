@@ -63,7 +63,7 @@ for the exact permission, authorship and known asset notices. Castle/Memory and
 diagnostic fixtures are test-only and were never shipped in the browser app.
 
 Visitors can alternatively select their own legally obtained ROM locally.
-Personal ROMs and SRAM are never uploaded; saves remain in browser local storage.
+Personal ROMs, filenames and SRAM stay in this browser profile and origin.
 
 Requirements: Rust 1.94+ with Cargo, the `wasm32-unknown-unknown` standard library,
 Node.js 24+, npm, and Python 3.12+. Only browser tests use an npm dependency
@@ -78,8 +78,13 @@ npm --prefix web run serve
 
 Open <http://127.0.0.1:8080>. Use **Insert cartridge** to choose a bundled demo
 or a lawfully obtained ordinary NTSC LoROM or HiROM `.sfc`/`.smc` file with **Open local ROM…**.
-Both sources start automatically after validation and save restoration. Local
-files stay client-side; the selected demo is the only ROM fetched, from the same origin.
+Newly inserted cartridges start automatically after validation and save
+restoration. The browser remembers successfully imported personal ROMs when
+storage is available. To play one again, choose it under **Insert cartridge →
+My cartridges**. Use **Remove** beside its name to remove the stored ROM while
+keeping its SRAM and original file.
+Clearing this site's browser data can erase stored ROMs and SRAM. Keep your
+original files separately.
 The static production output is `web/dist`; the local server serves the same
 assets as GitHub Pages.
 
@@ -118,7 +123,7 @@ SRAM for battery-backed cartridges is stored locally under the SHA-256 of the
 ROM after removing any copier header. Reset clears volatile machine state and
 controllers, preserving SRAM. Changing cartridges restores the new game’s own
 saved SRAM before replacing the inserted machine. Dismissing the picker or cancelling the file chooser keeps
-the current game running. Selecting the already inserted demo leaves playback
+the current game running. Selecting the already inserted cartridge leaves playback
 unchanged. Each demo keeps its own save. Use the shared Play/Pause control for playback and Reset to start again
 while preserving SRAM. Opening the identical game locally
 (including a copier-header variant) shares the same save identity as the demo.
@@ -131,9 +136,8 @@ cartridge replacement so existing persisted bytes cannot be overwritten by empty
 SRAM. Use **Retry restoring save** after restoring storage access (or repairing
 corrupt stored data); recovery must succeed before playing. The previous cartridge
 and its recoverable SRAM remain inserted until restoration succeeds; retry then
-inserts and starts the selected cartridge. Clearing browser storage erases
-persisted saves. There are no save states or save-file import/export
-controls yet. See the [cartridge-switcher validation record](docs/issue-122-validation.md)
+inserts and starts the selected cartridge. There are no save states or save-file
+import/export controls yet. See the [cartridge-switcher validation record](docs/issue-122-validation.md)
 for workflow screenshots, save-failure coverage and required post-merge checks.
 
 If Homebrew Cargo picks a different `rustc` from rustup on macOS, select the
