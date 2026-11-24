@@ -613,26 +613,74 @@ test('aborted read, write and delete transactions preserve the committed library
   await expect(page.locator('#open-local')).toBeFocused();
 });
 
-test('quota exhaustion shows recovery in the viewport and leaves playback and file import usable', async ({ page, context }) => {
+test('a queued successful write preserves recovery for the ROM whose write aborted', async ({ page }) => {
+  await page.goto('/'); await ready(page);
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      const request = put.apply(this, args);
+      if (this.name === 'roms') {
+        IDBObjectStore.prototype.put = put;
+        const tx = this.transaction;
+        const onabort = tx.onabort;
+        // Keep the first write pending in the app until the next import queues its write.
+        tx.onabort = event => { window.finishAbortedWrite = () => onabort.call(tx, event); };
+        request.addEventListener('success', () => tx.abort(), { once: true });
+      }
+      return request;
+    };
+  });
+  await importRom(page, 'unsaved.sfc', first);
+  await expect.poll(() => page.evaluate(() => typeof window.finishAbortedWrite)).toBe('function');
+  await importRom(page, 'saved.sfc', second);
+  await expect(current(page)).toHaveText('saved.sfc');
+  await page.evaluate(() => window.finishAbortedWrite());
+  await openPicker(page);
+  await expect(saved(page, secondHash)).toBeVisible();
+  await expect(saved(page, firstHash)).toHaveCount(0);
+  await expect(page.locator('#library-retention-warning')).toContainText('Could not remember unsaved.sfc');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#rom-retention-warning')).toContainText('Could not remember unsaved.sfc');
+
+  await chooseRom(page, 'renamed.smc', withHeader(first));
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(2);
+  await expect(page.locator('#library-retention-warning')).toBeEmpty();
+});
+
+test('quota exhaustion with a long filename leaves recovery and controls usable', async ({ page, context }) => {
   await page.goto('/'); await ready(page);
   const origin = new URL(page.url()).origin;
   const cdp = await context.newCDPSession(page);
+  const name = `${'quota'.repeat(49)}.sfc`;
   await cdp.send('Storage.overrideQuotaForOrigin', { origin, quotaSize: 1 });
-  await chooseRom(page, 'quota.sfc', first);
+  await chooseRom(page, name, first);
   await expect(status(page)).toHaveText('Playing');
   await expect(page.locator('#error')).toBeEmpty();
   const warning = page.locator('#rom-retention-warning');
   const pickerWarning = page.locator('#library-retention-warning');
-  const recovery = 'Could not remember quota.sfc. Check browser storage and reopen the original file to retry.';
+  const recovery = `Could not remember ${name}. Check browser storage and reopen the original file to retry.`;
   await expect(warning).toHaveText(recovery);
-  for (const [width, height] of [[1280, 720], [320, 568], [667, 320]]) {
+  for (const [width, height] of [[1100, 900], [320, 568], [667, 320]]) {
     await page.setViewportSize({ width, height });
+    await page.evaluate(() => window.scrollTo(0, 0));
     await expect(warning).toBeInViewport({ ratio: 1 });
+    await expect(page.locator('#video')).toBeInViewport({ ratio: 1 });
+    await page.locator('#video').click({ trial: true });
+    await expect(page.locator('#play')).toBeInViewport({ ratio: 1 });
+    await expect(page.locator('#change-cartridge')).toBeInViewport({ ratio: 1 });
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect(status(page)).toHaveText('Paused');
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect(status(page)).toHaveText('Playing');
     await openPicker(page);
     await expect(warning).toBeHidden();
     await expect(pickerWarning).toHaveText(recovery);
     await expect(pickerWarning).toBeInViewport({ ratio: 1 });
     await expect(rows(page)).toHaveCount(0);
+    for (const id of ['demo', 'demo-yonaki', 'open-local']) {
+      await page.locator(`#${id}`).click({ trial: true });
+    }
     await page.keyboard.press('Escape');
   }
   await page.getByRole('button', { name: 'Dismiss ROM storage warning' }).press('Enter');
@@ -643,7 +691,7 @@ test('quota exhaustion shows recovery in the viewport and leaves playback and fi
   await expect(pickerWarning).toHaveText(recovery);
   await page.keyboard.press('Escape');
   await cdp.send('Storage.overrideQuotaForOrigin', { origin });
-  await chooseRom(page, 'quota.sfc', first);
+  await chooseRom(page, name, first);
   await openPicker(page);
   await expect(saved(page, firstHash)).toBeVisible();
   await expect(pickerWarning).toBeEmpty();
