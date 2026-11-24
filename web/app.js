@@ -430,6 +430,25 @@ picker.addEventListener('keydown', event => {
   // Removing a row can move focus to another button while Enter is still held.
   if (event.key === 'Enter' && event.repeat) event.preventDefault();
 });
+let lastRemoveClick;
+document.addEventListener('click', event => {
+  if (!event.detail || !lastRemoveClick) return;
+  const { click, hash } = lastRemoveClick;
+  // A committed removal can move another control under the pointer. Taps can
+  // each have a click count of one, so also check their timing and position.
+  const nearby = Math.hypot(event.clientX - click.clientX, event.clientY - click.clientY) <= 6;
+  const repeated = event.detail > 1 || event.timeStamp - click.timeStamp <= 500;
+  if (!click.target.isConnected && nearby && repeated) {
+    const remove = event.target.closest('.remove-cartridge');
+    // A refresh can rebuild the same cartridge's Remove button.
+    if (!remove || !sameCartridgeKey(hash, rowKeys.get(remove.parentElement))) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+  }
+  lastRemoveClick = undefined;
+}, { capture: true });
 function closePicker() { picker.hidePopover(); $('change-cartridge').focus({ preventScroll: true }); }
 
 // Keep metadata separate so listing cartridges never reads their ROM bytes.
@@ -507,7 +526,10 @@ function renderLibrary(entries) {
     remove.className = 'remove-cartridge';
     remove.textContent = 'Remove';
     remove.setAttribute('aria-label', `Remove ${name}`);
-    remove.addEventListener('click', () => removeCartridge(hash, name, remove));
+    remove.addEventListener('click', event => {
+      if (event.detail > 0) lastRemoveClick = { click: event, hash };
+      removeCartridge(hash, name, remove);
+    });
     if (nameCounts.get(name) > 1) {
       const suffix = document.createElement('small');
       suffix.id = `rom-${i}`;
