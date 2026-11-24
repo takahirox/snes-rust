@@ -230,6 +230,41 @@ test('remembers normalized ROMs, restores guest progress after reload and revisi
   }
 });
 
+test('Escape cancels a saved cartridge selection during hash verification', async ({ page }) => {
+  await instrument(page);
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'saved.sfc', first);
+  await selectDemo(page);
+  const demoName = '潮鳴りの密室 / Shionari no Misshitsu';
+  await expect(current(page)).toHaveText(demoName);
+  await expect(status(page)).toHaveText('Playing');
+  await openPicker(page);
+  await page.evaluate(() => {
+    const digest = crypto.subtle.digest;
+    crypto.subtle.digest = async function (...args) {
+      await new Promise(resolve => { window.resumeSavedDigest = resolve; });
+      crypto.subtle.digest = digest;
+      return digest.apply(this, args);
+    };
+  });
+
+  await saved(page, firstHash).getByRole('button', { name: 'saved.sfc', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => typeof window.resumeSavedDigest)).toBe('function');
+  await page.keyboard.press('Escape');
+  await expect(picker(page)).toBeHidden();
+  await page.evaluate(() => window.resumeSavedDigest());
+  await expect(page.locator('#rom')).toBeEnabled();
+  await expect(current(page)).toHaveText(demoName);
+  await expect(status(page)).toHaveText('Playing');
+  await expect(page.locator('#play')).toHaveText('Pause');
+  expect(await commits(page)).toBe(2);
+
+  await openPicker(page);
+  await selectSaved(page, firstHash, 'saved.sfc');
+  await expect(current(page)).toHaveText('saved.sfc');
+  await expect(status(page)).toHaveText('Playing');
+});
+
 test('holding Enter on Remove does not launch the next saved cartridge', async ({ page }) => {
   await instrument(page);
   await page.goto('/'); await ready(page);
