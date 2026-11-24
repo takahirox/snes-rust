@@ -16,6 +16,11 @@ pub struct Ppu {
     // Output channel levels for the brightness in `levels_for`.
     levels: [u8; 32],
     levels_for: u8,
+    // RGBA output of each CGRAM entry at that brightness, for the CGRAM
+    // contents in `rgba_cgram`. Compared every span, so any change to
+    // `cgram` (including direct writes) refreshes the affected entries.
+    rgba_cache: [u32; 256],
+    rgba_cgram: [u8; 512],
     raster_overflow: u8,
     vaddr: u16,
     vbuffer: u16,
@@ -67,6 +72,8 @@ impl Default for Ppu {
             })),
             levels: [0; 32],
             levels_for: 0,
+            rgba_cache: [u32::from_le_bytes([0, 0, 0, 255]); 256],
+            rgba_cgram: [0; 512],
             raster_overflow: 0,
             vaddr: 0,
             vbuffer: 0,
@@ -116,6 +123,7 @@ const INDEXED: u32 = 1 << 15;
 // Output-stage constants of one span. CGRAM cannot change within a span.
 struct Blend<'a> {
     cgram: &'a [u8; 512],
+    rgba_cache: &'a [u32; 256],
     levels: [u8; 32],
     back_color: u16,
     fixed_color: u16,
@@ -192,13 +200,27 @@ impl Blend<'_> {
     }
     #[inline(always)]
     fn rgba(&self, color: u16) -> [u8; 4] {
-        [
-            self.levels[usize::from(color & 31)],
-            self.levels[usize::from((color >> 5) & 31)],
-            self.levels[usize::from((color >> 10) & 31)],
-            255,
-        ]
+        rgba(&self.levels, color)
     }
+    // Displayed main-screen output: cached when no math or clip applies.
+    #[inline(always)]
+    fn output(&self, pixel: u32, sub_pixel: u32, clip: bool, prevent: bool) -> [u8; 4] {
+        let math =
+            !prevent && pixel & MATH != 0 && self.math_control & (1 << ((pixel >> 16) & 7)) != 0;
+        if !math && !clip && pixel & INDEXED != 0 {
+            return self.rgba_cache[(pixel & 255) as usize].to_le_bytes();
+        }
+        self.rgba(self.blend(pixel, sub_pixel, clip, prevent))
+    }
+}
+#[inline(always)]
+fn rgba(levels: &[u8; 32], color: u16) -> [u8; 4] {
+    [
+        levels[usize::from(color & 31)],
+        levels[usize::from((color >> 5) & 31)],
+        levels[usize::from((color >> 10) & 31)],
+        255,
+    ]
 }
 const DEPTHS: [[usize; 4]; 8] = [
     [2, 2, 2, 2],
@@ -1063,6 +1085,27 @@ impl Ppu {
             self.levels_for = self.regs[0] & 15;
             self.levels =
                 std::array::from_fn(|value| (value as u32 * 255 * bright / (31 * 15)) as u8);
+            self.rgba_cgram = self.cgram;
+            for (i, entry) in self.rgba_cache.iter_mut().enumerate() {
+                let color = u16::from_le_bytes([self.cgram[i * 2], self.cgram[i * 2 + 1]]);
+                *entry = u32::from_le_bytes(rgba(&self.levels, color & 0x7fff));
+            }
+        } else {
+            for (chunk, (current, cached)) in self
+                .cgram
+                .chunks_exact(16)
+                .zip(self.rgba_cgram.chunks_exact_mut(16))
+                .enumerate()
+            {
+                if current != cached {
+                    cached.copy_from_slice(current);
+                    for (k, pair) in current.chunks_exact(2).enumerate() {
+                        let color = u16::from_le_bytes([pair[0], pair[1]]) & 0x7fff;
+                        self.rgba_cache[chunk * 8 + k] =
+                            u32::from_le_bytes(rgba(&self.levels, color));
+                    }
+                }
+            }
         }
         let levels = self.levels;
         let n = end - start;
@@ -1118,6 +1161,7 @@ impl Ppu {
         }
         let blend = Blend {
             cgram: &self.cgram,
+            rgba_cache: &self.rgba_cache,
             levels,
             back_color,
             fixed_color,
@@ -1134,9 +1178,7 @@ impl Ppu {
             if !needs_color_window {
                 let (clip, prevent) = blend.windows(false);
                 for (o, (&main_pixel, &sub_pixel)) in out.chunks_exact_mut(4).zip(pixels) {
-                    o.copy_from_slice(
-                        &blend.rgba(blend.blend(main_pixel, sub_pixel, clip, prevent)),
-                    );
+                    o.copy_from_slice(&blend.output(main_pixel, sub_pixel, clip, prevent));
                 }
             } else {
                 let pixels = pixels.zip(&win[5][start..end]);
@@ -1144,9 +1186,7 @@ impl Ppu {
                     out.chunks_exact_mut(4).zip(pixels)
                 {
                     let (clip, prevent) = blend.windows(in_window);
-                    o.copy_from_slice(
-                        &blend.rgba(blend.blend(main_pixel, sub_pixel, clip, prevent)),
-                    );
+                    o.copy_from_slice(&blend.output(main_pixel, sub_pixel, clip, prevent));
                 }
             }
         } else if wide_output && repeats == 1 {
@@ -1155,9 +1195,7 @@ impl Ppu {
                 let (main_pixel, sub_pixel) = (screen[0][i], screen[1][i]);
                 let (clip, prevent) = blend.windows(needs_color_window && win[5][start + i]);
                 o[..4].copy_from_slice(&blend.rgba(blend.shown_sub(sub_pixel, clip)));
-                o[4..].copy_from_slice(
-                    &blend.rgba(blend.blend(main_pixel, sub_pixel, clip, prevent)),
-                );
+                o[4..].copy_from_slice(&blend.output(main_pixel, sub_pixel, clip, prevent));
             }
         } else {
             for (i, x) in (start..end).enumerate() {
