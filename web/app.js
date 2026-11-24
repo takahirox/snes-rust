@@ -489,11 +489,26 @@ async function libraryTransaction(stores, mode, run) {
 const savedList = $('saved-cartridges');
 const libraryStatus = $('library-operation-status');
 const retentionNotice = $('rom-retention-warning');
-function setRetentionWarning(message) {
-  retentionNotice.textContent = message;
-  $('library-retention-warning').textContent = message;
+const retentionFailures = new Map();
+let retentionNoticeDismissed = false;
+function renderRetentionWarning(target, names) {
+  const labels = names.map(name => {
+    const label = document.createElement('span');
+    label.className = 'rom-retention-name';
+    label.textContent = `Could not remember ${name}. `;
+    label.title = name;
+    return label;
+  });
+  target.replaceChildren(...labels);
+  if (labels.length) target.append('Check browser storage and reopen the original file to retry.');
+}
+function updateRetentionWarnings() {
+  const names = [...retentionFailures.values()].reverse();
+  renderRetentionWarning(retentionNotice, retentionNoticeDismissed ? [] : names.slice(0, 1));
+  renderRetentionWarning($('library-retention-warning'), names);
 }
 $('dismiss-rom-warning').addEventListener('click', () => {
+  retentionNoticeDismissed = true;
   retentionNotice.textContent = '';
   canvas.focus({ preventScroll: true });
 });
@@ -594,10 +609,13 @@ function rememberCartridge(hash, name, data) {
         tx.objectStore('roms').put(data, hash);
       });
     } catch {
-      setRetentionWarning(`Could not remember ${name}. Check browser storage and reopen the original file to retry.`);
+      retentionFailures.delete(hash);
+      retentionFailures.set(hash, name);
+      retentionNoticeDismissed = false;
+      updateRetentionWarnings();
       return;
     }
-    setRetentionWarning('');
+    if (retentionFailures.delete(hash)) updateRetentionWarnings();
     libraryChanges?.postMessage(null);
     if (picker.matches(':popover-open')) await refreshLibrary();
   });
@@ -686,7 +704,7 @@ const presentation = $('game-presentation'), fullscreenButton = $('fullscreen');
 const fullscreenStatus = $('fullscreen-status');
 const touchControls = document.querySelector('.touch-controls');
 const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 1100px)');
-const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save, #rom-retention-notice');
+const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save');
 let gameplayFullscreen = false;
 let fullscreenEnteredWithKeyboard = false;
 let fullscreenWarningTimeout;

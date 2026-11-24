@@ -57,19 +57,19 @@ button:hover:enabled { background: #edf0ec; }
 #saved-cartridges small { display: block; color: #58665f; font-size: 11px; }
 #cartridge-picker .remove-cartridge { padding: 4px 8px; border-color: transparent; font-size: 12px; }
 .remove-cartridge[aria-disabled="true"] { opacity: .42; cursor: default; }
-#library-status { position: sticky; bottom: 0; background: #fff; color: #a32f29; overflow-wrap: anywhere; }
-#library-status span:not(:empty) { display: block; padding-top: 8px; }
+#library-status { color: #a32f29; overflow-wrap: anywhere; }
+#library-status > span:not(:empty) { display: block; margin-bottom: 8px; }
 #rom-retention-notice {
-  position: fixed; z-index: 6; top: max(8px, env(safe-area-inset-top));
-  left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right));
-  max-width: 460px; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  flex: 1 0 min(280px, 100%); max-width: 460px; margin-inline: auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: center; gap: 8px; padding: 4px 4px 4px 12px;
   background: #fff8e9; color: #805511; border: 1px solid #dbbf8c; border-radius: 8px;
 }
 #rom-retention-warning { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.rom-retention-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #dismiss-rom-warning { width: 44px; height: 44px; padding: 0; font-size: 20px; }
-#rom-retention-notice:has(#rom-retention-warning:empty),
-main:has(#cartridge-picker:popover-open) #rom-retention-notice { display: none; }
+#rom-retention-notice:has(#rom-retention-warning:empty) { display: none; }
+main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hidden; }
 .toolbar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .toolbar button { padding: 7px 12px; font-size: 13px; }
 #play { width: 64px; flex-shrink: 0; }
