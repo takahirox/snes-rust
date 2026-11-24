@@ -58,7 +58,7 @@ try {
             frames: 0, timings: [], core: [], arrivals: [], audio: 0, gaps: 0,
             late: 0, gapSeconds: 0, audioEnd: 0, lastFrame: 0,
           };
-          const withinWindow = () => probe.frames > warmup && probe.frames <= warmup + frames;
+          const withinWindow = () => probe.start !== undefined && probe.end === undefined;
           const instantiate = WebAssembly.instantiate;
           WebAssembly.instantiate = async (...args) => {
             const result = await instantiate(...args);
@@ -66,11 +66,11 @@ try {
             return { ...result, instance: { exports: {
               ...exports,
               run_frame(buttons) {
+                if (probe.end !== undefined) return exports.run_frame(buttons);
                 const start = performance.now();
-                const ok = exports.run_frame(masks[probe.frames] ?? buttons);
+                const ok = exports.run_frame(masks[probe.frames] ?? 0);
                 if (!ok) return ok;
                 ++probe.frames;
-                if (probe.frames === warmup) probe.start = start;
                 if (withinWindow()) probe.core.push(performance.now() - start);
                 return ok;
               },
@@ -81,14 +81,23 @@ try {
             const before = probe.frames;
             const start = performance.now();
             callback(time);
-            if (probe.frames > before && probe.frames > warmup && before < warmup + frames) {
-              probe.timings.push(performance.now() - start);
-              if (probe.lastFrame) probe.arrivals.push(time - probe.lastFrame);
-              probe.lastFrame = time;
+            if (probe.frames === before) return;
+            const end = performance.now();
+            // Catch-up callbacks schedule audio per field but present only once.
+            // Use whole callbacks at both boundaries to measure the same work.
+            if (probe.start === undefined) {
+              if (probe.frames >= warmup) {
+                probe.start = end;
+                probe.warmupFields = probe.frames;
+                probe.lastFrame = time;
+              }
+              return;
             }
-            if (probe.frames >= warmup + frames && !probe.end) {
-              probe.end = performance.now();
-              probe.endFields = probe.frames;
+            probe.timings.push(end - start);
+            probe.arrivals.push(time - probe.lastFrame);
+            probe.lastFrame = time;
+            if (probe.frames - probe.warmupFields >= frames) {
+              probe.end = end;
             }
           });
           const start = AudioBufferSourceNode.prototype.start;
@@ -101,7 +110,7 @@ try {
                 if (this.context.currentTime > probe.audioEnd) ++probe.late;
               }
             }
-            probe.audioEnd = time + this.buffer.duration;
+            if (probe.end === undefined) probe.audioEnd = time + this.buffer.duration;
             return start.call(this, time, ...args);
           };
         }, { masks, warmup, frames, mode });
@@ -132,14 +141,22 @@ try {
         }));
         const beforeMetrics = Object.fromEntries(before.metrics.map(({ name, value }) => [name, value]));
         const afterMetrics = Object.fromEntries(after.metrics.map(({ name, value }) => [name, value]));
+        const guestFrames = result.frames - result.warmupFields;
+        if (guestFrames < frames || result.core.length !== guestFrames || result.audio !== guestFrames
+            || result.arrivals.length !== result.timings.length || result.error || errors.length) {
+          throw new Error(`Incomplete playback for ${workload} / ${device} / ${mode} / trial ${trial + 1}: `
+            + `${guestFrames} fields, ${result.audio} audio buffers, ${result.core.length} core timings, `
+            + `${result.arrivals.length} arrivals, ${result.timings.length} work timings. `
+            + [result.error, ...errors].filter(Boolean).join(' '));
+        }
         const budget = 1000 * 714732 / 2 / 21477272;
         const percentiles = samples => [0.5, 0.95, 0.99].map(quantile =>
           [...samples].sort((a, b) => a - b)[Math.ceil(quantile * samples.length) - 1]);
         console.log(JSON.stringify({
           ...result, errors, launchMs, workload, device, requestedMode: mode, trial: trial + 1,
           chromium: browser.version(),
-          guestFrames: result.endFields - warmup,
-          guestFps: (result.endFields - warmup) * 1000 / (result.end - result.start),
+          guestFrames,
+          guestFps: guestFrames * 1000 / (result.end - result.start),
           workMs: percentiles(result.timings), coreMs: percentiles(result.core),
           arrivalMs: percentiles(result.arrivals),
           workOverBudget: result.timings.filter(ms => ms > budget).length,
