@@ -308,7 +308,13 @@ function isRunning() { return running && !document.hidden; }
 function playbackStatus() { return isRunning() ? 'Playing' : playRequested ? 'Suspended' : 'Paused'; }
 function updatePlayback() {
   $('play').textContent = playRequested ? 'Pause' : 'Play';
-  for (const button of touchButtons) button.disabled = !isRunning();
+  const suspended = playRequested && !isRunning();
+  for (const button of touchButtons) {
+    // Native disabling would blur a focused controller during suspension.
+    button.disabled = !playRequested;
+    if (suspended) button.setAttribute('aria-disabled', 'true');
+    else button.removeAttribute('aria-disabled');
+  }
 }
 function clearInput() { keyboard = 0; held.clear(); clearVirtualInput(); }
 function syncPlayback(retryAudio = false) {
@@ -416,6 +422,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   const load = { fromLibrary };
   let sameCartridge = false;
   let savedLoadFailed = false;
+  let focusGame = true;
   loading = load;
   // Keep the native popover toggle available to dismiss a pending saved selection.
   enableSources(false, fromLibrary);
@@ -464,16 +471,19 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   } finally {
     if (loading === load) {
       finishCartridgeLoad();
-      if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) closePicker();
+      if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) {
+        focusGame = picker.contains(document.activeElement);
+        closePicker(focusGame);
+      }
     }
   }
   if (sameCartridge) {
-    if (!document.hidden) canvas.focus({ preventScroll: true });
+    if (focusGame && !document.hidden) canvas.focus({ preventScroll: true });
     return;
   }
   if (restorePending || operationError || persistenceError) return;
   start();
-  if (isRunning()) canvas.focus({ preventScroll: true });
+  if (focusGame && isRunning()) canvas.focus({ preventScroll: true });
 }
 const picker = $('cartridge-picker');
 picker.addEventListener('beforetoggle', event => {
@@ -509,7 +519,10 @@ document.addEventListener('click', event => {
   }
   lastRemoveClick = undefined;
 }, { capture: true });
-function closePicker() { picker.hidePopover(); $('change-cartridge').focus({ preventScroll: true }); }
+function closePicker(restoreFocus = true) {
+  picker.hidePopover();
+  if (restoreFocus) $('change-cartridge').focus({ preventScroll: true });
+}
 
 // Keep metadata separate so listing cartridges never reads their ROM bytes.
 let libraryDatabase;
@@ -596,8 +609,10 @@ function showSavedRecovery(hash, name) {
   message.textContent = `Could not load ${name}.`;
   message.title = name;
   savedRecovery.hidden = false;
-  savedRecovery.scrollIntoView({ block: 'nearest' });
-  message.focus({ preventScroll: true });
+  if (picker.contains(document.activeElement)) {
+    savedRecovery.scrollIntoView({ block: 'nearest' });
+    message.focus({ preventScroll: true });
+  }
 }
 function clearSavedRecovery() {
   const hadFocus = savedRecovery.contains(document.activeElement);
@@ -964,9 +979,9 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) touchCo
 });
 for (const button of touchButtons) {
   button.addEventListener('keydown', event => {
-    if (!isRunning() || !['Space', 'Enter'].includes(event.code)) return;
+    if (!['Space', 'Enter'].includes(event.code)) return;
     event.preventDefault(); event.stopPropagation();
-    if (event.repeat) return;
+    if (!isRunning() || event.repeat) return;
     virtualKeys.set(button, Number(button.dataset.button)); paintVirtualInput();
   });
   button.addEventListener('keyup', event => {

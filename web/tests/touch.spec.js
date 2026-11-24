@@ -164,6 +164,32 @@ test('outside release, cancellation, lost capture, blur, visibility and focus re
   await expect(page.locator('#play')).toHaveText('Pause');
 });
 
+test('visibility suspension preserves controller focus and blocks input until playback resumes', async ({ page }) => {
+  await boot(page);
+  const button = page.getByRole('button', { name: 'SNES B', exact: true });
+  await button.focus();
+  await page.keyboard.down('Space');
+  await expect.poll(() => controller(page)).toBe(masks.B);
+
+  await setTabHidden(page, true);
+  await expect(button).toBeFocused();
+  await expect(button).toBeDisabled();
+  await expect(button).not.toHaveClass(/pressed/);
+  await page.keyboard.up('Space');
+  await page.keyboard.down('Enter');
+  await expect(button).not.toHaveClass(/pressed/);
+
+  await setTabHidden(page, false);
+  await expect(button).toBeFocused();
+  await expect(button).toBeEnabled();
+  await expect.poll(() => controller(page)).toBe(0);
+  await page.keyboard.up('Enter');
+  await page.keyboard.down('Space');
+  await expect.poll(() => controller(page)).toBe(masks.B);
+  await page.keyboard.up('Space');
+  await expect.poll(() => controller(page)).toBe(0);
+});
+
 for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 390, height: 844 }, { width: 667, height: 320 }, { width: 844, height: 390 }, { width: 568, height: 320 }, { width: 424, height: 320 }, { width: 400, height: 320 }]) {
   test(`touch layout and live resize preserve geometry/SRAM at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page); const touch = await fingers(page);

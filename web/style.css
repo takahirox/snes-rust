@@ -20,8 +20,8 @@ h1 { font-size: 28px; line-height: 1.2; letter-spacing: -.04em; margin: 0; }
 p { margin: 8px 0; }
 button, select { font: inherit; border: 1px solid #c9cdce; border-radius: 8px; background: #fff; color: inherit; padding: 10px 16px; }
 button, summary { cursor: pointer; touch-action: manipulation; }
-button:disabled { opacity: .42; cursor: default; }
-button:hover:enabled { background: #edf0ec; }
+button:disabled, .touch-controls button[aria-disabled="true"] { opacity: .42; cursor: default; }
+button:hover:enabled:not([data-button][aria-disabled="true"]) { background: #edf0ec; }
 :focus-visible { outline: 3px solid #306e59; outline-offset: 3px; }
 .player { display: grid; grid-template-columns: minmax(0, 792px) minmax(220px, 1fr); align-items: center; gap: 16px 32px; }
 .game-presentation { display: contents; }

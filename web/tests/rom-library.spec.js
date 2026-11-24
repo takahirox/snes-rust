@@ -74,6 +74,19 @@ async function instrument(page) {
 }
 async function ready(page) { await expect(status(page)).toHaveText('Ready'); }
 async function openPicker(page) { await page.locator('#change-cartridge').click(); await expect(picker(page)).toBeVisible(); }
+async function delaySavedVerification(page) {
+  await page.evaluate(() => {
+    const digest = crypto.subtle.digest;
+    window.savedDigests = [];
+    crypto.subtle.digest = function (...args) {
+      return new Promise(resolve => savedDigests.push(() => {
+        const result = digest.apply(this, args);
+        resolve(result);
+        return result;
+      }));
+    };
+  });
+}
 async function importRom(page, name, buffer) {
   await page.locator('#rom').setInputFiles(file(name, buffer));
   await expect(page.locator('#rom')).toBeEnabled();
@@ -244,17 +257,7 @@ test('Escape and Insert cartridge cancel a saved selection during hash verificat
   await expect(current(page)).toHaveText(demoName);
   await expect(status(page)).toHaveText('Playing');
   await openPicker(page);
-  await page.evaluate(() => {
-    const digest = crypto.subtle.digest;
-    window.savedDigests = [];
-    crypto.subtle.digest = function (...args) {
-      return new Promise(resolve => savedDigests.push(() => {
-        const result = digest.apply(this, args);
-        resolve(result);
-        return result;
-      }));
-    };
-  });
+  await delaySavedVerification(page);
 
   const select = saved(page, firstHash).getByRole('button', { name: 'saved.sfc', exact: true });
   const insert = page.locator('#change-cartridge');
@@ -324,6 +327,52 @@ test('Escape and Insert cartridge cancel a saved selection during hash verificat
   await expect.poll(() => bootSave(page)).toBe(0x79);
   expect(await commits(page)).toBe(3);
 });
+
+for (const verified of [true, false]) {
+  test(`saved ROM verification preserves outside focus when it ${verified ? 'succeeds' : 'fails'} while hidden`, async ({ page }) => {
+    await instrument(page);
+    await page.goto('/'); await ready(page);
+    await importRom(page, 'saved.sfc', first);
+    await openPicker(page);
+    await expect(rows(page)).toHaveCount(1);
+    if (!verified) await changeStoredBytes(page, firstHash, second);
+    await page.reload(); await ready(page);
+    await openPicker(page);
+    await delaySavedVerification(page);
+
+    const select = saved(page, firstHash).getByRole('button', { name: 'saved.sfc', exact: true });
+    const display = page.getByRole('combobox', { name: 'Display', exact: true });
+    await select.press('Enter');
+    await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(1);
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(display).toBeFocused();
+
+    await setTabHidden(page, true);
+    await page.evaluate(() => savedDigests[0]());
+    if (verified) {
+      await expect(picker(page)).toBeHidden();
+      await expect(current(page)).toHaveText('saved.sfc');
+      await expect(status(page)).toHaveText('Suspended');
+    } else {
+      await expect(savedLoadError(page)).toHaveText('Could not load saved.sfc.');
+      await expect(picker(page)).toBeVisible();
+    }
+    await expect(display).toBeFocused();
+    await waitForAnimationFrames(page);
+    expect(await page.evaluate(() => libraryFrames)).toBe(0);
+
+    await setTabHidden(page, false);
+    if (verified) {
+      await expect.poll(() => page.evaluate(() => libraryFrames)).toBeGreaterThan(0);
+    } else {
+      await expect(status(page)).toHaveText('Cartridge could not be loaded');
+      await waitForAnimationFrames(page);
+      expect(await page.evaluate(() => libraryFrames)).toBe(0);
+    }
+    await expect(display).toBeFocused();
+  });
+}
 
 test('holding Enter on Remove does not launch the next saved cartridge', async ({ page }) => {
   await instrument(page);
