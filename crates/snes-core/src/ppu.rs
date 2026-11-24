@@ -820,21 +820,34 @@ impl Ppu {
     // Window masks for screen columns [first, first + out.len()).
     fn fill_window(&self, layer: usize, out: &mut [bool], first: usize) {
         let sel = (self.regs[0x23 + layer / 2] >> ((layer & 1) * 4)) & 15;
-        let (l1, r1) = (self.regs[0x26] as usize, self.regs[0x27] as usize);
-        let (l2, r2) = (self.regs[0x28] as usize, self.regs[0x29] as usize);
-        let w1 = |x: usize| ((x >= l1) & (x <= r1)) ^ (sel & 1 != 0);
-        let w2 = |x: usize| ((x >= l2) & (x <= r2)) ^ (sel & 4 != 0);
-        let columns = out.iter_mut().zip(first..);
+        // Column x is inside [left, right], XOR the inversion bit.
+        let inside = |out: &mut [bool], left: u8, right: u8, invert: bool| {
+            out.fill(invert);
+            let start = usize::from(left).max(first);
+            let end = (usize::from(right) + 1).min(first + out.len());
+            if start < end {
+                out[start - first..end - first].fill(!invert);
+            }
+        };
+        let w1 = |out: &mut [bool]| inside(out, self.regs[0x26], self.regs[0x27], sel & 1 != 0);
+        let w2 = |out: &mut [bool]| inside(out, self.regs[0x28], self.regs[0x29], sel & 4 != 0);
         match (sel & 2 != 0, sel & 8 != 0) {
-            (false, false) => columns.for_each(|(o, _)| *o = false),
-            (true, false) => columns.for_each(|(o, x)| *o = w1(x)),
-            (false, true) => columns.for_each(|(o, x)| *o = w2(x)),
-            (true, true) => match (self.regs[0x2a + layer / 4] >> ((layer & 3) * 2)) & 3 {
-                0 => columns.for_each(|(o, x)| *o = w1(x) | w2(x)),
-                1 => columns.for_each(|(o, x)| *o = w1(x) & w2(x)),
-                2 => columns.for_each(|(o, x)| *o = w1(x) ^ w2(x)),
-                _ => columns.for_each(|(o, x)| *o = !(w1(x) ^ w2(x))),
-            },
+            (false, false) => out.fill(false),
+            (true, false) => w1(out),
+            (false, true) => w2(out),
+            (true, true) => {
+                let mut second = [false; WIDTH];
+                let second = &mut second[..out.len()];
+                w1(out);
+                w2(second);
+                let pairs = out.iter_mut().zip(second.iter());
+                match (self.regs[0x2a + layer / 4] >> ((layer & 3) * 2)) & 3 {
+                    0 => pairs.for_each(|(o, &w)| *o |= w),
+                    1 => pairs.for_each(|(o, &w)| *o &= w),
+                    2 => pairs.for_each(|(o, &w)| *o ^= w),
+                    _ => pairs.for_each(|(o, &w)| *o = !(*o ^ w)),
+                }
+            }
         }
     }
     // Evaluate and draw this line's objects into `obj_line`.
