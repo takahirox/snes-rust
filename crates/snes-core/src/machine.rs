@@ -145,9 +145,9 @@ impl Machine {
     // the same accesses and clocks. Repeat whole iterations that still end
     // before the next timing event.
     fn skip_pure_loop(&mut self) {
-        let now = self.loop_probe();
         match self.probe {
-            Some(p) if p.words[5] == now.words[5] && p.bytes[0] == now.bytes[0] => {
+            Some(p) if p.words[5] == self.cpu.pc && p.bytes[0] == self.cpu.pb => {
+                let now = self.loop_probe();
                 let same = LoopProbe {
                     effects: p.effects,
                     clocks: p.clocks,
@@ -164,8 +164,8 @@ impl Machine {
                 }
                 self.probe = Some(self.loop_probe());
             }
-            Some(p) if now.instructions - p.instructions < 8 => {}
-            _ => self.probe = Some(now),
+            Some(p) if self.cpu.instructions - p.instructions < 8 => {}
+            _ => self.probe = Some(self.loop_probe()),
         }
     }
     pub fn step(&mut self) {
