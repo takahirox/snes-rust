@@ -21,6 +21,13 @@ pub struct Ppu {
     // `cgram` (including direct writes) refreshes the affected entries.
     rgba_cache: [u32; 256],
     rgba_cgram: [u8; 512],
+    // For the OAM in `obj_oam` and size select `obj_sizes`: per scanline,
+    // the objects whose rows cover it and whose X range is evaluated.
+    // Compared every line, so any OAM change (including direct writes)
+    // rebuilds it.
+    obj_rows: Box<[u128; 256]>,
+    obj_oam: [u8; 544],
+    obj_sizes: u8,
     raster_overflow: u8,
     vaddr: u16,
     vbuffer: u16,
@@ -74,6 +81,9 @@ impl Default for Ppu {
             levels_for: 0,
             rgba_cache: [u32::from_le_bytes([0, 0, 0, 255]); 256],
             rgba_cgram: [0; 512],
+            obj_rows: Box::new([0; 256]),
+            obj_oam: [0; 544],
+            obj_sizes: 0,
             raster_overflow: 0,
             vaddr: 0,
             vbuffer: 0,
@@ -876,6 +886,25 @@ impl Ppu {
             ((16, 32), (32, 32)),
         ];
         let (small, large) = sizes[(self.regs[1] >> 5) as usize];
+        if self.obj_oam != self.oam || self.obj_sizes != self.regs[1] >> 5 {
+            self.obj_oam = self.oam;
+            self.obj_sizes = self.regs[1] >> 5;
+            self.obj_rows.fill(0);
+            for i in 0..128 {
+                let hi = (self.oam[512 + i / 4] >> ((i & 3) * 2)) & 3;
+                let (width, height) = if hi & 2 != 0 { large } else { small };
+                let sx = self.oam[i * 4] as i32 - if hi & 1 != 0 { 256 } else { 0 };
+                // X=-256 participates at X=0 in both budgets, never in drawing.
+                let evaluation_x = if sx == -256 { 0 } else { sx };
+                if evaluation_x <= -(width as i32) || evaluation_x >= 256 {
+                    continue;
+                }
+                let sy = self.oam[i * 4 + 1] as usize;
+                for row in 0..height {
+                    self.obj_rows[(sy + row) & 255] |= 1 << i;
+                }
+            }
+        }
         let base = (self.regs[1] as usize & 7) * 16384;
         let gap = (((self.regs[1] >> 3) as usize & 3) + 1) * 8192;
         let start = if self.regs[3] & 128 != 0 {
@@ -890,21 +919,16 @@ impl Ppu {
         };
         let mut count = 0;
         let mut selected = [(0, 0, 0, 0, 0); 32];
-        for n in 0..128 {
-            let i = (n + start) & 127;
+        // Bit n of `pending` is object (n + start) & 127, in evaluation order.
+        let mut pending = self.obj_rows[y & 255].rotate_right(start as u32);
+        while pending != 0 {
+            let i = (pending.trailing_zeros() as usize + start) & 127;
+            pending &= pending - 1;
             let hi = (self.oam[512 + i / 4] >> ((i & 3) * 2)) & 3;
-            let (width, height) = if hi & 2 != 0 { large } else { small };
-            let sy = self.oam[i * 4 + 1] as usize;
-            let row = (y + 256 - sy) & 255;
-            if row >= height {
-                continue;
-            }
+            let (width, _) = if hi & 2 != 0 { large } else { small };
+            let row = (y + 256 - self.oam[i * 4 + 1] as usize) & 255;
             let sx = self.oam[i * 4] as i32 - if hi & 1 != 0 { 256 } else { 0 };
-            // X=-256 participates at X=0 in both budgets, never in drawing.
             let evaluation_x = if sx == -256 { 0 } else { sx };
-            if evaluation_x <= -(width as i32) || evaluation_x >= 256 {
-                continue;
-            }
             if count == 32 {
                 self.obj_overflow |= 0x40;
                 break;
