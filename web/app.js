@@ -308,11 +308,13 @@ function isRunning() { return running && !document.hidden; }
 function playbackStatus() { return isRunning() ? 'Playing' : playRequested ? 'Suspended' : 'Paused'; }
 function updatePlayback() {
   $('play').textContent = playRequested ? 'Pause' : 'Play';
-  const suspended = playRequested && !isRunning();
+  const acceptsInput = isRunning();
+  const loadFocus = loading ? document.activeElement : null;
   for (const button of touchButtons) {
-    // Native disabling would blur a focused controller during suspension.
-    button.disabled = !playRequested;
-    if (suspended) button.setAttribute('aria-disabled', 'true');
+    // Suspension and the pause during replacement both gate controller input.
+    // Avoid blurring a focused button while the replacement is in progress.
+    button.disabled = !playRequested && button !== loadFocus;
+    if (!acceptsInput && !button.disabled) button.setAttribute('aria-disabled', 'true');
     else button.removeAttribute('aria-disabled');
   }
 }
@@ -409,11 +411,12 @@ async function romHash(data) {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
   return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
 }
-function finishCartridgeLoad() {
+function finishCartridgeLoad(playReplacement = false) {
   loading = undefined;
   enableSources(Boolean(core));
   $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
-  syncPlayback(true);
+  if (playReplacement) start();
+  else syncPlayback(true);
 }
 // All sources use the same identity, core validation and battery-save lifecycle.
 async function loadCartridge(name, read, { demo, savedHash } = {}) {
@@ -422,7 +425,8 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
   const load = { fromLibrary };
   let sameCartridge = false;
   let savedLoadFailed = false;
-  let focusGame = true;
+  let focusGame = false;
+  let playReplacement = false;
   loading = load;
   // Keep the native popover toggle available to dismiss a pending saved selection.
   enableSources(false, fromLibrary);
@@ -447,6 +451,8 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (demo && (data.length !== demo.size || hash !== demo.hash)) throw new Error('Demo download does not match the published ROM');
     if (fromLibrary && hash !== savedHash) throw new Error('Saved ROM identity mismatch');
     const remember = !demo && !fromLibrary && !bundledHashes.has(hash) ? data : null;
+    const focused = document.activeElement;
+    focusGame = !fromLibrary && (focused === document.body || focused === $('change-cartridge'));
     sameCartridge = hash === activeHash;
     if (sameCartridge) {
       if (remember) rememberCartridge(hash, name, remember);
@@ -458,6 +464,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
       pendingCartridge = { hash, name, remember };
       restoreSave();
       if (restorePending) setStatus('Restore save before changing cartridge');
+      playReplacement = !restorePending && !operationError && !persistenceError;
     }
   } catch (e) {
     if (loading !== load) return;
@@ -470,7 +477,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     return;
   } finally {
     if (loading === load) {
-      finishCartridgeLoad();
+      finishCartridgeLoad(playReplacement);
       if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) {
         focusGame = picker.contains(document.activeElement);
         closePicker(focusGame);
@@ -481,9 +488,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (focusGame && !document.hidden) canvas.focus({ preventScroll: true });
     return;
   }
-  if (restorePending || operationError || persistenceError) return;
-  start();
-  if (focusGame && isRunning()) canvas.focus({ preventScroll: true });
+  if (playReplacement && focusGame && isRunning()) canvas.focus({ preventScroll: true });
 }
 const picker = $('cartridge-picker');
 picker.addEventListener('beforetoggle', event => {

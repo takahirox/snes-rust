@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { selectDemo } from './cartridge.js';
+import { delayLocalFileRead, selectDemo } from './cartridge.js';
 import { setTabHidden, waitForAnimationFrames } from './playback.js';
 const rom = readFileSync(new URL('../../demos/shionari.sfc', import.meta.url));
 test.beforeEach(async ({ page }) => {
@@ -38,6 +38,7 @@ test('gesture unlocks audio before delayed fetch; concurrent and repeated demo c
   await expect.poll(() => requests).toBe(1);
   await pending.fulfill({ status: 200, contentType: 'application/octet-stream', body: rom });
   await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#video')).toBeFocused();
   await expect(page.locator('#play')).toHaveText('Pause');
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
   await expect.poll(() => page.evaluate(() => testAudio.state)).toBe('running');
@@ -95,10 +96,7 @@ for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pend
 });
 
 test('local choice unlocks audio before the picker and delayed file read, then starts on visibility return', async ({ page }) => {
-  await page.evaluate(() => {
-    const read = File.prototype.arrayBuffer;
-    File.prototype.arrayBuffer = async function () { await new Promise(resolve => { window.releaseRead = resolve; }); return read.call(this); };
-  });
+  const releaseRead = await delayLocalFileRead(page);
   await page.locator('#change-cartridge').click();
   const chooserPromise = page.waitForEvent('filechooser');
   await page.locator('#open-local').click();
@@ -107,7 +105,7 @@ test('local choice unlocks audio before the picker and delayed file read, then s
   await expect(page.locator('#status')).toContainText('Loading');
   await expect(page.locator('#current-game')).toHaveText('None');
   await setTabHidden(page, true);
-  await page.evaluate(() => releaseRead());
+  await releaseRead();
   await expect(page.locator('#status')).toHaveText('Suspended');
   await expect(page.locator('#current-game')).toHaveText('local.smc');
   await waitForAnimationFrames(page);
@@ -116,6 +114,37 @@ test('local choice unlocks audio before the picker and delayed file read, then s
   await expect(page.locator('#status')).toHaveText('Playing');
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
 });
+
+for (const source of ['demo', 'local']) {
+  test(`${source} completing after visibility returns preserves focus on Display`, async ({ page }) => {
+    let releaseLoad;
+    if (source === 'demo') {
+      await page.route('**/shionari.sfc', route => {
+        releaseLoad = () => route.fulfill({ status: 200, body: rom });
+      });
+      await selectDemo(page);
+      await expect.poll(() => Boolean(releaseLoad)).toBe(true);
+    } else {
+      releaseLoad = await delayLocalFileRead(page);
+      await page.locator('#change-cartridge').click();
+      const chooser = page.waitForEvent('filechooser');
+      await page.locator('#open-local').click();
+      await (await chooser).setFiles({ name: 'local.sfc', mimeType: 'application/octet-stream', buffer: rom });
+    }
+    await expect(page.locator('#status')).toContainText('Loading');
+    const display = page.getByRole('combobox', { name: 'Display', exact: true });
+    await display.focus();
+    await setTabHidden(page, true);
+    await setTabHidden(page, false);
+    await expect(display).toBeFocused();
+    expect(await page.evaluate(() => launchMetrics.frames)).toBe(0);
+
+    await releaseLoad();
+    await expect(page.locator('#status')).toHaveText('Playing');
+    await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
+    await expect(display).toBeFocused();
+  });
+}
 
 test('a demo selected before hiding restores SRAM and starts without another Play click', async ({ page }) => {
   const saveKey = `snes-rust:sram:${createHash('sha256').update(rom).digest('hex')}`;

@@ -1,4 +1,4 @@
-import { selectDemo } from './cartridge.js';
+import { delayLocalFileRead, selectDemo } from './cartridge.js';
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { setTabHidden, waitForAnimationFrames } from './playback.js';
@@ -183,6 +183,42 @@ test('visibility suspension preserves controller focus and blocks input until pl
   await expect(button).toBeFocused();
   await expect(button).toBeEnabled();
   await expect.poll(() => controller(page)).toBe(0);
+  await page.keyboard.up('Enter');
+  await page.keyboard.down('Space');
+  await expect.poll(() => controller(page)).toBe(masks.B);
+  await page.keyboard.up('Space');
+  await expect.poll(() => controller(page)).toBe(0);
+});
+
+test('a replacement committed while hidden retains controller focus and resumes with released input', async ({ page }) => {
+  await boot(page, false);
+  const releaseRead = await delayLocalFileRead(page);
+  await page.locator('#rom').setInputFiles({ name: 'controller-probe.sfc', mimeType: 'application/octet-stream', buffer: probe });
+  await expect(page.locator('#status')).toHaveText('Loading controller-probe.sfc…');
+  const button = page.getByRole('button', { name: 'SNES B', exact: true });
+  await button.focus();
+  await page.keyboard.down('Space');
+  await expect(button).toHaveClass(/pressed/);
+
+  await setTabHidden(page, true);
+  await expect(button).toBeFocused();
+  await releaseRead();
+  await expect(page.locator('#current-game')).toHaveText('controller-probe.sfc');
+  await expect(page.locator('#status')).toHaveText('Suspended');
+  await expect(button).toBeFocused();
+  await expect(button).toBeDisabled();
+  await expect(button).not.toHaveClass(/pressed/);
+  await page.keyboard.up('Space');
+  await page.keyboard.down('Enter');
+  await expect(button).not.toHaveClass(/pressed/);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => testCore.peek(0x10))).toBe(0);
+
+  await setTabHidden(page, false);
+  await expect(button).toBeFocused();
+  await expect(button).toBeEnabled();
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x10))).not.toBe(0);
+  expect(await controller(page)).toBe(0);
   await page.keyboard.up('Enter');
   await page.keyboard.down('Space');
   await expect.poll(() => controller(page)).toBe(masks.B);
