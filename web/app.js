@@ -434,13 +434,14 @@ let lastRemoveClick;
 document.addEventListener('click', event => {
   if (!event.detail || !lastRemoveClick) return;
   const { click, hash, bounds } = lastRemoveClick;
-  // A committed removal can move another control under the pointer. Taps can
-  // each have a click count of one and land anywhere within the old button.
+  // A committed removal can move another control under the pointer. Honor the
+  // browser's repeat count even outside the old button, and use proximity and
+  // timing for taps that each have a click count of one.
   const { clientX: x, clientY: y } = event;
   const inside = x >= bounds.left && x < bounds.right && y >= bounds.top && y < bounds.bottom;
   const nearby = inside || Math.hypot(x - click.clientX, y - click.clientY) <= 6;
-  const repeated = event.detail > 1 || event.timeStamp - click.timeStamp <= 500;
-  if (!click.target.isConnected && nearby && repeated) {
+  const repeated = event.detail > 1 || (nearby && event.timeStamp - click.timeStamp <= 500);
+  if (!click.target.isConnected && repeated) {
     const remove = event.target.closest('.remove-cartridge');
     // A refresh can rebuild the same cartridge's Remove button.
     if (!remove || !sameCartridgeKey(hash, rowKeys.get(remove.parentElement))) {
