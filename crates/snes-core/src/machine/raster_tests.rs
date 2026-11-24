@@ -29,7 +29,7 @@ fn raster_deferred_keeps_oam_read_order_and_hblank_overflow() {
         b.write_raw(0x2102, 1);
         b.write_raw(0x2103, 128); // Priority starts at object 0 ($002 / 4).
         b.ppu.oam[..132].fill(0); // 33 overlapping objects on the line.
-        for object in b.ppu.oam[132..512].chunks_exact_mut(4) {
+        for object in b.ppu.oam[132..512].as_chunks_mut::<4>().0 {
             object[1] = 100;
         }
         b.ppu.oam[6] = 1; // Object 1 uses tile 1.
@@ -45,6 +45,26 @@ fn raster_deferred_keeps_oam_read_order_and_hblank_overflow() {
         b.tick(1);
         assert_eq!(b.read_raw(0x213e) & 0xc0, 0x40);
         assert_eq!(pixel(&b, 0, 0), RED);
+    }
+}
+
+#[test]
+fn raster_deferred_stat77_updates_after_unblanking_in_hblank_tail() {
+    for deferred in [false, true] {
+        let mut b = bus();
+        b.defer_raster = deferred;
+        b.write_raw(0x2100, 0x80);
+        b.ppu.oam[..132].fill(0); // 33 overlapping objects on the line.
+        for object in b.ppu.oam[132..512].as_chunks_mut::<4>().0 {
+            object[1] = 100;
+        }
+
+        b.tick(HBLANK);
+        b.write_raw(0x2100, 15);
+        b.tick(3); // No visible pixel has elapsed since leaving forced blank.
+        assert_eq!(b.read_raw(0x213e) & 0xc0, 0, "deferred={deferred}");
+        b.tick(1); // H=1100: first unblanked pixel in the picture tail.
+        assert_eq!(b.read_raw(0x213e) & 0xc0, 0x40, "deferred={deferred}");
     }
 }
 
