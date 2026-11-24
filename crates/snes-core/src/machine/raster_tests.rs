@@ -20,6 +20,35 @@ const RED: [u8; 4] = [255, 0, 0, 255];
 const BLACK: [u8; 4] = [0, 0, 0, 255];
 
 #[test]
+fn raster_deferred_keeps_oam_read_order_and_hblank_overflow() {
+    for deferred in [false, true] {
+        let mut b = bus();
+        b.defer_raster = deferred;
+        b.write_raw(0x2131, 0);
+        b.write_raw(0x212c, 16);
+        b.write_raw(0x2102, 1);
+        b.write_raw(0x2103, 128); // Priority starts at object 0 ($002 / 4).
+        b.ppu.oam[..132].fill(0); // 33 overlapping objects on the line.
+        for object in b.ppu.oam[132..512].chunks_exact_mut(4) {
+            object[1] = 100;
+        }
+        b.ppu.oam[6] = 1; // Object 1 uses tile 1.
+        b.ppu.vram[0] = 255;
+        b.ppu.vram[33] = 255;
+        b.ppu.cgram[258..262].copy_from_slice(&[31, 0, 0xe0, 3]);
+
+        b.tick(100); // Two pixels precede the reads.
+        b.read_raw(0x2138);
+        b.read_raw(0x2138); // Would start evaluation at object 1 ($004 / 4).
+        b.tick(995);
+        assert_eq!(b.read_raw(0x213e) & 0xc0, 0);
+        b.tick(1);
+        assert_eq!(b.read_raw(0x213e) & 0xc0, 0x40);
+        assert_eq!(pixel(&b, 0, 0), RED);
+    }
+}
+
+#[test]
 fn raster_literal_before_at_after_edges_and_consecutive_writes() {
     for (h, split) in [
         (87, 0),

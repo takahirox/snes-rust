@@ -496,6 +496,12 @@ these hashes are regression checks, not cryptographic integrity checks.
 Frames and wall-clock limits are explicit. STP and core errors fail with CPU
 context; a program legitimately waiting forever is bounded by the frame limit.
 
+## Benchmark performance
+
+The opt-in [performance report](docs/issue-174-performance.md) documents the
+fixed replays, Snes9x reference builds, release throughput comparisons and
+Pixel/CRT playback measurements for Issue #174.
+
 ## Implemented features and limits
 
 - Ordinary LoROM/HiROM, copier-header removal, header validation, reset vectors,

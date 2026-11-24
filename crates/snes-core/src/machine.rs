@@ -7,6 +7,7 @@ use crate::{
 #[cfg(test)]
 const LINE: u64 = 1364;
 const HBLANK: u64 = 1096;
+const PICTURE_END: u64 = 1112;
 // Fullsnes detailed H/V Events: V=225, H=10 dots (4 clocks/dot).
 // Distinct from VBlank availability at H=0 and first-line INIDISP writes.
 const OAM_RELOAD: u64 = 40;
@@ -76,6 +77,7 @@ pub struct SystemBus {
     hdma_pending: bool,
     hdma_init: bool,
     math: Option<(u8, u16, u16)>,
+    defer_raster: bool,
 }
 impl Machine {
     pub fn new(rom: &[u8]) -> Result<Self, String> {
@@ -94,7 +96,9 @@ impl Machine {
         self.cpu.reset(&mut self.bus);
     }
     pub fn step(&mut self) {
-        self.bus.events();
+        if self.bus.hdma_init || self.bus.hdma_pending || self.bus.dma_pending != 0 {
+            self.bus.events();
+        }
         if self.bus.nmi_pending {
             self.bus.nmi_pending = false;
             self.cpu.interrupt(&mut self.bus, true);
@@ -104,6 +108,17 @@ impl Machine {
         self.cpu.step(&mut self.bus);
     }
     pub fn run_frame(&mut self) -> Result<(), String> {
+        self.bus.defer_raster = true;
+        let result = self.run_field();
+        self.bus.defer_raster = false;
+        if (1..=224).contains(&self.bus.v) {
+            self.bus
+                .ppu
+                .render_until(self.bus.v as usize - 1, self.bus.h);
+        }
+        result
+    }
+    fn run_field(&mut self) -> Result<(), String> {
         let end = self.bus.frames + 1;
         let deadline = self.bus.clocks + 400_000;
         while self.bus.frames < end {
@@ -194,6 +209,7 @@ impl SystemBus {
             hdma_pending: false,
             hdma_init: false,
             math: None,
+            defer_raster: false,
         }
     }
     fn tick(&mut self, n: u64) {
@@ -245,7 +261,14 @@ impl SystemBus {
             if self.v == 0 && old_h < HDMA_INIT && self.h >= HDMA_INIT {
                 self.hdma_init = true;
             }
-            if (1..=224).contains(&self.v) {
+            // During run_frame, compose at PPU writes or at the two
+            // observable raster edges. STAT77 publishes at HBlank, four
+            // pixels before the end of the picture.
+            if (1..=224).contains(&self.v)
+                && (!self.defer_raster
+                    || (old_h < HBLANK && self.h >= HBLANK)
+                    || (old_h < PICTURE_END && self.h >= PICTURE_END))
+            {
                 self.ppu.render_until(self.v as usize - 1, self.h);
             }
             if old_h < HDMA_SCANLINE && self.h >= HDMA_SCANLINE && self.v <= 224 {
@@ -406,7 +429,14 @@ impl SystemBus {
         if bank & 0x40 == 0 {
             match lo {
                 0..=0x1fff => return self.wram[lo],
-                0x2100..=0x213f => return self.ppu.read((lo - 0x2100) as u8, self.open),
+                0x2100..=0x213f => {
+                    // OAMDATA reads advance the address used by priority
+                    // rotation. Preserve the first visible OBJ evaluation.
+                    if lo == 0x2138 && self.defer_raster && (1..=224).contains(&self.v) {
+                        self.ppu.render_until(self.v as usize - 1, self.h);
+                    }
+                    return self.ppu.read((lo - 0x2100) as u8, self.open);
+                }
                 0x2140..=0x217f => return self.apu.port_read((lo - 0x2140) & 3),
                 0x2180 => {
                     let v = self.wram[self.waddr];
@@ -465,9 +495,8 @@ impl SystemBus {
                     return;
                 }
                 0x2100..=0x2133 => {
-                    // Flush elapsed output before ANY PPU write, including
-                    // DMA/HDMA B-bus writes. tick normally already did this;
-                    // the cursor makes the explicit pre-write flush idempotent.
+                    // CPU and DMA/HDMA writes must commit after the elapsed
+                    // pixels have sampled the former registers and memory.
                     if (1..=224).contains(&self.v) {
                         self.ppu.render_until(self.v as usize - 1, self.h);
                     }

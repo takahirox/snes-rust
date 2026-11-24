@@ -88,6 +88,16 @@ struct Pixel {
     layer: u8,
     math: bool,
 }
+#[derive(Clone, Copy)]
+struct BgRow {
+    key: usize,
+    planes: u64,
+    palette_base: usize,
+    direct_palette: Option<u8>,
+    rank: u8,
+    flip: bool,
+}
+
 impl Ppu {
     pub(crate) fn obj_frame_start(&mut self) {
         // Fullsnes STAT77: end-of-VBlank reset is inhibited by forced blank.
@@ -493,7 +503,7 @@ impl Ppu {
         }
         (sx, sy)
     }
-    fn bg_pixel(&self, bg: usize, x: usize, y: usize) -> Option<Pixel> {
+    fn bg_pixel(&self, bg: usize, x: usize, y: usize, cache: &mut Option<BgRow>) -> Option<Pixel> {
         let mode = self.regs[5] & 7;
         if mode == 7 {
             return if bg == 0 || (bg == 1 && self.regs[0x33] & 0x40 != 0) {
@@ -523,6 +533,35 @@ impl Ppu {
             (x, y)
         };
         let (sx, sy) = self.bg_source(bg, x, y);
+        let key = (sy << 7) | (sx >> 3);
+        let row = match *cache {
+            Some(row) if row.key == key => row,
+            _ => {
+                let row = self.bg_row(bg, mode, bpp, sx, sy, key);
+                *cache = Some(row);
+                row
+            }
+        };
+        let shift = if row.flip { sx & 7 } else { 7 - (sx & 7) };
+        let bits = (row.planes >> shift) & 0x0101_0101_0101_0101;
+        // Each byte contributes its selected bit to a different position
+        // in the top byte, with plane zero as the low bit of the color.
+        let color = (bits.wrapping_mul(0x0102_0408_1020_4080) >> 56) as u8;
+        if color == 0 {
+            return None;
+        }
+        let color = match row.direct_palette {
+            Some(palette) => Self::direct_color(color, palette),
+            None => self.palette(row.palette_base + usize::from(color)),
+        };
+        Some(Pixel {
+            color,
+            rank: row.rank,
+            layer: bg as u8,
+            math: true,
+        })
+    }
+    fn bg_row(&self, bg: usize, mode: u8, bpp: usize, sx: usize, sy: usize, key: usize) -> BgRow {
         let size = self.bg_tile_size(bg);
         let entry = self.bg_map_entry(bg, sx, sy);
         let tile_width = self.bg_tile_width(bg);
@@ -536,20 +575,20 @@ impl Ppu {
         }
         let tile = ((entry as usize & 1023) + (px / 8) + (py / 8) * 16) & 1023;
         let base = ((self.regs[0x0b + bg / 2] >> ((bg & 1) * 4)) as usize & 15) * 8192;
-        let color = self.tile_pixel(base, tile, px & 7, py & 7, bpp);
-        if color == 0 {
-            return None;
+        let address = base + tile * bpp * 8 + (py & 7) * 2;
+        let mut planes = u64::from(self.vw(address));
+        if bpp >= 4 {
+            planes |= u64::from(self.vw(address + 16)) << 16;
         }
-        let pal = ((entry >> 10) & 7) as usize;
-        let color = if bpp == 8 && self.regs[0x30] & 1 != 0 {
-            Self::direct_color(color, pal as u8)
+        if bpp == 8 {
+            planes |= u64::from(self.vw(address + 32)) << 32;
+            planes |= u64::from(self.vw(address + 48)) << 48;
+        }
+        let palette = ((entry >> 10) & 7) as usize;
+        let palette_base = if bpp == 8 {
+            0
         } else {
-            let index = if bpp == 8 {
-                color as usize
-            } else {
-                color as usize + pal * (1 << bpp) + if mode == 0 { bg * 32 } else { 0 }
-            };
-            self.palette(index)
+            palette * (1 << bpp) + if mode == 0 { bg * 32 } else { 0 }
         };
         let high = entry & 0x2000 != 0;
         let rank = match mode {
@@ -563,12 +602,14 @@ impl Ppu {
             }
             _ => [[3, 7], [1, 5], [0, 0], [0, 0]][bg][usize::from(high)],
         };
-        Some(Pixel {
-            color,
+        BgRow {
+            key,
+            planes,
+            palette_base,
+            direct_palette: (bpp == 8 && self.regs[0x30] & 1 != 0).then_some(palette as u8),
             rank,
-            layer: bg as u8,
-            math: true,
-        })
+            flip: entry & 0x4000 != 0,
+        }
     }
     fn mode7(&self, bg: usize, x: usize, y: usize) -> Option<Pixel> {
         let sel = self.regs[0x1a];
@@ -824,27 +865,38 @@ impl Ppu {
         // Reuse the existing scanline OBJ evaluation once per line. This is
         // deliberately not a dot-accurate OAM/fetch pipeline. BG/compositing
         // state is sampled only for the newly emitted span.
-        let objects = match self.raster_objects {
-            Some(objects) => objects,
-            None => {
-                let overflow = self.obj_overflow;
-                let objects = self.objects(y);
-                self.raster_overflow |= self.obj_overflow;
-                self.obj_overflow = overflow;
-                self.raster_objects = Some(objects);
-                objects
-            }
-        };
+        if self.raster_objects.is_none() {
+            let overflow = self.obj_overflow;
+            self.raster_objects = Some(self.objects(y));
+            self.raster_overflow |= self.obj_overflow;
+            self.obj_overflow = overflow;
+        }
+        let objects = self.raster_objects.as_ref().unwrap();
         let scale = if wide_output { 2 } else { 1 };
-        for output_x in start * scale..end * scale {
-            let x = if wide_output { output_x / 2 } else { output_x };
-            let obj = &objects[x];
-            let back = Pixel {
-                color: self.palette(0),
-                rank: 0,
-                layer: 5,
-                math: true,
-            };
+        let hires = self.bg_hires();
+        let color_control = self.regs[0x30];
+        let math_control = self.regs[0x31];
+        let clip_mode = color_control >> 6;
+        let math_window_mode = (color_control >> 4) & 3;
+        let needs_color_window = matches!(clip_mode, 1 | 2) || matches!(math_window_mode, 1 | 2);
+        let use_sub = color_control & 2 != 0;
+        let needs_sub = wide_output || (use_sub && math_control & 0x3f != 0);
+        let bright = u32::from(self.regs[0] & 15);
+        let repeats = if !wide_output && self.frame_width == WIDTH * 2 {
+            2
+        } else {
+            1
+        };
+        let back = Pixel {
+            color: self.palette(0),
+            rank: 0,
+            layer: 5,
+            math: true,
+        };
+        // A span has no intervening PPU access that can alter the sampled
+        // tile data, palette selection, scroll, or background mode.
+        let mut rows = [None; 4];
+        for (x, obj) in objects.iter().enumerate().take(end).skip(start) {
             // Keep COLDATA as the subscreen math backdrop, retaining the layer
             // marker so the color-math result is not halved there.
             let mut screens = [
@@ -854,21 +906,27 @@ impl Ppu {
                     ..back
                 },
             ];
-            for (screen, pixel) in screens.iter_mut().enumerate() {
+            // Both wide-output phases share these same two screen samples.
+            // In low resolution, only color math can need the subscreen.
+            for (screen, pixel) in screens
+                .iter_mut()
+                .take(1 + usize::from(needs_sub))
+                .enumerate()
+            {
                 let enable = self.regs[0x2c + screen];
                 let mask = self.regs[0x2e + screen];
-                for bg in 0..4 {
+                for (bg, row) in rows.iter_mut().enumerate() {
                     if enable & (1 << bg) == 0 || (mask & (1 << bg) != 0 && self.window(bg, x)) {
                         continue;
                     }
                     // Mode 5/6 BGs use distinct character phases. SETINI
                     // pseudo-hires keeps both screens at the same full dot.
-                    let sample_x = if self.bg_hires() {
+                    let sample_x = if hires {
                         x * 2 + usize::from(screen == 0)
                     } else {
                         x
                     };
-                    if let Some(p) = self.bg_pixel(bg, sample_x, y) {
+                    if let Some(p) = self.bg_pixel(bg, sample_x, y, row) {
                         if p.rank > pixel.rank {
                             *pixel = p;
                         }
@@ -882,62 +940,57 @@ impl Ppu {
                     }
                 }
             }
-            let visible_sub = wide_output && output_x & 1 == 0;
-            let mut main = screens[usize::from(visible_sub)];
-            // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
-            // in true/pseudo hires. Leave the math operand in screens intact.
-            if visible_sub && main.layer == 5 {
-                main.color = back.color;
-            }
-            let in_window = self.window(5, x);
-            let clip = match self.regs[0x30] >> 6 {
+            let in_window = needs_color_window && self.window(5, x);
+            let clip = match clip_mode {
                 0 => false,
                 1 => !in_window,
                 2 => in_window,
                 _ => true,
             };
-            let prevent = match (self.regs[0x30] >> 4) & 3 {
+            let prevent = match math_window_mode {
                 0 => false,
                 1 => !in_window,
                 2 => in_window,
                 _ => true,
             };
-            let color = if clip { 0 } else { main.color };
-            let math =
-                !visible_sub && !prevent && main.math && self.regs[0x31] & (1 << main.layer) != 0;
-            let use_sub = self.regs[0x30] & 2 != 0;
-            let sub = if use_sub {
-                screens[1].color
-            } else {
-                fixed_color
-            };
-            let bright = (self.regs[0] & 15) as u16;
-            let repeats = if !wide_output && self.frame_width == WIDTH * 2 {
-                2
-            } else {
-                1
-            };
-            let i = (y * self.frame_width + output_x * repeats) * 4;
-            for ch in 0..3 {
-                let mut value = ((color >> (ch * 5)) & 31) as i16;
-                if math {
-                    let s = ((sub >> (ch * 5)) & 31) as i16;
-                    value = if self.regs[0x31] & 128 != 0 {
-                        value - s
-                    } else {
-                        value + s
-                    };
-                    if self.regs[0x31] & 64 != 0 && !clip && (!use_sub || screens[1].layer != 5) {
-                        value /= 2;
-                    }
-                    value = value.clamp(0, 31);
+            for phase in 0..scale {
+                let visible_sub = wide_output && phase == 0;
+                let mut main = screens[usize::from(visible_sub)];
+                // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
+                // in true/pseudo hires. Leave the math operand in screens intact.
+                if visible_sub && main.layer == 5 {
+                    main.color = back.color;
                 }
-                self.frame[i + ch] = (value as u32 * 255 * bright as u32 / (31 * 15)) as u8;
-            }
-            self.frame[i + 3] = 255;
-            if repeats == 2 {
-                let pixel: [u8; 4] = self.frame[i..i + 4].try_into().unwrap();
-                self.frame[i + 4..i + 8].copy_from_slice(&pixel);
+                let color = if clip { 0 } else { main.color };
+                let math =
+                    !visible_sub && !prevent && main.math && math_control & (1 << main.layer) != 0;
+                let sub = if use_sub {
+                    screens[1].color
+                } else {
+                    fixed_color
+                };
+                let i = (y * self.frame_width + (x * scale + phase) * repeats) * 4;
+                for ch in 0..3 {
+                    let mut value = ((color >> (ch * 5)) & 31) as i16;
+                    if math {
+                        let s = ((sub >> (ch * 5)) & 31) as i16;
+                        value = if math_control & 128 != 0 {
+                            value - s
+                        } else {
+                            value + s
+                        };
+                        if math_control & 64 != 0 && !clip && (!use_sub || screens[1].layer != 5) {
+                            value /= 2;
+                        }
+                        value = value.clamp(0, 31);
+                    }
+                    self.frame[i + ch] = (value as u32 * 255 * bright / (31 * 15)) as u8;
+                }
+                self.frame[i + 3] = 255;
+                if repeats == 2 {
+                    let pixel: [u8; 4] = self.frame[i..i + 4].try_into().unwrap();
+                    self.frame[i + 4..i + 8].copy_from_slice(&pixel);
+                }
             }
         }
     }
@@ -946,6 +999,27 @@ impl Ppu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_background_row_preserves_eight_planes_and_horizontal_flip() {
+        let mut ppu = Ppu::default();
+        ppu.write(5, 3); // Mode 3 BG1 is 8bpp.
+        ppu.write(7, 0x20); // Map at $4000.
+        for (x, index) in [1u8, 2, 4, 8, 16, 32, 64, 128].into_iter().enumerate() {
+            for plane in 0..8 {
+                ppu.vram[2 + (plane / 2) * 16 + plane % 2] |= ((index >> plane) & 1) << (7 - x);
+            }
+            ppu.cgram[index as usize * 2] = x as u8 + 1;
+        }
+        for flipped in [false, true] {
+            ppu.vram[0x4001] = if flipped { 0x40 } else { 0 };
+            let mut row = None;
+            for x in 0..8 {
+                let pixel = ppu.bg_pixel(0, x, 0, &mut row).unwrap();
+                assert_eq!(pixel.color, if flipped { 8 - x } else { x + 1 } as u16);
+            }
+        }
+    }
 
     #[test]
     fn direct_color_routes_every_pixel_and_palette_bit() {
