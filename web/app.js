@@ -370,13 +370,18 @@ function animate(time) {
 const maxRomBytes = 4 * 1024 * 1024 + 512;
 const romSizeError = 'Maximum ROM size is 4 MiB plus a copier header';
 const savedRomError = 'Could not load the saved ROM. Reopen the original file or remove the saved entry.';
+function isRomHash(hash) {
+  return typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash);
+}
 // All sources use the same identity, core validation and battery-save lifecycle.
 async function loadCartridge(name, read, { demo, savedHash } = {}) {
   if (loading || restorePending) return;
+  const fromLibrary = savedHash !== undefined;
   loading = true;
   enableSources(false);
   $('play').disabled = true; $('reset').disabled = true;
   try {
+    if (fromLibrary && !isRomHash(savedHash)) throw new Error('Invalid saved ROM hash');
     const expectedHash = demo?.hash ?? savedHash;
     // Check a local file's identity before requiring a save to replace the machine.
     if (expectedHash && expectedHash !== activeHash && !(demo ? pause() : save())) {
@@ -388,12 +393,12 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (expectedHash !== activeHash) setStatus(`Loading ${name}…`);
     let data = await read();
     if (data.length > maxRomBytes) throw new Error(romSizeError);
-    if (!demo && !savedHash && data.length % 1024 === 512) data = data.slice(512);
+    if (!demo && !fromLibrary && data.length % 1024 === 512) data = data.slice(512);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
     const hash = Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
     if (demo && (data.length !== demo.size || hash !== demo.hash)) throw new Error('Demo download does not match the published ROM');
-    if (savedHash && hash !== savedHash) throw new Error('Saved ROM identity mismatch');
-    const remember = !demo && !savedHash && !bundledHashes.has(hash) ? data : null;
+    if (fromLibrary && hash !== savedHash) throw new Error('Saved ROM identity mismatch');
+    const remember = !demo && !fromLibrary && !bundledHashes.has(hash) ? data : null;
     if (hash === activeHash) {
       if (remember) rememberCartridge(hash, name, remember);
       setStatus(playing ? 'Playing' : 'Paused');
@@ -407,9 +412,9 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     restoreSave();
     if (restorePending) setStatus('Restore save before changing cartridge');
   } catch (e) {
-    if (!savedHash && playing) pause();
+    if (!fromLibrary && playing) pause();
     setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Cartridge could not be loaded');
-    report(savedHash ? savedRomError : e);
+    report(fromLibrary ? savedRomError : e);
   } finally {
     loading = false;
     enableSources(Boolean(core));
@@ -464,26 +469,36 @@ const libraryStatus = $('library-status');
 const libraryStores = ['cartridges', 'roms'];
 let libraryUpdates = Promise.resolve();
 const removing = new Set();
+const rowKeys = new WeakMap();
 let libraryChanges;
 try { libraryChanges = new BroadcastChannel('snes-rust:cartridges'); } catch { /* Refresh on picker open if unavailable. */ }
 
 function hasCartridgeName(entry) {
   return typeof entry?.name === 'string' && entry.name.trim() !== '';
 }
+function sameCartridgeKey(a, b) {
+  return a === b || indexedDB.cmp(a, b) === 0;
+}
+function isRemoving(hash) {
+  for (const key of removing) if (sameCartridgeKey(key, hash)) return true;
+  return false;
+}
 function renderLibrary(entries) {
   entries = entries.filter(({ hash }) => !bundledHashes.has(hash))
     .map(entry => hasCartridgeName(entry) ? entry : { hash: entry.hash, name: 'Unnamed cartridge' });
-  entries.sort((a, b) => a.name.localeCompare(b.name) || a.hash.localeCompare(b.hash));
+  entries.sort((a, b) => a.name.localeCompare(b.name) || indexedDB.cmp(a.hash, b.hash));
   const previous = [...savedList.children];
   if (entries.length === previous.length && entries.every(({ hash, name }, i) =>
-    hash === previous[i].dataset.hash && name === previous[i].dataset.name)) return;
+    sameCartridgeKey(hash, rowKeys.get(previous[i])) && name === previous[i].dataset.name)) return;
   const nameCounts = new Map();
   for (const { name } of entries) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
   const focused = document.activeElement;
   const index = previous.indexOf(focused.parentElement);
-  const rows = entries.map(({ hash, name }) => {
+  const rows = entries.map(({ hash, name }, i) => {
     const row = document.createElement('li');
-    row.dataset.hash = hash;
+    // Keep the original key for lookup and removal, including non-string keys.
+    rowKeys.set(row, hash);
+    if (typeof hash === 'string') row.dataset.hash = hash;
     row.dataset.name = name;
     const select = document.createElement('button');
     select.textContent = name;
@@ -495,8 +510,8 @@ function renderLibrary(entries) {
     remove.addEventListener('click', () => removeCartridge(hash, name, remove));
     if (nameCounts.get(name) > 1) {
       const suffix = document.createElement('small');
-      suffix.id = `rom-${hash}`;
-      suffix.textContent = hash.slice(0, 12);
+      suffix.id = `rom-${i}`;
+      suffix.textContent = isRomHash(hash) ? hash.slice(0, 12) : 'Invalid saved entry';
       select.setAttribute('aria-label', name);
       for (const button of [select, remove]) button.setAttribute('aria-describedby', suffix.id);
       select.append(suffix);
@@ -507,7 +522,8 @@ function renderLibrary(entries) {
   savedList.replaceChildren(...rows);
   $('my-cartridges').hidden = !rows.length;
   if (index !== -1) {
-    const row = rows.find(row => row.dataset.hash === previous[index].dataset.hash);
+    const previousKey = rowKeys.get(previous[index]);
+    const row = rows.find(row => sameCartridgeKey(rowKeys.get(row), previousKey));
     const next = row?.children[focused === previous[index].lastElementChild ? 1 : 0] ??
       rows[index]?.firstElementChild ?? rows.at(-1)?.firstElementChild ?? $('open-local');
     next.focus();
@@ -555,7 +571,7 @@ function rememberCartridge(hash, name, data) {
   });
 }
 function removeCartridge(hash, name, button) {
-  if (removing.has(hash)) return;
+  if (isRemoving(hash)) return;
   removing.add(hash);
   button.setAttribute('aria-disabled', 'true');
   queueLibrary(async () => {
@@ -578,7 +594,7 @@ function removeCartridge(hash, name, button) {
   });
 }
 function selectSavedCartridge(hash, name) {
-  if (loading || !core || removing.has(hash)) return;
+  if (loading || !core || isRemoving(hash)) return;
   closePicker();
   if (restorePending) { $('retry-save').focus(); return; }
   void activateAudio();
