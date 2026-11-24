@@ -407,7 +407,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     restoreSave();
     if (restorePending) setStatus('Restore save before changing cartridge');
   } catch (e) {
-    if (!savedHash && playing) stopPlayback();
+    if (!savedHash && playing) pause();
     setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Cartridge could not be loaded');
     report(savedHash ? savedRomError : e);
   } finally {
@@ -467,8 +467,12 @@ const removing = new Set();
 let libraryChanges;
 try { libraryChanges = new BroadcastChannel('snes-rust:cartridges'); } catch { /* Refresh on picker open if unavailable. */ }
 
+function hasCartridgeName(entry) {
+  return typeof entry?.name === 'string' && entry.name.trim() !== '';
+}
 function renderLibrary(entries) {
-  entries = entries.filter(({ hash }) => !bundledHashes.has(hash));
+  entries = entries.filter(({ hash }) => !bundledHashes.has(hash))
+    .map(entry => hasCartridgeName(entry) ? entry : { hash: entry.hash, name: 'Unnamed cartridge' });
   entries.sort((a, b) => a.name.localeCompare(b.name) || a.hash.localeCompare(b.hash));
   const previous = [...savedList.children];
   if (entries.length === previous.length && entries.every(({ hash, name }, i) =>
@@ -533,7 +537,9 @@ function rememberCartridge(hash, name, data) {
       await libraryTransaction(libraryStores, 'readwrite', tx => {
         const cartridges = tx.objectStore('cartridges');
         const existing = cartridges.get(hash);
-        existing.onsuccess = () => { if (!existing.result) cartridges.add({ hash, name }); };
+        existing.onsuccess = () => {
+          if (!hasCartridgeName(existing.result)) cartridges.put({ hash, name });
+        };
         // Reimporting also repairs missing or damaged bytes under the same key.
         tx.objectStore('roms').put(data, hash);
       });

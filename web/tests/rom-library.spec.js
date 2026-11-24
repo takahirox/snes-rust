@@ -102,6 +102,20 @@ async function changeStoredBytes(page, hash, bytes) {
   }), { hash, bytes: bytes && [...bytes] });
 }
 
+async function removeStoredName(page, hash) {
+  await page.evaluate(hash => new Promise((resolve, reject) => {
+    const request = indexedDB.open('snes-rust:cartridges', 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction('cartridges', 'readwrite');
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onabort = () => { db.close(); reject(tx.error); };
+      tx.objectStore('cartridges').put({ hash });
+    };
+  }), hash);
+}
+
 test('remembers normalized ROMs, restores guest progress after reload and revisit, and removes without ejecting', async ({ page, context }) => {
   const requests = [];
   context.on('request', request => requests.push([request.method(), request.url(), request.postData()]));
@@ -288,6 +302,81 @@ test('rejects invalid imports and shares bundled identity without a saved duplic
   await expect(current(page)).toHaveText('personal-name.smc');
   await openPicker(page);
   await expect(rows(page)).toHaveCount(0);
+});
+
+test('pausing on a rejected local file saves active guest SRAM and reports write failures', async ({ page }) => {
+  await instrument(page);
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'active.sfc', first);
+  await expect(status(page)).toHaveText('Playing');
+  await page.keyboard.down('z');
+  await expect.poll(() => sram(page)).toBe(0x79);
+  await page.keyboard.up('z');
+
+  const key = `snes-rust:sram:${firstHash}`;
+  await page.evaluate(key => {
+    const setItem = Storage.prototype.setItem;
+    window.pausedSaveWrites = [];
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key && document.getElementById('status').textContent === 'Paused') {
+        pausedSaveWrites.push(atob(value).charCodeAt(3));
+        if (window.failPausedSave) throw new DOMException('Storage full', 'QuotaExceededError');
+      }
+      return setItem.call(this, name, value);
+    };
+  }, key);
+  const error = page.locator('#error');
+  await chooseRom(page, 'wrong.txt', second);
+  await expect(status(page)).toHaveText('Paused');
+  await expect(error).toContainText('Choose an .sfc or .smc');
+  expect(await page.evaluate(() => pausedSaveWrites)).toEqual([0x79]);
+  expect(await page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key)).toBe(0x79);
+
+  await page.locator('#play').click();
+  await expect(status(page)).toHaveText('Playing');
+  await page.evaluate(() => { window.failPausedSave = true; });
+  await chooseRom(page, 'wrong.txt', second);
+  await expect(status(page)).toHaveText('Paused');
+  await expect(error).toContainText('Choose an .sfc or .smc');
+  await expect(error).toContainText('Could not persist SRAM');
+  await expect(current(page)).toHaveText('active.sfc');
+  expect(await commits(page)).toBe(1);
+  expect(await sram(page)).toBe(0x79);
+});
+
+test('a missing stored name leaves healthy cartridges visible and can be repaired or removed', async ({ page }) => {
+  await page.goto('/'); await ready(page);
+  await importRom(page, 'healthy.sfc', first);
+  await importRom(page, 'original.sfc', second);
+  await openPicker(page);
+  await expect(rows(page)).toHaveCount(2);
+  await removeStoredName(page, secondHash);
+
+  await page.reload(); await ready(page);
+  await openPicker(page);
+  const healthy = saved(page, firstHash).getByRole('button', { name: 'healthy.sfc', exact: true });
+  const unnamed = saved(page, secondHash).getByRole('button', { name: 'Unnamed cartridge', exact: true });
+  await expect(healthy).toBeVisible();
+  await expect(unnamed).toBeVisible();
+  await expect(picker(page).getByRole('status')).toBeEmpty();
+  await page.keyboard.press('Escape');
+  await chooseRom(page, 'repaired.sfc', second);
+  await expect(status(page)).toHaveText('Playing');
+  await openPicker(page);
+  const repaired = saved(page, secondHash).getByRole('button', { name: 'repaired.sfc', exact: true });
+  await expect(repaired).toBeVisible();
+
+  await page.reload(); await ready(page);
+  await openPicker(page);
+  await expect(repaired).toBeVisible();
+  await expect(healthy).toBeVisible();
+  await removeStoredName(page, secondHash);
+  await page.keyboard.press('Escape');
+  await openPicker(page);
+  await expect(unnamed).toBeVisible();
+  await removeSaved(page, secondHash, 'Unnamed cartridge');
+  await expect(saved(page, secondHash)).toHaveCount(0);
+  await expect(healthy).toBeVisible();
 });
 
 test('reports missing and mismatched bytes, preserves the active guest, and repairs on reimport', async ({ page }) => {
