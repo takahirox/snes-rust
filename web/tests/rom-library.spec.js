@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { selectDemo } from './cartridge.js';
+import { setTabHidden, waitForAnimationFrames } from './playback.js';
 
 const smoke = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const demo = readFileSync(new URL('../../demos/shionari.sfc', import.meta.url));
@@ -50,14 +51,18 @@ async function instrument(page) {
   await page.addInitScript(() => {
     const instantiate = WebAssembly.instantiate;
     window.libraryCommits = 0;
+    window.libraryFrames = 0;
     WebAssembly.instantiate = async (...args) => {
       const result = await instantiate(...args);
       window.libraryCore = result.instance.exports;
-      return { instance: { exports: { ...libraryCore, commit_rom(...args) {
-        const ok = libraryCore.commit_rom(...args);
-        if (ok) libraryCommits++;
-        return ok;
-      } } } };
+      return { instance: { exports: { ...libraryCore,
+        commit_rom(...args) {
+          const ok = libraryCore.commit_rom(...args);
+          if (ok) libraryCommits++;
+          return ok;
+        },
+        run_frame(mask) { libraryFrames++; return libraryCore.run_frame(mask); },
+      } } };
     };
     window.libraryReads = [];
     const transaction = IDBDatabase.prototype.transaction;
@@ -277,6 +282,12 @@ test('Escape and Insert cartridge cancel a saved selection during hash verificat
   await expect(status(page)).toHaveText('Loading saved.sfc…');
   await expect(current(page)).toHaveText(demoName);
   expect(await commits(page)).toBe(2);
+  await setTabHidden(page, true);
+  const suspendedFrames = await page.evaluate(() => libraryFrames);
+  await setTabHidden(page, false);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => libraryFrames)).toBe(suspendedFrames);
+  await expect(play).toBeDisabled();
 
   // Send the pointer click even if the toggle is disabled during verification.
   await insert.click({ force: true });
@@ -290,13 +301,27 @@ test('Escape and Insert cartridge cancel a saved selection during hash verificat
   await expect(status(page)).toHaveText('Playing');
   await expect(current(page)).toHaveText(demoName);
   expect(await commits(page)).toBe(2);
+  await expect.poll(() => page.evaluate(() => libraryFrames)).toBeGreaterThan(suspendedFrames);
 
+  await page.evaluate(hash => {
+    const save = new Uint8Array(2048); save[3] = 0x79;
+    localStorage.setItem(`snes-rust:sram:${hash}`, btoa(String.fromCharCode(...save)));
+  }, firstHash);
   await openPicker(page);
   await select.press('Enter');
   await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(3);
+  await setTabHidden(page, true);
+  const beforeSaved = await page.evaluate(() => libraryFrames);
   await page.evaluate(() => savedDigests[2]());
   await expect(current(page)).toHaveText('saved.sfc');
+  await expect(status(page)).toHaveText('Suspended');
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => libraryFrames)).toBe(beforeSaved);
+  expect(await sram(page)).toBe(0x79);
+  expect(await bootSave(page)).toBe(0);
+  await setTabHidden(page, false);
   await expect(status(page)).toHaveText('Playing');
+  await expect.poll(() => bootSave(page)).toBe(0x79);
   expect(await commits(page)).toBe(3);
 });
 
@@ -481,10 +506,15 @@ test('pausing on a rejected local file saves active guest SRAM and reports write
   await page.locator('#play').click();
   await expect(status(page)).toHaveText('Playing');
   await page.evaluate(() => { window.failPausedSave = true; });
+  await setTabHidden(page, true);
   await chooseRom(page, 'wrong.txt', second);
   await expect(status(page)).toHaveText('Paused');
   await expect(error).toContainText('Choose an .sfc or .smc');
   await expect(error).toContainText('Could not persist SRAM');
+  const frames = await page.evaluate(() => libraryFrames);
+  await setTabHidden(page, false);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => libraryFrames)).toBe(frames);
   await expect(current(page)).toHaveText('active.sfc');
   expect(await commits(page)).toBe(1);
   expect(await sram(page)).toBe(0x79);

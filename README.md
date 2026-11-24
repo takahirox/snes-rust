@@ -100,9 +100,9 @@ Audio activates on cartridge choice, Play or Reset.
 The inline mute button and volume slider adjust sound immediately and retry blocked
 audio. Volume is shared across cartridges and remembered in this browser. Pause
 stops queued audio.
-Reset restarts the inserted game and immediately plays, preserving SRAM.
-Switching tabs preserves the Play/Pause state. Browsers may throttle or suspend
-frames and audio while the tab is hidden.
+Reset restarts the inserted game and starts playback, preserving SRAM.
+Hidden tabs suspend gameplay and audio. Returning resumes gameplay that was
+intended to play. An explicit Pause stays paused.
 
 **Scale** and **Display** sit with the playback controls beneath the screen. Scale
 sets the canvas width to 1×, 2× or 3×, limited by the available space. CRT is the

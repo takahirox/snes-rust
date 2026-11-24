@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { selectDemo } from './cartridge.js';
-import { setTabHidden } from './playback.js';
+import { setTabHidden, waitForAnimationFrames } from './playback.js';
 const rom = readFileSync(new URL('../../demos/shionari.sfc', import.meta.url));
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -81,6 +81,12 @@ for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pend
     expect(await page.evaluate(() => scrollY)).toBe(0);
   }
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
+  await setTabHidden(page, true);
+  await expect(page.locator('#status')).toHaveText('Suspended');
+  const before = await page.evaluate(() => launchMetrics.frames);
+  await setTabHidden(page, false);
+  await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(before + 3);
+  await expect(audioStatus).toContainText('Adjust volume or unmute to retry.');
   await page.evaluate(() => recoverAudio());
   if (source === 'demo') { await page.locator('#mute').click(); await page.locator('#mute').click(); }
   else { await page.locator('#volume').focus(); await page.keyboard.press('ArrowLeft'); }
@@ -88,7 +94,7 @@ for (const source of ['demo', 'local']) for (const failure of ['rejected', 'pend
   await expect.poll(() => page.evaluate(() => testAudio.state)).toBe('running');
 });
 
-test('local choice unlocks audio before the picker and delayed file read, then auto-starts', async ({ page }) => {
+test('local choice unlocks audio before the picker and delayed file read, then starts on visibility return', async ({ page }) => {
   await page.evaluate(() => {
     const read = File.prototype.arrayBuffer;
     File.prototype.arrayBuffer = async function () { await new Promise(resolve => { window.releaseRead = resolve; }); return read.call(this); };
@@ -100,9 +106,14 @@ test('local choice unlocks audio before the picker and delayed file read, then a
   await (await chooserPromise).setFiles({ name: 'local.smc', mimeType: 'application/octet-stream', buffer: rom });
   await expect(page.locator('#status')).toContainText('Loading');
   await expect(page.locator('#current-game')).toHaveText('None');
+  await setTabHidden(page, true);
   await page.evaluate(() => releaseRead());
-  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#status')).toHaveText('Suspended');
   await expect(page.locator('#current-game')).toHaveText('local.smc');
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => launchMetrics.frames)).toBe(0);
+  await setTabHidden(page, false);
+  await expect(page.locator('#status')).toHaveText('Playing');
   await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
 });
 
@@ -115,9 +126,10 @@ test('a demo selected before hiding restores SRAM and starts without another Pla
   await selectDemo(page); await expect.poll(() => Boolean(pending)).toBe(true);
   await setTabHidden(page, true);
   await pending.fulfill({ status: 200, body: rom });
-  await expect(page.locator('#status')).toHaveText('Playing');
+  await expect(page.locator('#status')).toHaveText('Suspended');
   await expect(page.locator('#play')).toBeEnabled();
   await expect(page.locator('#play')).toHaveText('Pause');
+  await expect.poll(() => page.evaluate(() => testAudio.state)).toBe('running');
   const saved = await page.evaluate(key => {
     const sram = new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len());
     const restored = sram[3];
@@ -126,12 +138,30 @@ test('a demo selected before hiding restores SRAM and starts without another Pla
     return { restored, persisted: atob(localStorage.getItem(key)).charCodeAt(3) };
   }, saveKey);
   expect(saved).toEqual({ restored: 0x79, persisted: 0x48 });
-  const frames = await page.evaluate(() => launchMetrics.frames);
+  await waitForAnimationFrames(page);
+  expect(await page.evaluate(() => launchMetrics.frames)).toBe(0);
   await setTabHidden(page, false);
-  await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(frames);
+  await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
   await expect(page.locator('#status')).toHaveText('Playing');
   await expect(page.locator('#play')).toHaveText('Pause');
   expect(await page.evaluate(() => launchMetrics.resumes)).toEqual([{ active: true, loads: 0 }]);
+  await expect(page.locator('#error')).toBeEmpty();
+});
+
+test('an empty file choice retains an explicit Pause through hiding and returning', async ({ page }) => {
+  await selectDemo(page);
+  await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(3);
+  await page.locator('#play').click();
+  const frames = await page.evaluate(() => launchMetrics.frames);
+  await page.locator('#change-cartridge').click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('#open-local').click();
+  await setTabHidden(page, true);
+  await (await chooser).setFiles([]);
+  await setTabHidden(page, false);
+  await waitForAnimationFrames(page);
+  await expect(page.locator('#status')).toHaveText('Paused');
+  expect(await page.evaluate(() => [launchMetrics.frames, launchMetrics.loads])).toEqual([frames, 1]);
   await expect(page.locator('#error')).toBeEmpty();
 });
 
@@ -156,4 +186,12 @@ test('fullscreen entry and exit preserve playback and SRAM', async ({ page }) =>
   expect(await page.evaluate(() => launchMetrics.loads)).toBe(1);
   expect(await page.evaluate(() => sramWrites)).toBe(0);
   expect(await page.evaluate(() => new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3])).toBe(0x79);
+  await page.locator('#display').focus();
+  await setTabHidden(page, true);
+  await expect(page.locator('#status')).toHaveText('Suspended');
+  const suspended = await page.evaluate(() => launchMetrics.frames);
+  await setTabHidden(page, false);
+  await expect.poll(() => page.evaluate(() => launchMetrics.frames)).toBeGreaterThan(suspended + 2);
+  await expect(page.locator(':fullscreen')).toHaveCount(0);
+  await expect(page.locator('#display')).toBeFocused();
 });

@@ -3,7 +3,8 @@ const canvas = document.querySelector('canvas');
 const context = canvas.getContext('2d', { alpha: false });
 let image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
-let core, loaded = false, playing = false, activeHash = '', audio, masterGain, nextAudio = 0, lastTime = 0, debt = 0, saveClock = 0;
+let core, loaded = false, playRequested = false, running = false, activeHash = '';
+let audio, masterGain, nextAudio = 0, lastTime, debt = 0, saveClock = 0;
 let keyboard = 0;
 const virtualPointers = new Map(), virtualKeys = new Map();
 const touchButtons = [...document.querySelectorAll('[data-button]')];
@@ -297,25 +298,47 @@ function restoreSave() {
 $('retry-save').addEventListener('click', () => {
   if (!restorePending || loading) return;
   void activateAudio(); restoreSave();
-  if (!restorePending) { start(); canvas.focus({ preventScroll: true }); }
+  if (!restorePending) {
+    start();
+    if (isRunning()) canvas.focus({ preventScroll: true });
+  }
 });
 function flushAudio() { for (const source of sources) source.stop(); sources.clear(); nextAudio = 0; }
+function isRunning() { return running && !document.hidden; }
+function playbackStatus() { return isRunning() ? 'Playing' : playRequested ? 'Suspended' : 'Paused'; }
 function updatePlayback() {
-  $('play').textContent = playing ? 'Pause' : 'Play';
-  for (const button of touchButtons) button.disabled = !playing;
+  $('play').textContent = playRequested ? 'Pause' : 'Play';
+  for (const button of touchButtons) button.disabled = !isRunning();
 }
 function clearInput() { keyboard = 0; held.clear(); clearVirtualInput(); }
-function stopPlayback() { playing = false; clearInput(); updatePlayback(); flushAudio(); if (loaded) setStatus('Paused'); }
+function syncPlayback(retryAudio = false) {
+  const wasRunning = running;
+  // An in-flight read can leave the old cartridge running. Once suspended,
+  // wait for the load to resolve before resuming either cartridge.
+  running = playRequested && !document.hidden && (wasRunning || !loading);
+  if (running && !wasRunning) {
+    debt = frameMilliseconds;
+    lastTime = undefined;
+    saveClock = performance.now();
+    if (retryAudio && audio && audio.state !== 'running') void activateAudio();
+  } else if (wasRunning && !running) {
+    clearInput(); flushAudio();
+  }
+  updatePlayback();
+  if (playRequested && !loading && $('status').textContent !== playbackStatus()) setStatus(playbackStatus());
+  return wasRunning && !running;
+}
+function stopPlayback() { playRequested = false; syncPlayback(); if (loaded) setStatus('Paused'); }
 function pause() { stopPlayback(); return save(); }
 function start() {
   if (!loaded || restorePending || loading) return;
-  debt = frameMilliseconds; lastTime = performance.now(); playing = true; updatePlayback(); setStatus('Playing');
+  playRequested = true; syncPlayback();
 }
 function togglePlayback(event) {
   if (!loaded || restorePending || loading) return;
-  if (playing) { pause(); return; }
+  if (playRequested) { pause(); return; }
   clearError(); void activateAudio(); start();
-  if (playing && event?.detail > 0) canvas.focus({ preventScroll: true });
+  if (isRunning() && event?.detail > 0) canvas.focus({ preventScroll: true });
 }
 async function activateAudio() {
   if (!volume) return;
@@ -358,10 +381,10 @@ function buttons() {
 }
 function animate(time) {
   requestAnimationFrame(animate);
-  if (!playing) { lastTime = time; return; }
+  if (!isRunning()) return;
   // Discard stale wall time after a stall. Catch-up stays within three frames;
   // video and audio restart together instead of accumulating an unbounded debt.
-  debt = Math.min(debt + Math.max(time - lastTime, 0), frameMilliseconds * 3); lastTime = time;
+  debt = Math.min(debt + Math.max(time - (lastTime ?? time), 0), frameMilliseconds * 3); lastTime = time;
   try {
     const workStart = performance.now();
     let frames = 0;
@@ -384,7 +407,7 @@ function finishCartridgeLoad() {
   loading = undefined;
   enableSources(Boolean(core));
   $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
-  updatePlayback();
+  syncPlayback(true);
 }
 // All sources use the same identity, core validation and battery-save lifecycle.
 async function loadCartridge(name, read, { demo, savedHash } = {}) {
@@ -402,7 +425,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     const expectedHash = demo?.hash ?? savedHash;
     // Check a local file's identity before requiring a save to replace the machine.
     if (expectedHash && expectedHash !== activeHash && !(demo ? pause() : save())) {
-      if (playing) stopPlayback();
+      if (playRequested) stopPlayback();
       return;
     }
     clearError();
@@ -420,7 +443,7 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     sameCartridge = hash === activeHash;
     if (sameCartridge) {
       if (remember) rememberCartridge(hash, name, remember);
-      setStatus(playing ? 'Playing' : 'Paused');
+      setStatus(playbackStatus());
     } else {
       // Save at the replacement boundary, after asynchronous reading and hashing.
       if (!pause()) return;
@@ -431,8 +454,8 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     }
   } catch (e) {
     if (loading !== load) return;
-    if (!fromLibrary && playing) pause();
-    setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Cartridge could not be loaded');
+    if (!fromLibrary && playRequested) pause();
+    setStatus(loaded ? playbackStatus() : 'Cartridge could not be loaded');
     if (fromLibrary) {
       savedLoadFailed = true;
       if (picker.matches(':popover-open')) showSavedRecovery(savedHash, name);
@@ -444,17 +467,20 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
       if (fromLibrary && !savedLoadFailed && picker.matches(':popover-open')) closePicker();
     }
   }
-  if (sameCartridge) { canvas.focus({ preventScroll: true }); return; }
+  if (sameCartridge) {
+    if (!document.hidden) canvas.focus({ preventScroll: true });
+    return;
+  }
   if (restorePending || operationError || persistenceError) return;
   start();
-  if (playing) canvas.focus({ preventScroll: true });
+  if (isRunning()) canvas.focus({ preventScroll: true });
 }
 const picker = $('cartridge-picker');
 picker.addEventListener('beforetoggle', event => {
   if (event.newState !== 'closed' || !loading?.fromLibrary) return;
   // The read or digest may still be pending. Release the controls as soon as the picker closes.
   finishCartridgeLoad();
-  setStatus(loaded ? (playing ? 'Playing' : 'Paused') : 'Ready');
+  setStatus(loaded ? playbackStatus() : 'Ready');
   $('change-cartridge').focus({ preventScroll: true });
 });
 picker.addEventListener('keydown', event => {
@@ -765,7 +791,10 @@ for (const button of demoButtons) button.addEventListener('click', async () => {
   void activateAudio();
   const demo = demos[button.id];
   // Reselecting the inserted demo never reloads or changes playback state.
-  if (activeHash === demo.hash) { canvas.focus({ preventScroll: true }); return; }
+  if (activeHash === demo.hash) {
+    if (!document.hidden) canvas.focus({ preventScroll: true });
+    return;
+  }
   await loadCartridge(demo.name, async () => {
     const response = await fetch(demo.file, { mode: 'same-origin', redirect: 'error' });
     if (!response.ok) throw new Error(`Demo download failed: HTTP ${response.status}`);
@@ -779,7 +808,7 @@ $('reset').addEventListener('click', () => {
   try {
     check(core.reset()); draw(); clearError();
     void activateAudio(); start();
-    if (playing) canvas.focus({ preventScroll: true });
+    if (isRunning()) canvas.focus({ preventScroll: true });
   } catch (e) { report(e); }
 });
 $('mute').addEventListener('click', () => setVolume(volume ? 0 : lastNonzeroVolume));
@@ -870,12 +899,14 @@ for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) =
     }
     return;
   }
-  if (!keys[event.code] || !playing) return;
+  if (!keys[event.code] || !isRunning()) return;
   const inControl = (inHelp && help.open) || target.closest?.('#cartridge-picker') ||
     ['INPUT', 'SELECT'].includes(target.tagName) ||
     (['BUTTON', 'A', 'SUMMARY'].includes(target.tagName) && ['Enter', 'Space'].includes(event.code));
   if (inControl && !(type === 'keyup' && held.has(event.code))) return;
-  event.preventDefault(); if (type === 'keydown') held.add(event.code); else held.delete(event.code);
+  event.preventDefault();
+  if (type === 'keydown' && event.repeat) return;
+  if (type === 'keydown') held.add(event.code); else held.delete(event.code);
   keyboard = [...held].reduce((value, code) => value | keys[code], 0);
 });
 window.addEventListener('blur', clearInput);
@@ -913,7 +944,7 @@ function directionAt(event, element) {
 }
 touchControls.addEventListener('contextmenu', event => event.preventDefault());
 touchControls.addEventListener('pointerdown', event => {
-  if (!playing || (event.pointerType === 'mouse' && event.button !== 0)) return;
+  if (!isRunning() || (event.pointerType === 'mouse' && event.button !== 0)) return;
   const dpad = event.target.closest('.dpad');
   const button = event.target.closest('[data-button]');
   const element = dpad || button;
@@ -933,8 +964,10 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) touchCo
 });
 for (const button of touchButtons) {
   button.addEventListener('keydown', event => {
-    if (!playing || !['Space', 'Enter'].includes(event.code)) return;
-    event.preventDefault(); event.stopPropagation(); virtualKeys.set(button, Number(button.dataset.button)); paintVirtualInput();
+    if (!isRunning() || !['Space', 'Enter'].includes(event.code)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.repeat) return;
+    virtualKeys.set(button, Number(button.dataset.button)); paintVirtualInput();
   });
   button.addEventListener('keyup', event => {
     if (!['Space', 'Enter'].includes(event.code)) return;
@@ -942,7 +975,9 @@ for (const button of touchButtons) {
   });
   button.addEventListener('blur', () => { virtualKeys.delete(button); paintVirtualInput(); });
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
+document.addEventListener('visibilitychange', () => {
+  if (syncPlayback(true)) save();
+});
 window.addEventListener('pagehide', save);
 try {
   const response = await fetch('snes_wasm.wasm'); if (!response.ok) throw new Error(`Wasm download failed: HTTP ${response.status}`);
