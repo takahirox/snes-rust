@@ -1142,13 +1142,15 @@ impl Ppu {
         } else {
             for (chunk, (current, cached)) in self
                 .cgram
-                .chunks_exact(16)
-                .zip(self.rgba_cgram.chunks_exact_mut(16))
+                .as_chunks::<16>()
+                .0
+                .iter()
+                .zip(self.rgba_cgram.as_chunks_mut::<16>().0.iter_mut())
                 .enumerate()
             {
                 if current != cached {
                     cached.copy_from_slice(current);
-                    for (k, pair) in current.chunks_exact(2).enumerate() {
+                    for (k, pair) in current.as_chunks::<2>().0.iter().enumerate() {
                         let color = u16::from_le_bytes([pair[0], pair[1]]) & 0x7fff;
                         self.rgba_cache[chunk * 8 + k] =
                             u32::from_le_bytes(rgba(&self.levels, color));
@@ -1228,21 +1230,23 @@ impl Ppu {
             let pixels = screen[0][..n].iter().zip(&screen[1][..n]);
             if !needs_color_window {
                 let (clip, prevent) = blend.windows(false);
-                for (o, (&main_pixel, &sub_pixel)) in out.chunks_exact_mut(4).zip(pixels) {
-                    o.copy_from_slice(&blend.output(main_pixel, sub_pixel, clip, prevent));
+                for (o, (&main_pixel, &sub_pixel)) in
+                    out.as_chunks_mut::<4>().0.iter_mut().zip(pixels)
+                {
+                    *o = blend.output(main_pixel, sub_pixel, clip, prevent);
                 }
             } else {
                 let pixels = pixels.zip(&win[5][start..end]);
                 for (o, ((&main_pixel, &sub_pixel), &in_window)) in
-                    out.chunks_exact_mut(4).zip(pixels)
+                    out.as_chunks_mut::<4>().0.iter_mut().zip(pixels)
                 {
                     let (clip, prevent) = blend.windows(in_window);
-                    o.copy_from_slice(&blend.output(main_pixel, sub_pixel, clip, prevent));
+                    *o = blend.output(main_pixel, sub_pixel, clip, prevent);
                 }
             }
         } else if wide_output && repeats == 1 {
             let out = &mut frame[(row + start * 2) * 4..(row + end * 2) * 4];
-            for (i, o) in out.chunks_exact_mut(8).enumerate() {
+            for (i, o) in out.as_chunks_mut::<8>().0.iter_mut().enumerate() {
                 let (main_pixel, sub_pixel) = (screen[0][i], screen[1][i]);
                 let (clip, prevent) = blend.windows(needs_color_window && win[5][start + i]);
                 o[..4].copy_from_slice(&blend.rgba(blend.shown_sub(sub_pixel, clip)));
