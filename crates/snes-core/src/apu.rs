@@ -70,7 +70,12 @@ impl Apu {
         if !self.boot || port != 0 {
             return;
         }
-        self.command = Some((v, self.total + 4));
+        // The IPL reads the data byte from port 1 five SPC cycles after the
+        // port 0 read that matched its counter (`CMP Y,$F4; BNE; MOV A,$F5`).
+        // Games may write port 0 first (e.g. with a 16-bit store, which a
+        // DRAM refresh can split by a few SPC cycles), so latch port 1 no
+        // earlier than the IPL could read it.
+        self.command = Some((v, self.total + 6));
     }
     fn boot_command(&mut self, v: u8) {
         if !self.upload {
@@ -889,6 +894,32 @@ const SPC_CYCLES: [u8; 256] = [
 #[cfg(test)]
 mod timing_tests {
     use super::*;
+
+    #[test]
+    fn ipl_reads_data_port_after_seeing_the_counter() {
+        // One SPC cycle in master clocks (rounded up).
+        const SPC: u64 = 21;
+        let mut apu = Apu::default();
+        apu.port_write(1, 1);
+        apu.port_write(2, 0x00);
+        apu.port_write(3, 0x02);
+        apu.port_write(0, 0xcc);
+        apu.tick(SPC * 16);
+        assert_eq!(apu.port_read(0), 0xcc);
+        // Counter first, as a 16-bit store does, then the data byte four SPC
+        // cycles later (e.g. delayed by a DRAM refresh). The IPL reads port 1
+        // five cycles after it sees port 0, so the new byte is stored.
+        apu.port_write(1, 0x11);
+        apu.port_write(0, 0);
+        apu.tick(SPC * 16);
+        assert_eq!(apu.port_read(0), 0);
+        apu.port_write(0, 1);
+        apu.tick(SPC * 4);
+        apu.port_write(1, 0xf0);
+        apu.tick(SPC * 16);
+        assert_eq!(apu.port_read(0), 1);
+        assert_eq!(apu.ram[0x200..0x202], [0x11, 0xf0]);
+    }
 
     #[test]
     fn rate_clocked_envelope_and_pcm_match_across_tick_partitions() {

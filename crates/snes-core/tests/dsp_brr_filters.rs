@@ -157,7 +157,8 @@ fn upload_code(apu: &mut Apu, code: &[u8]) -> u64 {
     apu.port_write(0, (code.len() as u8).wrapping_add(1));
     wait_for(apu, &mut master, 0x7f);
     assert_eq!(&apu.ram[0x200..0x200 + code.len()], code);
-    assert!(apu.samples.len() / 2 < 100, "bounded setup");
+    // Setup must finish well before the first checked window (samples 181..200).
+    assert!(apu.samples.len() / 2 < 150, "bounded setup");
     master
 }
 fn tick_to(apu: &mut Apu, master: &mut u64, sample: u64, split: bool) {
