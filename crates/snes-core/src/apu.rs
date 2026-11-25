@@ -12,7 +12,7 @@ pub struct Spc {
     pub halted: bool,
 }
 pub struct Apu {
-    pub ram: Vec<u8>,
+    pub ram: Box<[u8; 0x10000]>,
     pub cpu: Spc,
     pub dsp: Dsp,
     pub input: [u8; 4],
@@ -37,7 +37,7 @@ pub struct Apu {
 impl Default for Apu {
     fn default() -> Self {
         Self {
-            ram: vec![0; 65536],
+            ram: crate::zeroed(),
             cpu: Spc {
                 sp: 0xef,
                 ..Spc::default()
@@ -99,13 +99,28 @@ impl Apu {
             self.count = 0;
         }
     }
+    // A pending IPL command or jump discards the remaining cycle debt when
+    // it fires (`begin`), so its outcome depends on how master clocks are
+    // grouped into `tick` calls. Otherwise only the total matters.
+    pub(crate) fn chunk_sensitive(&self) -> bool {
+        self.command.is_some() || self.pending.is_some()
+    }
     pub fn port_read(&mut self, port: usize) -> u8 {
         self.output[port]
     }
     pub fn tick(&mut self, master: u64) {
+        const MASTER: u64 = 21_477_272;
         self.clock += master * 1_024_000;
-        let n = self.clock / 21_477_272;
-        self.clock %= 21_477_272;
+        let n = if self.clock < MASTER * 2 {
+            // Bus accesses advance at most two SPC cycles; avoid a division.
+            let n = u64::from(self.clock >= MASTER);
+            self.clock -= n * MASTER;
+            n
+        } else {
+            let n = self.clock / MASTER;
+            self.clock %= MASTER;
+            n
+        };
         self.cycles += n as i64;
         while self.cycles > 0 {
             let cycles = if self.boot || self.cpu.halted {
@@ -114,6 +129,17 @@ impl Apu {
                 self.step()
             };
             self.cycles -= cycles as i64;
+            // Without boot work, only multiples of 16 cycles have events,
+            // and one instruction (at most 14 cycles) reaches at most one.
+            if !self.boot && self.pending.is_none() {
+                debug_assert!(cycles < 16);
+                let before = self.total;
+                self.total += u64::from(cycles);
+                if before >> 4 != self.total >> 4 {
+                    self.timer_edge(self.total & !15);
+                }
+                continue;
+            }
             for _ in 0..cycles {
                 self.total += 1;
                 if self.boot {
@@ -141,11 +167,25 @@ impl Apu {
                     self.clock_timer(2);
                 }
                 if self.total.is_multiple_of(32) {
-                    let (l, r) = self.dsp.sample(&mut self.ram);
+                    let (l, r) = self.dsp.sample(&mut self.ram[..]);
                     self.samples.push(l as f32 / 32768.0);
                     self.samples.push(r as f32 / 32768.0);
                 }
             }
+        }
+    }
+    // The timer and sample events of SPC cycle `total`, a multiple of 16,
+    // in the same order as the per-cycle loop.
+    fn timer_edge(&mut self, total: u64) {
+        if total.is_multiple_of(128) {
+            self.clock_timer(0);
+            self.clock_timer(1);
+        }
+        self.clock_timer(2);
+        if total.is_multiple_of(32) {
+            let (l, r) = self.dsp.sample(&mut self.ram[..]);
+            self.samples.push(l as f32 / 32768.0);
+            self.samples.push(r as f32 / 32768.0);
         }
     }
     fn clock_timer(&mut self, timer: usize) {
@@ -159,7 +199,11 @@ impl Apu {
             }
         }
     }
+    #[inline]
     pub fn read(&mut self, a: u16) -> u8 {
+        if a & 0xfff0 != 0x00f0 {
+            return self.ram[a as usize];
+        }
         match a {
             // Write-only register overlay (Anomie SPC700 Doc, rev. 1126).
             // Keep backing bytes for writes/live targets; reads have no effects.
@@ -175,7 +219,12 @@ impl Apu {
             _ => self.ram[a as usize],
         }
     }
+    #[inline]
     pub fn write(&mut self, a: u16, v: u8) {
+        if a & 0xfff0 != 0x00f0 {
+            self.ram[a as usize] = v;
+            return;
+        }
         match a {
             0xf1 => {
                 if let Some((pc, due)) = self.pending {

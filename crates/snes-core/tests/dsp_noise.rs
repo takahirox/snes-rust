@@ -147,7 +147,7 @@ fn uploaded_spc_records_numerical_outx_and_changes_noise_rate_live() {
 fn apu_noise_pcm_and_registers_match_whole_and_irregular_master_ticks() {
     fn configured() -> Apu {
         let mut apu = Apu::default();
-        configure(&mut apu.dsp, &mut apu.ram);
+        configure(&mut apu.dsp, &mut apu.ram[..]);
         apu.dsp.write(0x6c, 0x23);
         apu
     }
@@ -224,10 +224,10 @@ fn fresh_machine_and_machine_reset_reproduce_the_seed_and_sequence() {
     let rom = include_bytes!("../../../tests/roms/smoke.bin");
     let mut machine = Machine::new(rom).unwrap();
     fn capture(apu: &mut Apu) -> Vec<(i16, i16)> {
-        configure(&mut apu.dsp, &mut apu.ram);
+        configure(&mut apu.dsp, &mut apu.ram[..]);
         let mut result = Vec::new();
         for _ in 0..6 {
-            result.push(apu.dsp.sample(&mut apu.ram));
+            result.push(apu.dsp.sample(&mut apu.ram[..]));
         }
         assert_eq!(
             result,
@@ -235,7 +235,7 @@ fn fresh_machine_and_machine_reset_reproduce_the_seed_and_sequence() {
         );
         apu.dsp.write(0x6c, 0x3f);
         for _ in 0..30 {
-            result.push(apu.dsp.sample(&mut apu.ram));
+            result.push(apu.dsp.sample(&mut apu.ram[..]));
         }
         // First advance $4000->$2000 and feedback/sign changes after 14/15.
         assert_eq!(result[6], (16002, -16129));

@@ -73,264 +73,365 @@ enum Mode {
     Rll,
 }
 use Mode::*;
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Op {
+    ADC,
+    AND,
+    ASL,
+    BCC,
+    BCS,
+    BEQ,
+    BIT,
+    BMI,
+    BNE,
+    BPL,
+    BRA,
+    BRK,
+    BRL,
+    BVC,
+    BVS,
+    CLC,
+    CLD,
+    CLI,
+    CLV,
+    CMP,
+    COP,
+    CPX,
+    CPY,
+    DEC,
+    DEX,
+    DEY,
+    EOR,
+    INC,
+    INX,
+    INY,
+    JLI,
+    JMI,
+    JML,
+    JMP,
+    JSI,
+    JSL,
+    JSR,
+    JXI,
+    LDA,
+    LDX,
+    LDY,
+    LSR,
+    MVN,
+    MVP,
+    NOP,
+    ORA,
+    PEA,
+    PEI,
+    PER,
+    PHA,
+    PHB,
+    PHD,
+    PHK,
+    PHP,
+    PHX,
+    PHY,
+    PLA,
+    PLB,
+    PLD,
+    PLP,
+    PLX,
+    PLY,
+    REP,
+    ROL,
+    ROR,
+    RTI,
+    RTL,
+    RTS,
+    SBC,
+    SEC,
+    SED,
+    SEI,
+    SEP,
+    STA,
+    STP,
+    STX,
+    STY,
+    STZ,
+    TAX,
+    TAY,
+    TCD,
+    TCS,
+    TDC,
+    TRB,
+    TSB,
+    TSC,
+    TSX,
+    TXA,
+    TXS,
+    TXY,
+    TYA,
+    TYX,
+    WAI,
+    WDM,
+    XBA,
+    XCE,
+}
+use Op::*;
 // One entry per opcode. Width-sensitive immediate operands are resolved at execution.
-const OPS: [(&str, Mode); 256] = [
-    ("BRK", Imm),
-    ("ORA", Idx),
-    ("COP", Imm),
-    ("ORA", Sr),
-    ("TSB", Dp),
-    ("ORA", Dp),
-    ("ASL", Dp),
-    ("ORA", Idl),
-    ("PHP", Imp),
-    ("ORA", Imm),
-    ("ASL", Acc),
-    ("PHD", Imp),
-    ("TSB", Abs),
-    ("ORA", Abs),
-    ("ASL", Abs),
-    ("ORA", Long),
-    ("BPL", Rel),
-    ("ORA", Idy),
-    ("ORA", Ind),
-    ("ORA", Siy),
-    ("TRB", Dp),
-    ("ORA", Dpx),
-    ("ASL", Dpx),
-    ("ORA", Ily),
-    ("CLC", Imp),
-    ("ORA", Aby),
-    ("INC", Acc),
-    ("TCS", Imp),
-    ("TRB", Abs),
-    ("ORA", Abx),
-    ("ASL", Abx),
-    ("ORA", Lgx),
-    ("JSR", Abs),
-    ("AND", Idx),
-    ("JSL", Long),
-    ("AND", Sr),
-    ("BIT", Dp),
-    ("AND", Dp),
-    ("ROL", Dp),
-    ("AND", Idl),
-    ("PLP", Imp),
-    ("AND", Imm),
-    ("ROL", Acc),
-    ("PLD", Imp),
-    ("BIT", Abs),
-    ("AND", Abs),
-    ("ROL", Abs),
-    ("AND", Long),
-    ("BMI", Rel),
-    ("AND", Idy),
-    ("AND", Ind),
-    ("AND", Siy),
-    ("BIT", Dpx),
-    ("AND", Dpx),
-    ("ROL", Dpx),
-    ("AND", Ily),
-    ("SEC", Imp),
-    ("AND", Aby),
-    ("DEC", Acc),
-    ("TSC", Imp),
-    ("BIT", Abx),
-    ("AND", Abx),
-    ("ROL", Abx),
-    ("AND", Lgx),
-    ("RTI", Imp),
-    ("EOR", Idx),
-    ("WDM", Imm),
-    ("EOR", Sr),
-    ("MVP", Imp),
-    ("EOR", Dp),
-    ("LSR", Dp),
-    ("EOR", Idl),
-    ("PHA", Imp),
-    ("EOR", Imm),
-    ("LSR", Acc),
-    ("PHK", Imp),
-    ("JMP", Abs),
-    ("EOR", Abs),
-    ("LSR", Abs),
-    ("EOR", Long),
-    ("BVC", Rel),
-    ("EOR", Idy),
-    ("EOR", Ind),
-    ("EOR", Siy),
-    ("MVN", Imp),
-    ("EOR", Dpx),
-    ("LSR", Dpx),
-    ("EOR", Ily),
-    ("CLI", Imp),
-    ("EOR", Aby),
-    ("PHY", Imp),
-    ("TCD", Imp),
-    ("JML", Long),
-    ("EOR", Abx),
-    ("LSR", Abx),
-    ("EOR", Lgx),
-    ("RTS", Imp),
-    ("ADC", Idx),
-    ("PER", Rll),
-    ("ADC", Sr),
-    ("STZ", Dp),
-    ("ADC", Dp),
-    ("ROR", Dp),
-    ("ADC", Idl),
-    ("PLA", Imp),
-    ("ADC", Imm),
-    ("ROR", Acc),
-    ("RTL", Imp),
-    ("JMI", Abs),
-    ("ADC", Abs),
-    ("ROR", Abs),
-    ("ADC", Long),
-    ("BVS", Rel),
-    ("ADC", Idy),
-    ("ADC", Ind),
-    ("ADC", Siy),
-    ("STZ", Dpx),
-    ("ADC", Dpx),
-    ("ROR", Dpx),
-    ("ADC", Ily),
-    ("SEI", Imp),
-    ("ADC", Aby),
-    ("PLY", Imp),
-    ("TDC", Imp),
-    ("JXI", Abx),
-    ("ADC", Abx),
-    ("ROR", Abx),
-    ("ADC", Lgx),
-    ("BRA", Rel),
-    ("STA", Idx),
-    ("BRL", Rll),
-    ("STA", Sr),
-    ("STY", Dp),
-    ("STA", Dp),
-    ("STX", Dp),
-    ("STA", Idl),
-    ("DEY", Imp),
-    ("BIT", Imm),
-    ("TXA", Imp),
-    ("PHB", Imp),
-    ("STY", Abs),
-    ("STA", Abs),
-    ("STX", Abs),
-    ("STA", Long),
-    ("BCC", Rel),
-    ("STA", Idy),
-    ("STA", Ind),
-    ("STA", Siy),
-    ("STY", Dpx),
-    ("STA", Dpx),
-    ("STX", Dpy),
-    ("STA", Ily),
-    ("TYA", Imp),
-    ("STA", Aby),
-    ("TXS", Imp),
-    ("TXY", Imp),
-    ("STZ", Abs),
-    ("STA", Abx),
-    ("STZ", Abx),
-    ("STA", Lgx),
-    ("LDY", ImmX),
-    ("LDA", Idx),
-    ("LDX", ImmX),
-    ("LDA", Sr),
-    ("LDY", Dp),
-    ("LDA", Dp),
-    ("LDX", Dp),
-    ("LDA", Idl),
-    ("TAY", Imp),
-    ("LDA", Imm),
-    ("TAX", Imp),
-    ("PLB", Imp),
-    ("LDY", Abs),
-    ("LDA", Abs),
-    ("LDX", Abs),
-    ("LDA", Long),
-    ("BCS", Rel),
-    ("LDA", Idy),
-    ("LDA", Ind),
-    ("LDA", Siy),
-    ("LDY", Dpx),
-    ("LDA", Dpx),
-    ("LDX", Dpy),
-    ("LDA", Ily),
-    ("CLV", Imp),
-    ("LDA", Aby),
-    ("TSX", Imp),
-    ("TYX", Imp),
-    ("LDY", Abx),
-    ("LDA", Abx),
-    ("LDX", Aby),
-    ("LDA", Lgx),
-    ("CPY", ImmX),
-    ("CMP", Idx),
-    ("REP", Imm),
-    ("CMP", Sr),
-    ("CPY", Dp),
-    ("CMP", Dp),
-    ("DEC", Dp),
-    ("CMP", Idl),
-    ("INY", Imp),
-    ("CMP", Imm),
-    ("DEX", Imp),
-    ("WAI", Imp),
-    ("CPY", Abs),
-    ("CMP", Abs),
-    ("DEC", Abs),
-    ("CMP", Long),
-    ("BNE", Rel),
-    ("CMP", Idy),
-    ("CMP", Ind),
-    ("CMP", Siy),
-    ("PEI", Dp),
-    ("CMP", Dpx),
-    ("DEC", Dpx),
-    ("CMP", Ily),
-    ("CLD", Imp),
-    ("CMP", Aby),
-    ("PHX", Imp),
-    ("STP", Imp),
-    ("JLI", Abs),
-    ("CMP", Abx),
-    ("DEC", Abx),
-    ("CMP", Lgx),
-    ("CPX", ImmX),
-    ("SBC", Idx),
-    ("SEP", Imm),
-    ("SBC", Sr),
-    ("CPX", Dp),
-    ("SBC", Dp),
-    ("INC", Dp),
-    ("SBC", Idl),
-    ("INX", Imp),
-    ("SBC", Imm),
-    ("NOP", Imp),
-    ("XBA", Imp),
-    ("CPX", Abs),
-    ("SBC", Abs),
-    ("INC", Abs),
-    ("SBC", Long),
-    ("BEQ", Rel),
-    ("SBC", Idy),
-    ("SBC", Ind),
-    ("SBC", Siy),
-    ("PEA", Abs),
-    ("SBC", Dpx),
-    ("INC", Dpx),
-    ("SBC", Ily),
-    ("SED", Imp),
-    ("SBC", Aby),
-    ("PLX", Imp),
-    ("XCE", Imp),
-    ("JSI", Abx),
-    ("SBC", Abx),
-    ("INC", Abx),
-    ("SBC", Lgx),
+const OPS: [(Op, Mode); 256] = [
+    (BRK, Imm),
+    (ORA, Idx),
+    (COP, Imm),
+    (ORA, Sr),
+    (TSB, Dp),
+    (ORA, Dp),
+    (ASL, Dp),
+    (ORA, Idl),
+    (PHP, Imp),
+    (ORA, Imm),
+    (ASL, Acc),
+    (PHD, Imp),
+    (TSB, Abs),
+    (ORA, Abs),
+    (ASL, Abs),
+    (ORA, Long),
+    (BPL, Rel),
+    (ORA, Idy),
+    (ORA, Ind),
+    (ORA, Siy),
+    (TRB, Dp),
+    (ORA, Dpx),
+    (ASL, Dpx),
+    (ORA, Ily),
+    (CLC, Imp),
+    (ORA, Aby),
+    (INC, Acc),
+    (TCS, Imp),
+    (TRB, Abs),
+    (ORA, Abx),
+    (ASL, Abx),
+    (ORA, Lgx),
+    (JSR, Abs),
+    (AND, Idx),
+    (JSL, Long),
+    (AND, Sr),
+    (BIT, Dp),
+    (AND, Dp),
+    (ROL, Dp),
+    (AND, Idl),
+    (PLP, Imp),
+    (AND, Imm),
+    (ROL, Acc),
+    (PLD, Imp),
+    (BIT, Abs),
+    (AND, Abs),
+    (ROL, Abs),
+    (AND, Long),
+    (BMI, Rel),
+    (AND, Idy),
+    (AND, Ind),
+    (AND, Siy),
+    (BIT, Dpx),
+    (AND, Dpx),
+    (ROL, Dpx),
+    (AND, Ily),
+    (SEC, Imp),
+    (AND, Aby),
+    (DEC, Acc),
+    (TSC, Imp),
+    (BIT, Abx),
+    (AND, Abx),
+    (ROL, Abx),
+    (AND, Lgx),
+    (RTI, Imp),
+    (EOR, Idx),
+    (WDM, Imm),
+    (EOR, Sr),
+    (MVP, Imp),
+    (EOR, Dp),
+    (LSR, Dp),
+    (EOR, Idl),
+    (PHA, Imp),
+    (EOR, Imm),
+    (LSR, Acc),
+    (PHK, Imp),
+    (JMP, Abs),
+    (EOR, Abs),
+    (LSR, Abs),
+    (EOR, Long),
+    (BVC, Rel),
+    (EOR, Idy),
+    (EOR, Ind),
+    (EOR, Siy),
+    (MVN, Imp),
+    (EOR, Dpx),
+    (LSR, Dpx),
+    (EOR, Ily),
+    (CLI, Imp),
+    (EOR, Aby),
+    (PHY, Imp),
+    (TCD, Imp),
+    (JML, Long),
+    (EOR, Abx),
+    (LSR, Abx),
+    (EOR, Lgx),
+    (RTS, Imp),
+    (ADC, Idx),
+    (PER, Rll),
+    (ADC, Sr),
+    (STZ, Dp),
+    (ADC, Dp),
+    (ROR, Dp),
+    (ADC, Idl),
+    (PLA, Imp),
+    (ADC, Imm),
+    (ROR, Acc),
+    (RTL, Imp),
+    (JMI, Abs),
+    (ADC, Abs),
+    (ROR, Abs),
+    (ADC, Long),
+    (BVS, Rel),
+    (ADC, Idy),
+    (ADC, Ind),
+    (ADC, Siy),
+    (STZ, Dpx),
+    (ADC, Dpx),
+    (ROR, Dpx),
+    (ADC, Ily),
+    (SEI, Imp),
+    (ADC, Aby),
+    (PLY, Imp),
+    (TDC, Imp),
+    (JXI, Abx),
+    (ADC, Abx),
+    (ROR, Abx),
+    (ADC, Lgx),
+    (BRA, Rel),
+    (STA, Idx),
+    (BRL, Rll),
+    (STA, Sr),
+    (STY, Dp),
+    (STA, Dp),
+    (STX, Dp),
+    (STA, Idl),
+    (DEY, Imp),
+    (BIT, Imm),
+    (TXA, Imp),
+    (PHB, Imp),
+    (STY, Abs),
+    (STA, Abs),
+    (STX, Abs),
+    (STA, Long),
+    (BCC, Rel),
+    (STA, Idy),
+    (STA, Ind),
+    (STA, Siy),
+    (STY, Dpx),
+    (STA, Dpx),
+    (STX, Dpy),
+    (STA, Ily),
+    (TYA, Imp),
+    (STA, Aby),
+    (TXS, Imp),
+    (TXY, Imp),
+    (STZ, Abs),
+    (STA, Abx),
+    (STZ, Abx),
+    (STA, Lgx),
+    (LDY, ImmX),
+    (LDA, Idx),
+    (LDX, ImmX),
+    (LDA, Sr),
+    (LDY, Dp),
+    (LDA, Dp),
+    (LDX, Dp),
+    (LDA, Idl),
+    (TAY, Imp),
+    (LDA, Imm),
+    (TAX, Imp),
+    (PLB, Imp),
+    (LDY, Abs),
+    (LDA, Abs),
+    (LDX, Abs),
+    (LDA, Long),
+    (BCS, Rel),
+    (LDA, Idy),
+    (LDA, Ind),
+    (LDA, Siy),
+    (LDY, Dpx),
+    (LDA, Dpx),
+    (LDX, Dpy),
+    (LDA, Ily),
+    (CLV, Imp),
+    (LDA, Aby),
+    (TSX, Imp),
+    (TYX, Imp),
+    (LDY, Abx),
+    (LDA, Abx),
+    (LDX, Aby),
+    (LDA, Lgx),
+    (CPY, ImmX),
+    (CMP, Idx),
+    (REP, Imm),
+    (CMP, Sr),
+    (CPY, Dp),
+    (CMP, Dp),
+    (DEC, Dp),
+    (CMP, Idl),
+    (INY, Imp),
+    (CMP, Imm),
+    (DEX, Imp),
+    (WAI, Imp),
+    (CPY, Abs),
+    (CMP, Abs),
+    (DEC, Abs),
+    (CMP, Long),
+    (BNE, Rel),
+    (CMP, Idy),
+    (CMP, Ind),
+    (CMP, Siy),
+    (PEI, Dp),
+    (CMP, Dpx),
+    (DEC, Dpx),
+    (CMP, Ily),
+    (CLD, Imp),
+    (CMP, Aby),
+    (PHX, Imp),
+    (STP, Imp),
+    (JLI, Abs),
+    (CMP, Abx),
+    (DEC, Abx),
+    (CMP, Lgx),
+    (CPX, ImmX),
+    (SBC, Idx),
+    (SEP, Imm),
+    (SBC, Sr),
+    (CPX, Dp),
+    (SBC, Dp),
+    (INC, Dp),
+    (SBC, Idl),
+    (INX, Imp),
+    (SBC, Imm),
+    (NOP, Imp),
+    (XBA, Imp),
+    (CPX, Abs),
+    (SBC, Abs),
+    (INC, Abs),
+    (SBC, Long),
+    (BEQ, Rel),
+    (SBC, Idy),
+    (SBC, Ind),
+    (SBC, Siy),
+    (PEA, Abs),
+    (SBC, Dpx),
+    (INC, Dpx),
+    (SBC, Ily),
+    (SED, Imp),
+    (SBC, Aby),
+    (PLX, Imp),
+    (XCE, Imp),
+    (JSI, Abx),
+    (SBC, Abx),
+    (INC, Abx),
+    (SBC, Lgx),
 ];
 impl Cpu {
     fn flag(&self, f: u8) -> bool {
@@ -656,13 +757,13 @@ impl Cpu {
         let mb = self.flag(M);
         let xb = self.flag(X);
         match name {
-            "BRK" | "COP" => {
+            BRK | COP => {
                 self.fetch(b);
                 self.enter(
                     b,
                     match (name, self.e) {
-                        ("COP", true) => 0xfff4,
-                        ("COP", false) => 0xffe4,
+                        (COP, true) => 0xfff4,
+                        (COP, false) => 0xffe4,
                         (_, true) => 0xfffe,
                         _ => 0xffe6,
                     },
@@ -670,27 +771,23 @@ impl Cpu {
                 );
                 return;
             }
-            "REP" | "SEP" => {
+            REP | SEP => {
                 let v = self.fetch(b);
-                self.status(if name == "REP" {
-                    self.p & !v
-                } else {
-                    self.p | v
-                });
+                self.status(if name == REP { self.p & !v } else { self.p | v });
                 b.idle();
                 return;
             }
-            "WDM" => {
+            WDM => {
                 self.fetch(b);
                 return;
             }
-            "MVP" | "MVN" => {
+            MVP | MVN => {
                 let dst = self.fetch(b);
                 let src = self.fetch(b);
                 let v = b.read(((src as u32) << 16) | self.x as u32);
                 b.write(((dst as u32) << 16) | self.y as u32, v);
                 self.db = dst;
-                let delta = if name == "MVN" { 1 } else { 65535 };
+                let delta = if name == MVN { 1 } else { 65535 };
                 self.x = self.x.wrapping_add(delta);
                 self.y = self.y.wrapping_add(delta);
                 if xb {
@@ -705,7 +802,7 @@ impl Cpu {
                 b.idle();
                 return;
             }
-            "JSI" => {
+            JSI => {
                 // Table 5-7: push the return address before fetching the high
                 // operand and destination pointer; either may overlap the stack.
                 let low = self.fetch(b);
@@ -716,7 +813,7 @@ impl Cpu {
                 self.pc = Self::rd16_in_bank(b, ((self.pb as u32) << 16) | pointer as u32);
                 return;
             }
-            "JSL" => {
+            JSL => {
                 let a = self.word(b);
                 let e = self.e;
                 self.e = false;
@@ -733,32 +830,32 @@ impl Cpu {
                 self.pb = bank;
                 return;
             }
-            "JMP" | "JSR" | "JMI" | "JXI" | "JLI" | "JML" | "PEA" => {
+            JMP | JSR | JMI | JXI | JLI | JML | PEA => {
                 let mut a = self.word(b);
                 let mut bank = self.pb;
-                if name == "JML" {
+                if name == JML {
                     bank = self.fetch(b);
                 }
-                if name == "JMI" {
+                if name == JMI {
                     a = Self::rd16_in_bank(b, a as u32);
                 }
-                if name == "JXI" {
+                if name == JXI {
                     b.idle();
                     a = Self::rd16_in_bank(
                         b,
                         ((self.pb as u32) << 16) | a.wrapping_add(self.x) as u32,
                     );
                 }
-                if name == "JLI" {
+                if name == JLI {
                     let pointer = a;
                     a = Self::rd16_in_bank(b, pointer as u32);
                     bank = b.read(pointer.wrapping_add(2) as u32);
                 }
-                if name == "PEA" {
+                if name == PEA {
                     self.push16_full(b, a);
                     return;
                 }
-                if name == "JSR" {
+                if name == JSR {
                     b.idle();
                     self.push16(b, self.pc.wrapping_sub(1));
                 }
@@ -766,17 +863,17 @@ impl Cpu {
                 self.pb = bank;
                 return;
             }
-            "PEI" => {
+            PEI => {
                 let a = self.addr(b, Dp, false);
                 let v = Self::rd16_in_bank(b, a);
                 self.push16_full(b, v);
                 return;
             }
-            "PER" | "BRL" => {
+            PER | BRL => {
                 let v = self.word(b);
                 let target = self.pc.wrapping_add(v);
                 b.idle();
-                if name == "PER" {
+                if name == PER {
                     self.push16_full(b, target);
                 } else {
                     self.pc = target;
@@ -788,14 +885,14 @@ impl Cpu {
         if mode == Rel {
             let v = self.fetch(b) as i8;
             let take = match name {
-                "BRA" => true,
-                "BPL" => !self.flag(N),
-                "BMI" => self.flag(N),
-                "BVC" => !self.flag(V),
-                "BVS" => self.flag(V),
-                "BCC" => !self.flag(C),
-                "BCS" => self.flag(C),
-                "BNE" => !self.flag(Z),
+                BRA => true,
+                BPL => !self.flag(N),
+                BMI => self.flag(N),
+                BVC => !self.flag(V),
+                BVS => self.flag(V),
+                BCC => !self.flag(C),
+                BCS => self.flag(C),
+                BNE => !self.flag(Z),
                 _ => self.flag(Z),
             };
             if take {
@@ -811,87 +908,84 @@ impl Cpu {
         if mode == Imp {
             b.idle();
             match name {
-                "CLC" => self.p &= !C,
-                "SEC" => self.p |= C,
-                "CLI" => self.p &= !I,
-                "SEI" => self.p |= I,
-                "CLD" => self.p &= !D,
-                "SED" => self.p |= D,
-                "CLV" => self.p &= !V,
-                "XCE" => {
+                CLC => self.p &= !C,
+                SEC => self.p |= C,
+                CLI => self.p &= !I,
+                SEI => self.p |= I,
+                CLD => self.p &= !D,
+                SED => self.p |= D,
+                CLV => self.p &= !V,
+                XCE => {
                     let e = self.flag(C);
                     self.set(C, self.e);
                     self.e = e;
                     self.status(self.p);
                 }
-                "XBA" => {
+                XBA => {
                     self.a = self.a.rotate_left(8);
                     self.nz(self.a & 255, true);
                     b.idle();
                 }
-                "TAX" | "TAY" | "TSX" | "TYX" | "TXY" => {
+                TAX | TAY | TSX | TYX | TXY => {
                     let v = match name {
-                        "TSX" => self.s,
-                        "TYX" => self.y,
-                        "TXY" => self.x,
+                        TSX => self.s,
+                        TYX => self.y,
+                        TXY => self.x,
                         _ => self.a,
                     };
                     let v = if xb { v & 255 } else { v };
-                    if name == "TAY" || name == "TXY" {
+                    if name == TAY || name == TXY {
                         self.y = v;
                     } else {
                         self.x = v;
                     }
                     self.nz(v, xb);
                 }
-                "TXA" => self.load_a(self.x, mb),
-                "TYA" => self.load_a(self.y, mb),
-                "TSC" => self.load_a(self.s, false),
-                "TDC" => self.load_a(self.d, false),
-                "TCS" => {
+                TXA => self.load_a(self.x, mb),
+                TYA => self.load_a(self.y, mb),
+                TSC => self.load_a(self.s, false),
+                TDC => self.load_a(self.d, false),
+                TCS => {
                     self.s = self.a;
                     if self.e {
                         self.s = 0x100 | (self.s & 255);
                     }
                 }
-                "TXS" => {
+                TXS => {
                     self.s = self.x;
                     if self.e {
                         self.s = 0x100 | (self.s & 255);
                     }
                 }
-                "TCD" => {
+                TCD => {
                     self.d = self.a;
                     self.nz(self.d, false);
                 }
-                "INX" | "DEX" | "INY" | "DEY" => {
-                    let v = if name == "INX" || name == "DEX" {
+                INX | DEX | INY | DEY => {
+                    let v = if name == INX || name == DEX {
                         self.x
                     } else {
                         self.y
                     };
-                    let v = v.wrapping_add(if name == "INX" || name == "INY" {
-                        1
-                    } else {
-                        65535
-                    }) & if xb { 255 } else { 65535 };
-                    if name == "INX" || name == "DEX" {
+                    let v = v.wrapping_add(if name == INX || name == INY { 1 } else { 65535 })
+                        & if xb { 255 } else { 65535 };
+                    if name == INX || name == DEX {
                         self.x = v;
                     } else {
                         self.y = v;
                     }
                     self.nz(v, xb);
                 }
-                "PHP" => {
+                PHP => {
                     self.push(b, if self.e { self.p | 0x30 } else { self.p });
                 }
-                "PHB" => self.push(b, self.db),
-                "PHK" => self.push(b, self.pb),
-                "PHD" => self.push16_full(b, self.d),
-                "PHA" | "PHX" | "PHY" => {
+                PHB => self.push(b, self.db),
+                PHK => self.push(b, self.pb),
+                PHD => self.push16_full(b, self.d),
+                PHA | PHX | PHY => {
                     let (v, byte) = match name {
-                        "PHA" => (self.a, mb),
-                        "PHX" => (self.x, xb),
+                        PHA => (self.a, mb),
+                        PHX => (self.x, xb),
                         _ => (self.y, xb),
                     };
                     if !byte {
@@ -899,14 +993,14 @@ impl Cpu {
                     }
                     self.push(b, v as u8);
                 }
-                "PLP" => {
+                PLP => {
                     // Table 5-7: pulls and returns idle twice before reading S+1.
                     // The first internal cycle is shared by all implied opcodes.
                     b.idle();
                     let v = self.pop(b);
                     self.status(v);
                 }
-                "PLB" => {
+                PLB => {
                     b.idle();
                     let e = self.e;
                     self.e = false;
@@ -917,23 +1011,23 @@ impl Cpu {
                     }
                     self.nz(self.db as u16, true);
                 }
-                "PLD" => {
+                PLD => {
                     b.idle();
                     self.d = self.pop16_full(b);
                     self.nz(self.d, false);
                 }
-                "PLA" | "PLX" | "PLY" => {
+                PLA | PLX | PLY => {
                     b.idle();
-                    let byte = if name == "PLA" { mb } else { xb };
+                    let byte = if name == PLA { mb } else { xb };
                     let v = if byte {
                         self.pop(b) as u16
                     } else {
                         self.pop16(b)
                     };
-                    if name == "PLA" {
+                    if name == PLA {
                         self.load_a(v, byte);
                     } else {
-                        if name == "PLX" {
+                        if name == PLX {
                             self.x = v;
                         } else {
                             self.y = v;
@@ -941,12 +1035,12 @@ impl Cpu {
                         self.nz(v, byte);
                     }
                 }
-                "RTS" => {
+                RTS => {
                     b.idle();
                     self.pc = self.pop16(b).wrapping_add(1);
                     b.idle();
                 }
-                "RTL" => {
+                RTL => {
                     b.idle();
                     let e = self.e;
                     self.e = false;
@@ -957,7 +1051,7 @@ impl Cpu {
                         self.s = 0x100 | (self.s & 255);
                     }
                 }
-                "RTI" => {
+                RTI => {
                     b.idle();
                     let p = self.pop(b);
                     self.status(p);
@@ -966,20 +1060,20 @@ impl Cpu {
                         self.pb = self.pop(b);
                     }
                 }
-                "WAI" => {
+                WAI => {
                     self.waiting = true;
                     b.idle();
                 }
-                "STP" => {
+                STP => {
                     self.stopped = true;
                     b.idle();
                 }
-                "NOP" => {}
-                _ => unreachable!("{name}"),
+                NOP => {}
+                _ => unreachable!("{name:?}"),
             }
             return;
         }
-        let byte = if ["LDX", "LDY", "STX", "STY", "CPX", "CPY"].contains(&name) {
+        let byte = if matches!(name, LDX | LDY | STX | STY | CPX | CPY) {
             xb
         } else {
             mb
@@ -987,7 +1081,7 @@ impl Cpu {
         let mask = if byte { 255 } else { 65535 };
         let mut a = 0;
         let immediate = mode == Imm || mode == ImmX;
-        let store = ["STA", "STX", "STY", "STZ"].contains(&name);
+        let store = matches!(name, STA | STX | STY | STZ);
         let v = if mode == Acc {
             self.a & mask
         } else if immediate {
@@ -997,7 +1091,7 @@ impl Cpu {
                 self.word(b)
             }
         } else {
-            let modify = matches!(name, "ASL" | "LSR" | "ROL" | "ROR" | "INC" | "DEC");
+            let modify = matches!(name, ASL | LSR | ROL | ROR | INC | DEC);
             a = self.addr(b, mode, store || modify);
             if store {
                 0
@@ -1009,56 +1103,52 @@ impl Cpu {
         };
         let mut out = None;
         match name {
-            "LDA" => self.load_a(v, byte),
-            "LDX" => {
+            LDA => self.load_a(v, byte),
+            LDX => {
                 self.x = v;
                 self.nz(v, byte);
             }
-            "LDY" => {
+            LDY => {
                 self.y = v;
                 self.nz(v, byte);
             }
-            "STA" => out = Some(self.a),
-            "STX" => out = Some(self.x),
-            "STY" => out = Some(self.y),
-            "STZ" => out = Some(0),
-            "ORA" => self.load_a((self.a | v) & mask, byte),
-            "AND" => self.load_a(self.a & v, byte),
-            "EOR" => self.load_a((self.a ^ v) & mask, byte),
-            "ADC" => self.alu(v, false, byte),
-            "SBC" => self.alu(v, true, byte),
-            "CMP" => self.compare(self.a, v, byte),
-            "CPX" => self.compare(self.x, v, byte),
-            "CPY" => self.compare(self.y, v, byte),
-            "BIT" => {
+            STA => out = Some(self.a),
+            STX => out = Some(self.x),
+            STY => out = Some(self.y),
+            STZ => out = Some(0),
+            ORA => self.load_a((self.a | v) & mask, byte),
+            AND => self.load_a(self.a & v, byte),
+            EOR => self.load_a((self.a ^ v) & mask, byte),
+            ADC => self.alu(v, false, byte),
+            SBC => self.alu(v, true, byte),
+            CMP => self.compare(self.a, v, byte),
+            CPX => self.compare(self.x, v, byte),
+            CPY => self.compare(self.y, v, byte),
+            BIT => {
                 self.set(Z, self.a & v & mask == 0);
                 if !immediate {
                     self.set(N, v & if byte { 128 } else { 32768 } != 0);
                     self.set(V, v & if byte { 64 } else { 16384 } != 0);
                 }
             }
-            "TSB" | "TRB" => {
+            TSB | TRB => {
                 self.set(Z, self.a & v & mask == 0);
-                out = Some(if name == "TSB" {
-                    v | self.a
-                } else {
-                    v & !self.a
-                });
+                out = Some(if name == TSB { v | self.a } else { v & !self.a });
                 b.idle();
             }
-            "INC" | "DEC" | "ASL" | "LSR" | "ROL" | "ROR" => {
+            INC | DEC | ASL | LSR | ROL | ROR => {
                 let c = u16::from(self.flag(C));
                 let r = match name {
-                    "INC" => v.wrapping_add(1),
-                    "DEC" => v.wrapping_sub(1),
-                    "ASL" | "ROL" => {
+                    INC => v.wrapping_add(1),
+                    DEC => v.wrapping_sub(1),
+                    ASL | ROL => {
                         self.set(C, v & if byte { 128 } else { 32768 } != 0);
-                        (v << 1) | if name == "ROL" { c } else { 0 }
+                        (v << 1) | if name == ROL { c } else { 0 }
                     }
                     _ => {
                         self.set(C, v & 1 != 0);
                         (v >> 1)
-                            | if name == "ROR" {
+                            | if name == ROR {
                                 c * if byte { 128 } else { 32768 }
                             } else {
                                 0
@@ -1069,7 +1159,7 @@ impl Cpu {
                 out = Some(r);
                 b.idle();
             }
-            _ => unreachable!("{name}"),
+            _ => unreachable!("{name:?}"),
         }
         if let Some(v) = out {
             if mode == Acc {

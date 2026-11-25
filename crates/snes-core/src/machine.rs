@@ -43,12 +43,25 @@ struct AutoJoypad {
 pub struct Machine {
     pub cpu: Cpu,
     pub bus: SystemBus,
+    probe: Option<LoopProbe>,
+}
+// CPU and bus state at an instruction boundary, used to recognize a loop
+// iteration that only read ROM/WRAM on the access fast path.
+#[derive(Clone, Copy, PartialEq)]
+struct LoopProbe {
+    words: [u16; 6],
+    bytes: [u8; 4],
+    emulation: bool,
+    v: u16,
+    effects: u64,
+    clocks: u64,
+    instructions: u64,
 }
 pub struct SystemBus {
     pub cart: Cartridge,
     pub ppu: Ppu,
     pub apu: Apu,
-    pub wram: Vec<u8>,
+    pub wram: Box<[u8; 0x20000]>,
     pub clocks: u64,
     pub frames: u64,
     #[cfg(test)]
@@ -78,6 +91,22 @@ pub struct SystemBus {
     hdma_init: bool,
     math: Option<(u8, u16, u16)>,
     defer_raster: bool,
+    // `tick` may skip its event scan while H stays strictly below this
+    // limit on line `fast_v`; zero forces the full scan.
+    fast_limit: u64,
+    fast_v: u16,
+    // A CPU access of c clocks may skip events, `bus_tick` and `tick`
+    // entirely while H + c stays below this limit on line `fast_v`: no
+    // DMA/HDMA is pending, no refresh or timing event intervenes and the
+    // APU is deferred. Zero forces the ordinary path.
+    access_limit: u64,
+    // Inside run_frame, master clocks owed to the APU. The SPC and DSP see
+    // the CPU only through the ports, so catching up before every port
+    // access and at the end of the field runs the same SPC instructions.
+    defer_apu: bool,
+    apu_lag: u64,
+    // Counts CPU accesses off the pure fast path (writes, I/O, slow timing).
+    effects: u64,
 }
 impl Machine {
     pub fn new(rom: &[u8]) -> Result<Self, String> {
@@ -85,6 +114,7 @@ impl Machine {
         let mut m = Self {
             cpu: Cpu::default(),
             bus: SystemBus::new(cart),
+            probe: None,
         };
         m.cpu.reset(&mut m.bus);
         Ok(m)
@@ -93,9 +123,62 @@ impl Machine {
     pub fn reset(&mut self) {
         let cart = self.bus.cart.clone();
         self.bus = SystemBus::new(cart);
+        self.probe = None;
         self.cpu.reset(&mut self.bus);
     }
+    fn loop_probe(&self) -> LoopProbe {
+        let c = &self.cpu;
+        LoopProbe {
+            words: [c.a, c.x, c.y, c.s, c.d, c.pc],
+            bytes: [c.pb, c.db, c.p, self.bus.open],
+            emulation: c.e,
+            v: self.bus.v,
+            effects: self.bus.effects,
+            clocks: self.bus.clocks,
+            instructions: c.instructions,
+        }
+    }
+    // Fast-forward a pure polling loop. If the CPU is back at an earlier
+    // instruction boundary with identical registers and open bus, and every
+    // access since was a fast-path ROM/WRAM read or idle cycle, then memory
+    // and pending events are unchanged, so each further iteration repeats
+    // the same accesses and clocks. Repeat whole iterations that still end
+    // before the next timing event.
+    fn skip_pure_loop(&mut self) {
+        match self.probe {
+            Some(p) if p.words[5] == self.cpu.pc && p.bytes[0] == self.cpu.pb => {
+                let now = self.loop_probe();
+                let same = LoopProbe {
+                    effects: p.effects,
+                    clocks: p.clocks,
+                    instructions: p.instructions,
+                    ..now
+                } == p;
+                let period = now.clocks - p.clocks;
+                if same && now.effects == p.effects && period != 0 {
+                    let iterations = self.bus.quick_repeats(period);
+                    if iterations != 0 {
+                        self.bus.quick_advance(iterations * period);
+                        self.cpu.instructions += iterations * (now.instructions - p.instructions);
+                    }
+                }
+                self.probe = Some(self.loop_probe());
+            }
+            Some(p) if self.cpu.instructions - p.instructions < 8 => {}
+            _ => self.probe = Some(self.loop_probe()),
+        }
+    }
     pub fn step(&mut self) {
+        if self.bus.access_limit != 0 && !self.cpu.waiting && !self.cpu.stopped {
+            self.skip_pure_loop();
+        }
+        if self.cpu.waiting
+            && !self.cpu.stopped
+            && !(self.bus.nmi_pending || self.bus.irq)
+            && self.bus.idle_run()
+        {
+            return;
+        }
         if self.bus.hdma_init || self.bus.hdma_pending || self.bus.dma_pending != 0 {
             self.bus.events();
         }
@@ -109,8 +192,17 @@ impl Machine {
     }
     pub fn run_frame(&mut self) -> Result<(), String> {
         self.bus.defer_raster = true;
+        self.bus.defer_apu = true;
+        self.bus.invalidate_fast();
         let result = self.run_field();
+        self.bus.sync_apu();
+        self.bus.defer_apu = false;
         self.bus.defer_raster = false;
+        self.bus.invalidate_fast();
+        let result = result.and_then(|()| match self.bus.apu.error.take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        });
         if (1..=224).contains(&self.bus.v) {
             self.bus
                 .ppu
@@ -135,9 +227,6 @@ impl Machine {
                     self.cpu.pb, self.cpu.pc, self.bus.frames
                 ));
             }
-        }
-        if let Some(error) = self.bus.apu.error.take() {
-            return Err(error);
         }
         Ok(())
     }
@@ -176,7 +265,7 @@ impl SystemBus {
             cart,
             ppu: Ppu::default(),
             apu: Apu::default(),
-            wram: vec![0; 131072],
+            wram: crate::zeroed(),
             clocks: 0,
             frames: 0,
             #[cfg(test)]
@@ -210,10 +299,202 @@ impl SystemBus {
             hdma_init: false,
             math: None,
             defer_raster: false,
+            fast_limit: 0,
+            fast_v: 0,
+            access_limit: 0,
+            defer_apu: false,
+            apu_lag: 0,
+            effects: 0,
         }
     }
+    fn sync_apu(&mut self) {
+        let lag = std::mem::take(&mut self.apu_lag);
+        if lag != 0 {
+            self.apu.tick(lag);
+        }
+    }
+    // Run consecutive WAI idle cycles at once while each would take the
+    // `bus_tick` and `tick` fast paths: no DMA/HDMA, refresh, raster, IRQ,
+    // NMI, joypad or line event can occur, so the CPU keeps waiting.
+    // Returns false when the next idle needs the ordinary path.
+    fn idle_run(&mut self) -> bool {
+        if self.hdma_init
+            || self.hdma_pending
+            || self.dma_pending != 0
+            || self.math.is_some()
+            || self.v != self.fast_v
+            || self.h == 538
+        {
+            return false;
+        }
+        let limit = if self.h < 538 {
+            self.fast_limit.min(538)
+        } else {
+            self.fast_limit
+        };
+        let idles = limit.saturating_sub(self.h + 1) / 6;
+        if idles == 0 {
+            return false;
+        }
+        self.tick(idles * 6);
+        true
+    }
     fn tick(&mut self, n: u64) {
-        self.apu.tick(n);
+        if self.defer_apu && !self.apu.chunk_sensitive() {
+            self.apu_lag += n;
+        } else {
+            self.sync_apu();
+            self.apu.tick(n);
+        }
+        if self.h + n < self.fast_limit && self.v == self.fast_v {
+            // No raster, IRQ, HDMA, joypad or line event lies in this interval.
+            self.clocks += n;
+            self.h += n;
+            self.ppu.h = self.h as u16;
+            return;
+        }
+        self.tick_events(n);
+        self.update_fast_limit();
+    }
+    // The earliest H on this line at which `tick_events` could act: a
+    // superset of its line-specific events. Both horizontal IRQ candidates
+    // are included while H-IRQ is enabled, independent of VTIME. Writes to
+    // $4200-$420D invalidate this limit.
+    fn update_fast_limit(&mut self) {
+        let h = self.h;
+        let mut limit = self.ppu.line_clocks();
+        let mut event = |t: u64| {
+            if t > h {
+                limit = limit.min(t);
+            }
+        };
+        let mode = self.io[0] & 0x30;
+        if self.v == 0 {
+            event(4);
+            event(HDMA_INIT);
+        }
+        if self.v == 225 {
+            event(OAM_RELOAD);
+        }
+        if self.v <= 224 {
+            event(PICTURE_END);
+            event(HDMA_SCANLINE);
+        }
+        if mode & 0x10 != 0 {
+            let htime = (u16::from_le_bytes([self.io[7], self.io[8] & 1]) as u64) * 4;
+            event(htime);
+            event(htime + 14);
+        }
+        if mode & 0x20 != 0 {
+            event(V_ONLY_IRQ);
+        }
+        if let Some(next) = self.auto_start {
+            limit = limit.min(self.h + (next - self.clocks));
+        }
+        if let Some(poll) = &self.auto_poll {
+            limit = limit.min(self.h + (poll.next - self.clocks));
+        }
+        if !self.defer_raster && (1..=224).contains(&self.v) {
+            limit = 0;
+        }
+        #[cfg(test)]
+        if self.raster_quantum != u64::MAX {
+            limit = 0;
+        }
+        self.fast_limit = limit;
+        self.fast_v = self.v;
+        self.refresh_access_limit();
+    }
+    fn invalidate_fast(&mut self) {
+        self.fast_limit = 0;
+        self.access_limit = 0;
+    }
+    fn refresh_access_limit(&mut self) {
+        self.access_limit = if self.defer_apu
+            && !self.apu.chunk_sensitive()
+            && !self.hdma_init
+            && !self.hdma_pending
+            && self.dma_pending == 0
+        {
+            if self.h < 538 {
+                self.fast_limit.min(538)
+            } else {
+                self.fast_limit
+            }
+        } else {
+            0
+        };
+    }
+    // Advance a CPU bus cycle of `clocks` when no event, DMA/HDMA or math
+    // countdown needs attention; otherwise leave all state unchanged.
+    #[inline(always)]
+    fn quick_cycle(&mut self, clocks: u64) -> bool {
+        if self.h + clocks < self.access_limit && self.v == self.fast_v && self.math.is_none() {
+            self.quick_advance(clocks);
+            true
+        } else {
+            false
+        }
+    }
+    #[inline(always)]
+    fn quick_advance(&mut self, clocks: u64) {
+        self.apu_lag += clocks;
+        self.clocks += clocks;
+        self.h += clocks;
+        self.ppu.h = self.h as u16;
+    }
+    // Whole repeats of a `period`-clock run of quick cycles that would all
+    // stay on the fast path from here.
+    fn quick_repeats(&self, period: u64) -> u64 {
+        if self.v == self.fast_v && self.math.is_none() {
+            self.access_limit.saturating_sub(self.h + 1) / period
+        } else {
+            0
+        }
+    }
+    // One CPU bus cycle of `clocks`: service DMA/HDMA, advance time and
+    // count the cycle for the math unit.
+    #[inline(never)]
+    fn access(&mut self, clocks: u64) {
+        self.effects += 1;
+        if self.h + clocks < self.access_limit && self.v == self.fast_v {
+            self.apu_lag += clocks;
+            self.clocks += clocks;
+            self.h += clocks;
+            self.ppu.h = self.h as u16;
+        } else {
+            self.events();
+            self.bus_tick(clocks);
+            self.refresh_access_limit();
+        }
+        self.cpu_cycle();
+    }
+    // WRAM index of `a`, including the low-bank mirror.
+    #[inline(always)]
+    fn wram_index(a: u32) -> Option<usize> {
+        let bank = a >> 16;
+        if bank & 0xfe == 0x7e {
+            Some(a as usize & 0x1ffff)
+        } else if bank & 0x40 == 0 && a & 0xffff < 0x2000 {
+            Some(a as usize & 0x1fff)
+        } else {
+            None
+        }
+    }
+    #[inline(never)]
+    fn read_slow(&mut self, a: u32) -> u8 {
+        self.access(self.speed(a));
+        let v = self.read_raw(a);
+        self.open = v;
+        v
+    }
+    #[inline(never)]
+    fn write_slow(&mut self, a: u32, v: u8) {
+        self.access(self.speed(a));
+        self.open = v;
+        self.write_raw(a, v);
+    }
+    fn tick_events(&mut self, n: u64) {
         let mut n = n;
         let htime = (u16::from_le_bytes([self.io[7], self.io[8] & 1]) as u64) * 4;
         let vtime = u16::from_le_bytes([self.io[9], self.io[10] & 1]);
@@ -262,12 +543,11 @@ impl SystemBus {
                 self.hdma_init = true;
             }
             // During run_frame, compose at relevant PPU accesses or at the
-            // two raster edges. STAT77 starts publishing at HBlank, four
-            // pixels before the end of the picture.
+            // picture end. STAT77 starts publishing at HBlank, four pixels
+            // before the end of the picture; $213E reads in that tail and
+            // every PPU write compose first, so no separate HBlank edge is needed.
             if (1..=224).contains(&self.v)
-                && (!self.defer_raster
-                    || (old_h < HBLANK && self.h >= HBLANK)
-                    || (old_h < PICTURE_END && self.h >= PICTURE_END))
+                && (!self.defer_raster || (old_h < PICTURE_END && self.h >= PICTURE_END))
             {
                 self.ppu.render_until(self.v as usize - 1, self.h);
             }
@@ -423,6 +703,12 @@ impl SystemBus {
         let a = a & 0xffffff;
         let bank = a >> 16;
         let lo = (a & 65535) as usize;
+        // Linear ROM pages never overlap I/O, SRAM or low WRAM mirrors.
+        if bank & 0xfe != 0x7e {
+            if let Some(v) = self.cart.read_rom_page(a) {
+                return v;
+            }
+        }
         if bank == 0x7e || bank == 0x7f {
             return self.wram[a as usize & 0x1ffff];
         }
@@ -442,7 +728,10 @@ impl SystemBus {
                     }
                     return self.ppu.read((lo - 0x2100) as u8, self.open);
                 }
-                0x2140..=0x217f => return self.apu.port_read((lo - 0x2140) & 3),
+                0x2140..=0x217f => {
+                    self.sync_apu();
+                    return self.apu.port_read((lo - 0x2140) & 3);
+                }
                 0x2180 => {
                     let v = self.wram[self.waddr];
                     self.waddr = (self.waddr + 1) & 0x1ffff;
@@ -502,14 +791,19 @@ impl SystemBus {
                 0x2100..=0x2133 => {
                     // CPU and DMA/HDMA writes must commit after the elapsed
                     // pixels have sampled the former registers and memory.
-                    if (1..=224).contains(&self.v) {
+                    // VMAIN/VMADD/VMDATA cannot alter them: VRAM writes are
+                    // blocked while displaying, and pending forced-blank
+                    // pixels are black regardless of VRAM.
+                    if (1..=224).contains(&self.v) && !(0x2115..=0x2119).contains(&lo) {
                         self.ppu.render_until(self.v as usize - 1, self.h);
                     }
                     self.ppu.write((lo - 0x2100) as u8, v);
                     return;
                 }
                 0x2140..=0x217f => {
+                    self.sync_apu();
                     self.apu.port_write((lo - 0x2140) & 3, v);
+                    self.access_limit = 0;
                     return;
                 }
                 0x2180 => {
@@ -536,6 +830,7 @@ impl SystemBus {
                 0x4200..=0x420d => {
                     let old = self.io[lo - 0x4200];
                     self.io[lo - 0x4200] = v;
+                    self.invalidate_fast();
                     match lo {
                         0x4200 => {
                             if old & 128 == 0 && v & 128 != 0 && self.nmi_flag {
@@ -583,6 +878,10 @@ impl SystemBus {
     // A CPU/DMA access can straddle refresh. The 40-clock hold must advance
     // every other device, without consuming another CPU cycle or DMA byte.
     fn bus_tick(&mut self, mut clocks: u64) {
+        if self.h + clocks < 538 || (self.h > 538 && self.h + clocks < self.ppu.line_clocks()) {
+            self.tick(clocks);
+            return;
+        }
         while clocks > 0 {
             let boundary = if self.h < 538 {
                 538
@@ -621,7 +920,24 @@ impl SystemBus {
         let d = self.dma[channel];
         let b = 0x2100 | d[1].wrapping_add(offset) as u32;
         let wram = matches!(a >> 16, 0x7e | 0x7f) || (a & 0x400000 == 0 && a & 0xffff < 0x2000);
-        self.bus_tick(4);
+        // Both four-clock halves on the `bus_tick`/`tick` fast paths: no
+        // refresh, timing event or pending HDMA, with the APU deferred.
+        let quick = self.defer_apu
+            && !self.apu.chunk_sensitive()
+            && !self.hdma_init
+            && !self.hdma_pending
+            && self.v == self.fast_v
+            && self.h + 8
+                < if self.h < 538 {
+                    self.fast_limit.min(538)
+                } else {
+                    self.fast_limit
+                };
+        if quick {
+            self.quick_advance(4);
+        } else {
+            self.bus_tick(4);
+        }
         let v = if d[0] & 128 == 0 {
             self.dma_read_a(a)
         } else if b == 0x2180 && wram {
@@ -632,7 +948,11 @@ impl SystemBus {
         } else {
             self.read_raw(b)
         };
-        self.bus_tick(4);
+        if quick {
+            self.quick_advance(4);
+        } else {
+            self.bus_tick(4);
+        }
         if d[0] & 128 == 0 {
             // WRAM cannot drive A and the WRAM B ports simultaneously.
             // Suppress data/address writes (including WMDATA's increment), but retain
@@ -646,7 +966,14 @@ impl SystemBus {
         }
         self.open = v;
     }
+    #[inline]
     fn events(&mut self) {
+        if self.hdma_init || self.hdma_pending || self.dma_pending != 0 {
+            self.service_events();
+        }
+    }
+    fn service_events(&mut self) {
+        self.effects += 1;
         self.hdma_events();
         if self.dma_pending != 0 {
             let pending = std::mem::take(&mut self.dma_pending);
@@ -664,11 +991,14 @@ impl SystemBus {
                 for j in 0..count {
                     // HDMA owns the bus between DMA bytes; do not collapse
                     // multiple HBlanks into one event after a long transfer.
-                    self.hdma_events();
+                    if self.hdma_init || self.hdma_pending {
+                        self.hdma_events();
+                    }
+                    // Pattern lengths are powers of two.
                     self.transfer(
                         i,
                         ((d[4] as u32) << 16) | addr as u32,
-                        pattern[j % pattern.len()],
+                        pattern[j & (pattern.len() - 1)],
                     );
                     if d[0] & 8 == 0 {
                         addr = addr.wrapping_add(if d[0] & 16 != 0 { 65535 } else { 1 });
@@ -770,25 +1100,46 @@ impl SystemBus {
     }
 }
 impl Bus for SystemBus {
+    // Inline the common ROM/WRAM access on the fast timing path; all other
+    // cases take the ordinary out-of-line path.
+    #[inline(always)]
     fn read(&mut self, a: u32) -> u8 {
-        self.events();
-        self.bus_tick(self.speed(a));
-        self.cpu_cycle();
-        let v = self.read_raw(a);
+        let a = a & 0xffffff;
+        let v = if a >> 17 != 0x3f {
+            self.cart.read_rom_page(a)
+        } else {
+            None
+        };
+        let v = match v {
+            Some(v) => v,
+            None => match Self::wram_index(a) {
+                Some(i) => self.wram[i],
+                None => return self.read_slow(a),
+            },
+        };
+        if !self.quick_cycle(self.speed(a)) {
+            return self.read_slow(a);
+        }
         self.open = v;
         v
     }
+    #[inline(always)]
     fn write(&mut self, a: u32, v: u8) {
-        self.events();
-        self.bus_tick(self.speed(a));
-        self.cpu_cycle();
-        self.open = v;
-        self.write_raw(a, v);
+        let a = a & 0xffffff;
+        match Self::wram_index(a) {
+            Some(i) if self.quick_cycle(self.speed(a)) => {
+                self.effects += 1;
+                self.open = v;
+                self.wram[i] = v;
+            }
+            _ => self.write_slow(a, v),
+        }
     }
+    #[inline(always)]
     fn idle(&mut self) {
-        self.events();
-        self.bus_tick(6);
-        self.cpu_cycle();
+        if !self.quick_cycle(6) {
+            self.access(6);
+        }
     }
 }
 

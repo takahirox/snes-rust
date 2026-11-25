@@ -156,7 +156,7 @@ fn until_sample(apu: &mut Apu, target: usize) {
 fn uploaded_spc_changes_pmon_without_kon_and_records_target_endx() {
     for pmon in [0, 2] {
         let mut apu = Apu::default();
-        data(&mut apu.ram);
+        data(&mut apu.ram[..]);
         apu.ram[0x3000] = 3; // original zero loop for noise predecessor
         apu.ram[0x3001..0x3009].fill(0);
         apu.ram[0x3010] = 0x91; // non-looping target
@@ -194,7 +194,7 @@ fn uploaded_spc_changes_pmon_without_kon_and_records_target_endx() {
 fn apu_pcm_and_all_registers_match_irregular_partitions_with_live_pmon() {
     fn configured() -> Apu {
         let mut apu = Apu::default();
-        noise_pair(&mut apu.dsp, &mut apu.ram, 2);
+        noise_pair(&mut apu.dsp, &mut apu.ram[..], 2);
         apu
     }
     let mut whole = configured();

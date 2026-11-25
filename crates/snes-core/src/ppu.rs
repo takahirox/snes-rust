@@ -2,14 +2,32 @@
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 224;
 pub struct Ppu {
-    pub vram: Vec<u8>,
+    pub vram: Box<[u8; 0x10000]>,
     pub cgram: [u8; 512],
     pub oam: [u8; 544],
     pub regs: [u8; 64],
     pub frame: Vec<u8>,
     frame_width: usize,
     raster_x: usize,
-    raster_objects: Option<[Option<Pixel>; WIDTH]>,
+    // Packed OBJ line for the current scanline: color | rank << 16 | math << 24.
+    obj_line: [u32; WIDTH],
+    obj_line_valid: bool,
+    line: Option<Box<LineBuffers>>,
+    // Output channel levels for the brightness in `levels_for`.
+    levels: [u8; 32],
+    levels_for: u8,
+    // RGBA output of each CGRAM entry at that brightness, for the CGRAM
+    // contents in `rgba_cgram`. Compared every span, so any change to
+    // `cgram` (including direct writes) refreshes the affected entries.
+    rgba_cache: [u32; 256],
+    rgba_cgram: [u8; 512],
+    // For the OAM in `obj_oam` and size select `obj_sizes`: per scanline,
+    // the objects whose rows cover it and whose X range is evaluated.
+    // Compared every line, so any OAM change (including direct writes)
+    // rebuilds it.
+    obj_rows: Box<[u128; 256]>,
+    obj_oam: [u8; 544],
+    obj_sizes: u8,
     raster_overflow: u8,
     vaddr: u16,
     vbuffer: u16,
@@ -41,7 +59,7 @@ pub struct Ppu {
 impl Default for Ppu {
     fn default() -> Self {
         Self {
-            vram: vec![0; 65536],
+            vram: crate::zeroed(),
             cgram: [0; 512],
             oam: [0; 544],
             regs: {
@@ -52,7 +70,20 @@ impl Default for Ppu {
             frame: vec![0; WIDTH * HEIGHT * 4],
             frame_width: WIDTH,
             raster_x: 0,
-            raster_objects: None,
+            obj_line: [0; WIDTH],
+            obj_line_valid: false,
+            line: Some(Box::new(LineBuffers {
+                bg: [[0; WIDTH * 2]; 4],
+                win: [[false; WIDTH]; 6],
+                screen: [[0; WIDTH]; 2],
+            })),
+            levels: [0; 32],
+            levels_for: 0,
+            rgba_cache: [u32::from_le_bytes([0, 0, 0, 255]); 256],
+            rgba_cgram: [0; 512],
+            obj_rows: Box::new([0; 256]),
+            obj_oam: [0; 544],
+            obj_sizes: 0,
             raster_overflow: 0,
             vaddr: 0,
             vbuffer: 0,
@@ -85,8 +116,165 @@ impl Default for Ppu {
 struct Pixel {
     color: u16,
     rank: u8,
-    layer: u8,
-    math: bool,
+}
+// Per-span scratch buffers. Layer pixels pack rank << 24 | math << 23 |
+// layer << 16 | color. Zero is transparent because every opaque BG and OBJ
+// pixel has a nonzero rank; the backdrop (layer 5) has rank zero.
+struct LineBuffers {
+    bg: [[u32; WIDTH * 2]; 4],
+    win: [[bool; WIDTH]; 6],
+    screen: [[u32; WIDTH]; 2],
+}
+const MATH: u32 = 1 << 23;
+const BACKDROP: u32 = MATH | (5 << 16);
+// The low byte is a CGRAM index, resolved only for the composited winner;
+// otherwise the low 15 bits are the color itself.
+const INDEXED: u32 = 1 << 15;
+// Output-stage constants of one span. CGRAM cannot change within a span.
+struct Blend<'a> {
+    cgram: &'a [u8; 512],
+    rgba_cache: &'a [u32; 256],
+    levels: [u8; 32],
+    back_color: u16,
+    fixed_color: u16,
+    math_control: u8,
+    use_sub: bool,
+    clip_mode: u8,
+    math_window_mode: u8,
+}
+impl Blend<'_> {
+    #[inline(always)]
+    fn resolve(&self, pixel: u32) -> u16 {
+        if pixel & INDEXED != 0 {
+            let i = (pixel & 255) as usize * 2;
+            u16::from_le_bytes([self.cgram[i], self.cgram[i + 1]]) & 0x7fff
+        } else {
+            pixel as u16 & 0x7fff
+        }
+    }
+    // (clip to black, prevent color math) for a color-window state.
+    #[inline(always)]
+    fn windows(&self, in_window: bool) -> (bool, bool) {
+        let apply = |mode: u8| match mode {
+            0 => false,
+            1 => !in_window,
+            2 => in_window,
+            _ => true,
+        };
+        (apply(self.clip_mode), apply(self.math_window_mode))
+    }
+    // Color math on one displayed main-screen pixel; `sub_pixel` is the
+    // subscreen (or COLDATA backdrop) operand.
+    #[inline(always)]
+    fn blend(&self, pixel: u32, sub_pixel: u32, clip: bool, prevent: bool) -> u16 {
+        let color = if clip { 0 } else { self.resolve(pixel) };
+        let math =
+            !prevent && pixel & MATH != 0 && self.math_control & (1 << ((pixel >> 16) & 7)) != 0;
+        if !math {
+            return color;
+        }
+        let sub = if self.use_sub {
+            self.resolve(sub_pixel)
+        } else {
+            self.fixed_color
+        };
+        let halve =
+            self.math_control & 64 != 0 && !clip && (!self.use_sub || (sub_pixel >> 16) & 7 != 5);
+        let mut result = 0;
+        for ch in 0..3 {
+            let a = ((color >> (ch * 5)) & 31) as i16;
+            let b = ((sub >> (ch * 5)) & 31) as i16;
+            let mut v = if self.math_control & 128 != 0 {
+                a - b
+            } else {
+                a + b
+            };
+            if halve {
+                v /= 2;
+            }
+            result |= (v.clamp(0, 31) as u16) << (ch * 5);
+        }
+        result
+    }
+    // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0] in
+    // true/pseudo hires. The math operand keeps COLDATA.
+    #[inline(always)]
+    fn shown_sub(&self, sub_pixel: u32, clip: bool) -> u16 {
+        if clip {
+            0
+        } else if (sub_pixel >> 16) & 7 == 5 {
+            self.back_color
+        } else {
+            self.resolve(sub_pixel)
+        }
+    }
+    #[inline(always)]
+    fn rgba(&self, color: u16) -> [u8; 4] {
+        rgba(&self.levels, color)
+    }
+    // Displayed main-screen output: cached when no math or clip applies.
+    #[inline(always)]
+    fn output(&self, pixel: u32, sub_pixel: u32, clip: bool, prevent: bool) -> [u8; 4] {
+        let math =
+            !prevent && pixel & MATH != 0 && self.math_control & (1 << ((pixel >> 16) & 7)) != 0;
+        if !math && !clip && pixel & INDEXED != 0 {
+            return self.rgba_cache[(pixel & 255) as usize].to_le_bytes();
+        }
+        self.rgba(self.blend(pixel, sub_pixel, clip, prevent))
+    }
+}
+#[inline(always)]
+fn rgba(levels: &[u8; 32], color: u16) -> [u8; 4] {
+    [
+        levels[usize::from(color & 31)],
+        levels[usize::from((color >> 5) & 31)],
+        levels[usize::from((color >> 10) & 31)],
+        255,
+    ]
+}
+const DEPTHS: [[usize; 4]; 8] = [
+    [2, 2, 2, 2],
+    [4, 4, 2, 0],
+    [4, 4, 0, 0],
+    [8, 4, 0, 0],
+    [8, 2, 0, 0],
+    [4, 2, 0, 0],
+    [4, 0, 0, 0],
+    [8, 0, 0, 0],
+];
+// Spread each bit of a plane byte into the low bit of one byte, so that
+// leftmost column 0 (bit 7) lands in byte 0.
+const SPREAD: [u64; 256] = {
+    let mut table = [0; 256];
+    let mut byte = 0;
+    while byte < 256 {
+        let mut bit = 0;
+        while bit < 8 {
+            if byte & (1 << bit) != 0 {
+                table[byte] |= 1 << ((7 - bit) * 8);
+            }
+            bit += 1;
+        }
+        byte += 1;
+    }
+    table
+};
+// Transpose the 8x8 bit matrix of plane bytes (byte k = plane k, bit 7 =
+// column 0): byte c of the result holds column 7 - c's color index, plane k
+// in bit k. Hacker's Delight, transpose8.
+#[inline(always)]
+fn transpose_planes(mut x: u64) -> u64 {
+    let t = (x ^ (x >> 7)) & 0x00aa_00aa_00aa_00aa;
+    x ^= t ^ (t << 7);
+    let t = (x ^ (x >> 14)) & 0x0000_cccc_0000_cccc;
+    x ^= t ^ (t << 14);
+    let t = (x ^ (x >> 28)) & 0x0000_0000_f0f0_f0f0;
+    x ^ t ^ (t << 28)
+}
+fn pack(pixel: Option<Pixel>, bg: usize) -> u32 {
+    pixel.map_or(0, |p| {
+        (u32::from(p.rank) << 24) | MATH | ((bg as u32) << 16) | u32::from(p.color)
+    })
 }
 #[derive(Clone, Copy)]
 struct BgRow {
@@ -418,15 +606,6 @@ impl Ppu {
         }
         value
     }
-    fn tile_pixel(&self, base: usize, tile: usize, x: usize, y: usize, bpp: usize) -> u8 {
-        let address = base + tile * bpp * 8 + y * 2;
-        let mut color = 0;
-        for plane in 0..bpp {
-            let a = address + (plane / 2) * 16 + (plane & 1);
-            color |= ((self.vram[a & 65535] >> (7 - x)) & 1) << plane;
-        }
-        color
-    }
     fn bg_hires(&self) -> bool {
         matches!(self.regs[5] & 7, 5 | 6)
     }
@@ -512,17 +691,7 @@ impl Ppu {
                 None
             };
         }
-        let depths = [
-            [2, 2, 2, 2],
-            [4, 4, 2, 0],
-            [4, 4, 0, 0],
-            [8, 4, 0, 0],
-            [8, 2, 0, 0],
-            [4, 2, 0, 0],
-            [4, 0, 0, 0],
-            [8, 0, 0, 0],
-        ];
-        let bpp = depths[mode as usize][bg];
+        let bpp = DEPTHS[mode as usize][bg];
         if bpp == 0 {
             return None;
         }
@@ -557,8 +726,6 @@ impl Ppu {
         Some(Pixel {
             color,
             rank: row.rank,
-            layer: bg as u8,
-            math: true,
         })
     }
     fn bg_row(&self, bg: usize, mode: u8, bpp: usize, sx: usize, sy: usize, key: usize) -> BgRow {
@@ -590,8 +757,18 @@ impl Ppu {
         } else {
             palette * (1 << bpp) + if mode == 0 { bg * 32 } else { 0 }
         };
-        let high = entry & 0x2000 != 0;
-        let rank = match mode {
+        let rank = self.bg_rank(mode, bg, entry & 0x2000 != 0);
+        BgRow {
+            key,
+            planes,
+            palette_base,
+            direct_palette: (bpp == 8 && self.regs[0x30] & 1 != 0).then_some(palette as u8),
+            rank,
+            flip: entry & 0x4000 != 0,
+        }
+    }
+    fn bg_rank(&self, mode: u8, bg: usize, high: bool) -> u8 {
+        match mode {
             0 => [[8, 11], [7, 10], [2, 5], [1, 4]][bg][usize::from(high)],
             1 => {
                 if bg == 2 && high && self.regs[5] & 8 != 0 {
@@ -601,14 +778,6 @@ impl Ppu {
                 }
             }
             _ => [[3, 7], [1, 5], [0, 0], [0, 0]][bg][usize::from(high)],
-        };
-        BgRow {
-            key,
-            planes,
-            palette_base,
-            direct_palette: (bpp == 8 && self.regs[0x30] & 1 != 0).then_some(palette as u8),
-            rank,
-            flip: entry & 0x4000 != 0,
         }
     }
     fn mode7(&self, bg: usize, x: usize, y: usize) -> Option<Pixel> {
@@ -667,31 +836,45 @@ impl Ppu {
                 } else {
                     1
                 },
-                layer: bg as u8,
-                math: true,
             })
         }
     }
-    fn window(&self, layer: usize, x: usize) -> bool {
+    // Window masks for screen columns [first, first + out.len()).
+    fn fill_window(&self, layer: usize, out: &mut [bool], first: usize) {
         let sel = (self.regs[0x23 + layer / 2] >> ((layer & 1) * 4)) & 15;
-        let w1 =
-            (self.regs[0x26] as usize..=self.regs[0x27] as usize).contains(&x) ^ (sel & 1 != 0);
-        let w2 =
-            (self.regs[0x28] as usize..=self.regs[0x29] as usize).contains(&x) ^ (sel & 4 != 0);
+        // Column x is inside [left, right], XOR the inversion bit.
+        let inside = |out: &mut [bool], left: u8, right: u8, invert: bool| {
+            out.fill(invert);
+            let start = usize::from(left).max(first);
+            let end = (usize::from(right) + 1).min(first + out.len());
+            if start < end {
+                out[start - first..end - first].fill(!invert);
+            }
+        };
+        let w1 = |out: &mut [bool]| inside(out, self.regs[0x26], self.regs[0x27], sel & 1 != 0);
+        let w2 = |out: &mut [bool]| inside(out, self.regs[0x28], self.regs[0x29], sel & 4 != 0);
         match (sel & 2 != 0, sel & 8 != 0) {
-            (false, false) => false,
-            (true, false) => w1,
-            (false, true) => w2,
-            (true, true) => match (self.regs[0x2a + layer / 4] >> ((layer & 3) * 2)) & 3 {
-                0 => w1 || w2,
-                1 => w1 && w2,
-                2 => w1 ^ w2,
-                _ => !(w1 ^ w2),
-            },
+            (false, false) => out.fill(false),
+            (true, false) => w1(out),
+            (false, true) => w2(out),
+            (true, true) => {
+                let mut second = [false; WIDTH];
+                let second = &mut second[..out.len()];
+                w1(out);
+                w2(second);
+                let pairs = out.iter_mut().zip(second.iter());
+                match (self.regs[0x2a + layer / 4] >> ((layer & 3) * 2)) & 3 {
+                    0 => pairs.for_each(|(o, &w)| *o |= w),
+                    1 => pairs.for_each(|(o, &w)| *o &= w),
+                    2 => pairs.for_each(|(o, &w)| *o ^= w),
+                    _ => pairs.for_each(|(o, &w)| *o = !(*o ^ w)),
+                }
+            }
         }
     }
-    fn objects(&mut self, y: usize) -> [Option<Pixel>; 256] {
-        let mut pixels = [None; 256];
+    // Evaluate and draw this line's objects into `obj_line`.
+    fn objects(&mut self, y: usize) {
+        self.obj_line.fill(0);
         let sizes = [
             ((8, 8), (16, 16)),
             ((8, 8), (32, 32)),
@@ -703,6 +886,25 @@ impl Ppu {
             ((16, 32), (32, 32)),
         ];
         let (small, large) = sizes[(self.regs[1] >> 5) as usize];
+        if self.obj_oam != self.oam || self.obj_sizes != self.regs[1] >> 5 {
+            self.obj_oam = self.oam;
+            self.obj_sizes = self.regs[1] >> 5;
+            self.obj_rows.fill(0);
+            for i in 0..128 {
+                let hi = (self.oam[512 + i / 4] >> ((i & 3) * 2)) & 3;
+                let (width, height) = if hi & 2 != 0 { large } else { small };
+                let sx = self.oam[i * 4] as i32 - if hi & 1 != 0 { 256 } else { 0 };
+                // X=-256 participates at X=0 in both budgets, never in drawing.
+                let evaluation_x = if sx == -256 { 0 } else { sx };
+                if evaluation_x <= -(width as i32) || evaluation_x >= 256 {
+                    continue;
+                }
+                let sy = self.oam[i * 4 + 1] as usize;
+                for row in 0..height {
+                    self.obj_rows[(sy + row) & 255] |= 1 << i;
+                }
+            }
+        }
         let base = (self.regs[1] as usize & 7) * 16384;
         let gap = (((self.regs[1] >> 3) as usize & 3) + 1) * 8192;
         let start = if self.regs[3] & 128 != 0 {
@@ -710,23 +912,23 @@ impl Ppu {
         } else {
             0
         };
+        let ranks = match self.regs[5] & 7 {
+            0 => [3, 6, 9, 12],
+            1 => [2, 4, 8, 11],
+            _ => [2, 4, 6, 8],
+        };
         let mut count = 0;
         let mut selected = [(0, 0, 0, 0, 0); 32];
-        for n in 0..128 {
-            let i = (n + start) & 127;
+        // Bit n of `pending` is object (n + start) & 127, in evaluation order.
+        let mut pending = self.obj_rows[y & 255].rotate_right(start as u32);
+        while pending != 0 {
+            let i = (pending.trailing_zeros() as usize + start) & 127;
+            pending &= pending - 1;
             let hi = (self.oam[512 + i / 4] >> ((i & 3) * 2)) & 3;
-            let (width, height) = if hi & 2 != 0 { large } else { small };
-            let sy = self.oam[i * 4 + 1] as usize;
-            let row = (y + 256 - sy) & 255;
-            if row >= height {
-                continue;
-            }
+            let (width, _) = if hi & 2 != 0 { large } else { small };
+            let row = (y + 256 - self.oam[i * 4 + 1] as usize) & 255;
             let sx = self.oam[i * 4] as i32 - if hi & 1 != 0 { 256 } else { 0 };
-            // X=-256 participates at X=0 in both budgets, never in drawing.
             let evaluation_x = if sx == -256 { 0 } else { sx };
-            if evaluation_x <= -(width as i32) || evaluation_x >= 256 {
-                continue;
-            }
             if count == 32 {
                 self.obj_overflow |= 0x40;
                 break;
@@ -749,6 +951,11 @@ impl Ppu {
             } else {
                 row
             };
+            let hflip = attr & 64 != 0;
+            let pal = ((attr >> 1) & 7) as usize;
+            let tag =
+                (ranks[((attr >> 4) & 3) as usize] << 24) | (u32::from(pal >= 4) << 23) | (4 << 16);
+            let table = base + if attr & 1 != 0 { gap } else { 0 };
             for column in (0..width).step_by(8) {
                 let tile_x = evaluation_x + column as i32;
                 if tile_x <= -8 || tile_x >= 256 {
@@ -759,41 +966,31 @@ impl Ppu {
                     break 'fetch;
                 }
                 tiles += 1;
+                // All eight columns of this group share one character.
+                let tx = if hflip { width - 1 - column } else { column };
+                let tile =
+                    (name & 0xf0).wrapping_add((row / 8) * 16) & 255 | ((name + tx / 8) & 15);
+                let address = table + tile * 32 + (row & 7) * 2;
+                let planes = [0, 1, 16, 17].map(|offset| self.vram[(address + offset) & 65535]);
                 for col in column..column + 8 {
                     let screen = sx + col as i32;
                     if !(0..256).contains(&screen) {
                         continue;
                     }
-                    let tx = if attr & 64 != 0 { width - 1 - col } else { col };
-                    let tile =
-                        (name & 0xf0).wrapping_add((row / 8) * 16) & 255 | ((name + tx / 8) & 15);
-                    let color = self.tile_pixel(
-                        base + if attr & 1 != 0 { gap } else { 0 },
-                        tile,
-                        tx & 7,
-                        row & 7,
-                        4,
-                    );
-                    let screen = screen as usize;
+                    let tx = if hflip { width - 1 - col } else { col };
+                    let bit = 7 - (tx & 7);
+                    let color = planes
+                        .iter()
+                        .enumerate()
+                        .fold(0, |c, (plane, &p)| c | (((p >> bit) & 1) << plane));
                     if color == 0 {
                         continue;
                     }
-                    let pal = ((attr >> 1) & 7) as usize;
-                    let rank = match self.regs[5] & 7 {
-                        0 => [3, 6, 9, 12],
-                        1 => [2, 4, 8, 11],
-                        _ => [2, 4, 6, 8],
-                    }[((attr >> 4) & 3) as usize];
-                    pixels[screen] = Some(Pixel {
-                        color: self.palette(128 + pal * 16 + color as usize),
-                        rank,
-                        layer: 4,
-                        math: pal >= 4,
-                    });
+                    self.obj_line[screen as usize] =
+                        tag | INDEXED | (128 + pal * 16 + color as usize) as u32;
                 }
             }
         }
-        pixels
     }
     pub fn framebuffer_width(&self) -> usize {
         self.frame_width
@@ -821,7 +1018,7 @@ impl Ppu {
     }
     pub(crate) fn raster_line_start(&mut self) {
         self.raster_x = 0;
-        self.raster_objects = None;
+        self.obj_line_valid = false;
         self.raster_overflow = 0;
     }
     /// PROVISIONAL / HARDWARE UNVERIFIED output convention (Issue #107):
@@ -865,13 +1062,13 @@ impl Ppu {
         // Reuse the existing scanline OBJ evaluation once per line. This is
         // deliberately not a dot-accurate OAM/fetch pipeline. BG/compositing
         // state is sampled only for the newly emitted span.
-        if self.raster_objects.is_none() {
+        if !self.obj_line_valid {
             let overflow = self.obj_overflow;
-            self.raster_objects = Some(self.objects(y));
+            self.objects(y);
+            self.obj_line_valid = true;
             self.raster_overflow |= self.obj_overflow;
             self.obj_overflow = overflow;
         }
-        let objects = self.raster_objects.as_ref().unwrap();
         let scale = if wide_output { 2 } else { 1 };
         let hires = self.bg_hires();
         let color_control = self.regs[0x30];
@@ -887,113 +1084,386 @@ impl Ppu {
         } else {
             1
         };
-        let back = Pixel {
-            color: self.palette(0),
-            rank: 0,
-            layer: 5,
-            math: true,
-        };
+        let back_color = self.palette(0);
+        let enables = [self.regs[0x2c], self.regs[0x2d]];
+        // A layer whose two windows are both disabled is never masked.
+        let live_windows = (0..5).fold(0u8, |live, layer| {
+            let sel = (self.regs[0x23 + layer / 2] >> ((layer & 1) * 4)) & 15;
+            live | (u8::from(sel & 0xa != 0) << layer)
+        });
+        let masks = [self.regs[0x2e], self.regs[0x2f]].map(|mask| mask & live_windows);
+        let screens = 1 + usize::from(needs_sub);
+        let (used, windowed) = (0..screens).fold((0, 0), |(used, windowed), screen| {
+            (
+                used | enables[screen],
+                windowed | (enables[screen] & masks[screen]),
+            )
+        });
         // A span has no intervening PPU access that can alter the sampled
-        // tile data, palette selection, scroll, or background mode.
-        let mut rows = [None; 4];
-        for (x, obj) in objects.iter().enumerate().take(end).skip(start) {
-            // Keep COLDATA as the subscreen math backdrop, retaining the layer
-            // marker so the color-math result is not halved there.
-            let mut screens = [
-                back,
-                Pixel {
-                    color: fixed_color,
-                    ..back
-                },
-            ];
-            // Both wide-output phases share these same two screen samples.
-            // In low resolution, only color math can need the subscreen.
-            for (screen, pixel) in screens
-                .iter_mut()
-                .take(1 + usize::from(needs_sub))
+        // tile data, palette selection, scroll, or background mode, so each
+        // layer and window is evaluated once per sample before compositing.
+        let mut line = self.line.take().expect("line buffers");
+        // Mode 5/6 BGs use distinct character phases (main odd, sub even).
+        // SETINI pseudo-hires keeps both screens at the same full dot.
+        let samples = if hires { 2 } else { 1 };
+        let count = (end - start) * samples;
+        // A Mode 5 BG shown on only one screen needs only that phase; keep
+        // it compact (one sample per dot) instead of interleaved.
+        let mut compact = 0u8;
+        for bg in 0..4 {
+            if used & (1 << bg) == 0 {
+                continue;
+            }
+            let phases = (0..screens).fold(0, |phases, screen| {
+                phases | (u8::from(enables[screen] & (1 << bg) != 0) << usize::from(screen == 0))
+            });
+            if self.regs[5] & 7 == 5 && self.regs[6] & (1 << bg) == 0 && phases != 3 {
+                compact |= 1 << bg;
+                let phase = usize::from(phases == 2);
+                self.fill_bg(bg, y, start * 2 + phase, 2, &mut line.bg[bg][..end - start]);
+            } else {
+                self.fill_bg(bg, y, start * samples, 1, &mut line.bg[bg][..count]);
+            }
+        }
+        for layer in 0..6 {
+            if (layer < 5 && windowed & (1 << layer) != 0) || (layer == 5 && needs_color_window) {
+                self.fill_window(layer, &mut line.win[layer][start..end], start);
+            }
+        }
+        if self.levels_for != self.regs[0] & 15 {
+            self.levels_for = self.regs[0] & 15;
+            self.levels =
+                std::array::from_fn(|value| (value as u32 * 255 * bright / (31 * 15)) as u8);
+            self.rgba_cgram = self.cgram;
+            for (i, entry) in self.rgba_cache.iter_mut().enumerate() {
+                let color = u16::from_le_bytes([self.cgram[i * 2], self.cgram[i * 2 + 1]]);
+                *entry = u32::from_le_bytes(rgba(&self.levels, color & 0x7fff));
+            }
+        } else {
+            for (chunk, (current, cached)) in self
+                .cgram
+                .chunks_exact(16)
+                .zip(self.rgba_cgram.chunks_exact_mut(16))
                 .enumerate()
             {
-                let enable = self.regs[0x2c + screen];
-                let mask = self.regs[0x2e + screen];
-                for (bg, row) in rows.iter_mut().enumerate() {
-                    if enable & (1 << bg) == 0 || (mask & (1 << bg) != 0 && self.window(bg, x)) {
-                        continue;
+                if current != cached {
+                    cached.copy_from_slice(current);
+                    for (k, pair) in current.chunks_exact(2).enumerate() {
+                        let color = u16::from_le_bytes([pair[0], pair[1]]) & 0x7fff;
+                        self.rgba_cache[chunk * 8 + k] =
+                            u32::from_le_bytes(rgba(&self.levels, color));
                     }
-                    // Mode 5/6 BGs use distinct character phases. SETINI
-                    // pseudo-hires keeps both screens at the same full dot.
-                    let sample_x = if hires {
-                        x * 2 + usize::from(screen == 0)
-                    } else {
-                        x
-                    };
-                    if let Some(p) = self.bg_pixel(bg, sample_x, y, row) {
-                        if p.rank > pixel.rank {
-                            *pixel = p;
-                        }
-                    }
-                }
-                if enable & 16 != 0 && !(mask & 16 != 0 && self.window(4, x)) {
-                    if let Some(p) = obj {
-                        if p.rank > pixel.rank {
-                            *pixel = *p;
-                        }
-                    }
-                }
-            }
-            let in_window = needs_color_window && self.window(5, x);
-            let clip = match clip_mode {
-                0 => false,
-                1 => !in_window,
-                2 => in_window,
-                _ => true,
-            };
-            let prevent = match math_window_mode {
-                0 => false,
-                1 => !in_window,
-                2 => in_window,
-                _ => true,
-            };
-            for phase in 0..scale {
-                let visible_sub = wide_output && phase == 0;
-                let mut main = screens[usize::from(visible_sub)];
-                // Fullsnes Hires Notes: both displayed backdrops use CGRAM[0]
-                // in true/pseudo hires. Leave the math operand in screens intact.
-                if visible_sub && main.layer == 5 {
-                    main.color = back.color;
-                }
-                let color = if clip { 0 } else { main.color };
-                let math =
-                    !visible_sub && !prevent && main.math && math_control & (1 << main.layer) != 0;
-                let sub = if use_sub {
-                    screens[1].color
-                } else {
-                    fixed_color
-                };
-                let i = (y * self.frame_width + (x * scale + phase) * repeats) * 4;
-                for ch in 0..3 {
-                    let mut value = ((color >> (ch * 5)) & 31) as i16;
-                    if math {
-                        let s = ((sub >> (ch * 5)) & 31) as i16;
-                        value = if math_control & 128 != 0 {
-                            value - s
-                        } else {
-                            value + s
-                        };
-                        if math_control & 64 != 0 && !clip && (!use_sub || screens[1].layer != 5) {
-                            value /= 2;
-                        }
-                        value = value.clamp(0, 31);
-                    }
-                    self.frame[i + ch] = (value as u32 * 255 * bright / (31 * 15)) as u8;
-                }
-                self.frame[i + 3] = 255;
-                if repeats == 2 {
-                    let pixel: [u8; 4] = self.frame[i..i + 4].try_into().unwrap();
-                    self.frame[i + 4..i + 8].copy_from_slice(&pixel);
                 }
             }
         }
+        let levels = self.levels;
+        let n = end - start;
+        let LineBuffers { bg, win, screen } = &mut *line;
+        // Keep COLDATA as the subscreen math backdrop, retaining the layer
+        // marker so the color-math result is not halved there. Layers are
+        // painted in BG1..BG4, OBJ order; only a strictly higher rank wins.
+        for (index, pixels) in screen.iter_mut().enumerate() {
+            let pixels = &mut pixels[..n];
+            // The main backdrop is CGRAM[0]; the subscreen's is COLDATA.
+            pixels.fill(if index == 0 {
+                BACKDROP | INDEXED
+            } else {
+                BACKDROP | u32::from(fixed_color)
+            });
+            if index >= screens {
+                continue;
+            }
+            let enable = enables[index];
+            let phase = usize::from(hires && index == 0);
+            for layer in 0..5 {
+                if enable & (1 << layer) == 0 {
+                    continue;
+                }
+                let contiguous = layer == 4 || samples == 1 || compact & (1 << layer) != 0;
+                let source = if layer == 4 {
+                    &self.obj_line[start..end]
+                } else if contiguous {
+                    &bg[layer][..n]
+                } else {
+                    &bg[layer][..count]
+                };
+                let windowed = masks[index] & (1 << layer) != 0;
+                let win = &win[layer][start..end];
+                // Branch-free selects so these passes vectorize.
+                if contiguous {
+                    if windowed {
+                        for ((c, &p), &w) in pixels.iter_mut().zip(source).zip(win) {
+                            *c = if !w & (p >> 24 > *c >> 24) { p } else { *c };
+                        }
+                    } else {
+                        for (c, &p) in pixels.iter_mut().zip(source) {
+                            *c = if p >> 24 > *c >> 24 { p } else { *c };
+                        }
+                    }
+                } else {
+                    for (i, c) in pixels.iter_mut().enumerate() {
+                        let p = source[i * 2 + phase];
+                        if !(windowed && win[i]) && p >> 24 > *c >> 24 {
+                            *c = p;
+                        }
+                    }
+                }
+            }
+        }
+        let blend = Blend {
+            cgram: &self.cgram,
+            rgba_cache: &self.rgba_cache,
+            levels,
+            back_color,
+            fixed_color,
+            math_control,
+            use_sub,
+            clip_mode,
+            math_window_mode,
+        };
+        let frame = &mut self.frame;
+        let row = y * self.frame_width;
+        if !wide_output && repeats == 1 {
+            let out = &mut frame[(row + start) * 4..(row + end) * 4];
+            let pixels = screen[0][..n].iter().zip(&screen[1][..n]);
+            if !needs_color_window {
+                let (clip, prevent) = blend.windows(false);
+                for (o, (&main_pixel, &sub_pixel)) in out.chunks_exact_mut(4).zip(pixels) {
+                    o.copy_from_slice(&blend.output(main_pixel, sub_pixel, clip, prevent));
+                }
+            } else {
+                let pixels = pixels.zip(&win[5][start..end]);
+                for (o, ((&main_pixel, &sub_pixel), &in_window)) in
+                    out.chunks_exact_mut(4).zip(pixels)
+                {
+                    let (clip, prevent) = blend.windows(in_window);
+                    o.copy_from_slice(&blend.output(main_pixel, sub_pixel, clip, prevent));
+                }
+            }
+        } else if wide_output && repeats == 1 {
+            let out = &mut frame[(row + start * 2) * 4..(row + end * 2) * 4];
+            for (i, o) in out.chunks_exact_mut(8).enumerate() {
+                let (main_pixel, sub_pixel) = (screen[0][i], screen[1][i]);
+                let (clip, prevent) = blend.windows(needs_color_window && win[5][start + i]);
+                o[..4].copy_from_slice(&blend.rgba(blend.shown_sub(sub_pixel, clip)));
+                o[4..].copy_from_slice(&blend.output(main_pixel, sub_pixel, clip, prevent));
+            }
+        } else {
+            for (i, x) in (start..end).enumerate() {
+                let main_pixel = screen[0][i];
+                let sub_pixel = screen[1][i];
+                let (clip, prevent) = blend.windows(needs_color_window && win[5][x]);
+                for phase in 0..scale {
+                    let color = if wide_output && phase == 0 {
+                        blend.shown_sub(sub_pixel, clip)
+                    } else {
+                        blend.blend(main_pixel, sub_pixel, clip, prevent)
+                    };
+                    let out = blend.rgba(color);
+                    let i = (row + (x * scale + phase) * repeats) * 4;
+                    frame[i..i + 4].copy_from_slice(&out);
+                    if repeats == 2 {
+                        frame[i + 4..i + 8].copy_from_slice(&out);
+                    }
+                }
+            }
+        }
+        self.line = Some(line);
     }
+    // Fill packed BG samples first, first + step, ... (step 2 only in Mode 5).
+    fn fill_bg(&self, bg: usize, y: usize, first: usize, step: usize, out: &mut [u32]) {
+        let mode = self.regs[5] & 7;
+        if mode == 7 {
+            if bg == 0 || (bg == 1 && self.regs[0x33] & 0x40 != 0) {
+                for (i, o) in out.iter_mut().enumerate() {
+                    *o = pack(self.mode7(bg, first + i, y), bg);
+                }
+            } else {
+                out.fill(0);
+            }
+            return;
+        }
+        let bpp = DEPTHS[mode as usize][bg];
+        if bpp == 0 {
+            out.fill(0);
+            return;
+        }
+        if self.regs[6] & (1 << bg) != 0 {
+            // Mosaic uses the general sampler.
+            let mut row = None;
+            for (i, o) in out.iter_mut().enumerate() {
+                *o = pack(self.bg_pixel(bg, first + i * step, y, &mut row), bg);
+            }
+            return;
+        }
+        let layout = self.bg_layout(bg, mode, bpp);
+        debug_assert!(step == 1 || mode == 5);
+        if bg < 2 && matches!(mode, 2 | 4 | 6) {
+            // Offset-per-tile: `bg_source` is constant within an offset
+            // column and advances one source dot per sample, so resolve it
+            // once per run that stays inside one column group and one tile.
+            let hofs = self.scroll[bg][0] as usize;
+            let scale = if mode == 6 { 2 } else { 1 };
+            let mut i = 0;
+            while i < out.len() {
+                let x = first + i;
+                let (sx, sy) = self.bg_source(bg, x, y);
+                let q = x / scale + (hofs & 7);
+                let group = (8 - (q & 7)) * scale - (x % scale);
+                let run = group.min(8 - (sx & 7)).min(out.len() - i);
+                let row = layout.map_row(sy);
+                self.emit_tile_row::<1>(&layout, row, sx, sy, &mut out[i..i + run]);
+                i += run;
+            }
+            return;
+        }
+        // Unmodified columns: one source row, advancing one dot per sample.
+        let hofs = self.scroll[bg][0] as usize;
+        let mut sx = (first + hofs * if self.bg_hires() { 2 } else { 1 }) & 1023;
+        let sy = (y + 1 + self.scroll[bg][1] as usize) & 1023;
+        let row = layout.map_row(sy);
+        let mut i = 0;
+        if step == 2 {
+            while i < out.len() {
+                let run = ((9 - (sx & 7)) / 2).min(out.len() - i);
+                self.emit_tile_row::<2>(&layout, row, sx, sy, &mut out[i..i + run]);
+                i += run;
+                sx = (sx + run * 2) & 1023;
+            }
+            return;
+        }
+        while i < out.len() {
+            let run = (8 - (sx & 7)).min(out.len() - i);
+            self.emit_tile_row::<1>(&layout, row, sx, sy, &mut out[i..i + run]);
+            i += run;
+            sx = (sx + run) & 1023;
+        }
+    }
+    // Per-span constants of the `bg_map_word` / `bg_row` addressing.
+    fn bg_layout(&self, bg: usize, mode: u8, bpp: usize) -> BgLayout {
+        let size = self.bg_tile_size(bg);
+        let tile_width = self.bg_tile_width(bg);
+        let sc = self.regs[7 + bg] as usize;
+        BgLayout {
+            bpp,
+            size,
+            tile_width,
+            width_shift: tile_width.trailing_zeros(),
+            size_shift: size.trailing_zeros(),
+            wide_map: sc & 1 != 0,
+            tall_map: sc & 2 != 0,
+            map_base: (sc & 0xfc) << 9,
+            char_base: ((self.regs[0x0b + bg / 2] >> ((bg & 1) * 4)) as usize & 15) * 8192,
+            palette_offset: if mode == 0 { bg * 32 } else { 0 },
+            direct: bpp == 8 && self.regs[0x30] & 1 != 0,
+            tags: [false, true].map(|high| {
+                (u32::from(self.bg_rank(mode, bg, high)) << 24) | MATH | ((bg as u32) << 16)
+            }),
+        }
+    }
+    // Pack samples from source (sx, sy), STEP dots apart, within one tile
+    // row; `out` must not extend past the eight-dot boundary of sx.
+    #[inline(always)]
+    fn emit_tile_row<const STEP: usize>(
+        &self,
+        l: &BgLayout,
+        row: usize,
+        sx: usize,
+        sy: usize,
+        out: &mut [u32],
+    ) {
+        let tx = (sx >> l.width_shift) & if l.wide_map { 63 } else { 31 };
+        let entry = self.vw(row + usize::from(tx >= 32) * 2048 + (tx & 31) * 2);
+        let mut px = sx & (l.tile_width - 1);
+        let mut py = sy & (l.size - 1);
+        if entry & 0x4000 != 0 {
+            px = l.tile_width - 1 - px;
+        }
+        if entry & 0x8000 != 0 {
+            py = l.size - 1 - py;
+        }
+        let tile = ((entry as usize & 1023) + (px / 8) + (py / 8) * 16) & 1023;
+        let address = l.char_base + tile * l.bpp * 8 + (py & 7) * 2;
+        let mut planes = u64::from(self.vw(address));
+        if l.bpp >= 4 {
+            planes |= u64::from(self.vw(address + 16)) << 16;
+        }
+        if l.bpp == 8 {
+            planes |= u64::from(self.vw(address + 32)) << 32;
+            planes |= u64::from(self.vw(address + 48)) << 48;
+        }
+        let palette = ((entry >> 10) & 7) as usize;
+        let palette_base = if l.bpp == 8 {
+            0
+        } else {
+            palette * (1 << l.bpp) + l.palette_offset
+        };
+        let tag = l.tags[usize::from(entry & 0x2000 != 0)];
+        // Eight color indices, one byte per column (column 0 first).
+        let plane = |k: usize| SPREAD[(planes >> (k * 8)) as usize & 255] << k;
+        let colors = match l.bpp {
+            2 => plane(0) | plane(1),
+            4 => plane(0) | plane(1) | plane(2) | plane(3),
+            _ => transpose_planes(planes).swap_bytes(),
+        };
+        let colors = if entry & 0x4000 != 0 {
+            colors.swap_bytes()
+        } else {
+            colors
+        };
+        let colors = colors >> ((sx & 7) * 8);
+        if l.direct {
+            for (k, o) in out.iter_mut().enumerate() {
+                let color = (colors >> (k * STEP * 8)) as u8;
+                *o = if color == 0 {
+                    0
+                } else {
+                    tag | u32::from(Self::direct_color(color, palette as u8))
+                };
+            }
+            return;
+        }
+        let tag = tag | INDEXED | palette_base as u32;
+        if STEP == 1 {
+            if let Ok(out) = <&mut [u32; 8]>::try_from(&mut *out) {
+                // Whole aligned tile: a fixed-width loop that vectorizes.
+                let bytes = colors.to_le_bytes();
+                for (o, &color) in out.iter_mut().zip(&bytes) {
+                    let color = u32::from(color);
+                    *o = if color == 0 { 0 } else { tag + color };
+                }
+                return;
+            }
+        }
+        for (k, o) in out.iter_mut().enumerate() {
+            let color = u32::from((colors >> (k * STEP * 8)) as u8);
+            *o = if color == 0 { 0 } else { tag + color };
+        }
+    }
+}
+
+impl BgLayout {
+    // Screen-map address of source row sy, at column zero of its page.
+    fn map_row(&self, sy: usize) -> usize {
+        let ty = (sy >> self.size_shift) & if self.tall_map { 63 } else { 31 };
+        self.map_base
+            + usize::from(ty >= 32) * if self.wide_map { 4096 } else { 2048 }
+            + (ty & 31) * 64
+    }
+}
+struct BgLayout {
+    bpp: usize,
+    size: usize,
+    tile_width: usize,
+    width_shift: u32,
+    size_shift: u32,
+    wide_map: bool,
+    tall_map: bool,
+    map_base: usize,
+    char_base: usize,
+    palette_offset: usize,
+    direct: bool,
+    tags: [u32; 2],
 }
 
 #[cfg(test)]
@@ -1018,6 +1488,20 @@ mod tests {
                 let pixel = ppu.bg_pixel(0, x, 0, &mut row).unwrap();
                 assert_eq!(pixel.color, if flipped { 8 - x } else { x + 1 } as u16);
             }
+        }
+    }
+
+    #[test]
+    fn plane_transpose_matches_per_plane_spread() {
+        let mut x = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..100_000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let spread = (0..8).fold(0u64, |colors, plane| {
+                colors | (SPREAD[(x >> (plane * 8)) as usize & 255] << plane)
+            });
+            assert_eq!(transpose_planes(x).swap_bytes(), spread, "{x:016x}");
         }
     }
 

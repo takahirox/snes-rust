@@ -595,7 +595,7 @@ const RECORDS: [u8; 15] = [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 64, 12, 1];
 #[test]
 fn uploaded_spc_records_terminal_silence_clear_reassert_and_kon() {
     let mut apu = Apu::default();
-    guest_data(&mut apu.ram);
+    guest_data(&mut apu.ram[..]);
     let mut master = upload(&mut apu);
     for (index, sample) in CHECKPOINTS.into_iter().enumerate() {
         tick_to(&mut apu, &mut master, sample, false);
@@ -622,8 +622,8 @@ fn uploaded_spc_records_terminal_silence_clear_reassert_and_kon() {
 fn uploaded_guest_matches_every_pcm_register_ram_and_port_across_tick_partitions() {
     let mut whole = Apu::default();
     let mut split = Apu::default();
-    guest_data(&mut whole.ram);
-    guest_data(&mut split.ram);
+    guest_data(&mut whole.ram[..]);
+    guest_data(&mut split.ram[..]);
     let mut whole_master = upload(&mut whole);
     let mut split_master = upload(&mut split);
     assert_eq!(whole_master, split_master);
@@ -742,8 +742,8 @@ fn uploaded_zero_pitch_guest_has_independent_anchors_and_identical_tick_partitio
     ];
     let mut whole = Apu::default();
     let mut split = Apu::default();
-    guest_data(&mut whole.ram);
-    guest_data(&mut split.ram);
+    guest_data(&mut whole.ram[..]);
+    guest_data(&mut split.ram[..]);
     let code = zero_pitch_guest();
     let mut whole_master = upload_code(&mut whole, &code);
     let mut split_master = upload_code(&mut split, &code);
