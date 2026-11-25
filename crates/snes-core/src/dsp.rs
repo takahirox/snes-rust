@@ -211,6 +211,14 @@ impl Dsp {
             let base = i * 16;
             let dir = (self.regs[0x5d] as u16) << 8;
             let entry = dir.wrapping_add(self.regs[base + 4] as u16 * 4);
+            // KOFF is applied before KON when both are seen together, so the
+            // KON attack wins for that poll (blargg SPC_DSP V3c). A KOFF that
+            // is still set on a later sample releases the voice again. Drivers
+            // may clear KOFF just after KON, so this order decides whether
+            // the note sounds at all.
+            if self.regs[0x5c] & (1 << i) != 0 {
+                self.voices[i].stage = 3;
+            }
             if self.kon & (1 << i) != 0 {
                 let start = Self::word(ram, entry);
                 self.voices[i] = Voice {
@@ -229,9 +237,6 @@ impl Dsp {
             // Exact fetch/write races remain outside this sample-level API.
             // See docs/issue-77-validation.md.
             v.loop_addr = Self::word(ram, entry.wrapping_add(2));
-            if self.regs[0x5c] & (1 << i) != 0 {
-                v.stage = 3;
-            }
             if self.regs[0x6c] & 128 != 0 {
                 v.active = false;
                 v.env = 0;
