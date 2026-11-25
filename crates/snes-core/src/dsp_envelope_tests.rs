@@ -192,3 +192,36 @@ fn attack_phase_uses_overflow_rather_than_fullsnes_7e0_threshold() {
     check(&mut dsp, &mut ram, 1984, 1984, 2016, -7936, 132);
     assert_eq!(dsp.voices[0].stage, 0); // candidate $7e0 is not overflow
 }
+
+#[test]
+fn kon_wins_over_koff_seen_in_the_same_sample() {
+    // A driver keys off, then writes KON and clears KOFF a few SPC clocks
+    // later. If a sample lands between those writes it sees both bits.
+    // KOFF applies first, so the KON attack wins; a KOFF that is still set
+    // on a later sample releases the voice again.
+    for (koff_held, expected) in [(false, 64 * 16), (true, 0)] {
+        let mut dsp = Dsp::default();
+        let mut ram = vec![0; 65536];
+        for (r, v) in [
+            (0x6c, 0x20),
+            (0x3d, 1),
+            (0, 64),
+            (1, 64),
+            (0x0c, 64),
+            (0x1c, 64),
+            (7, 64),
+            (0x5c, 1),
+            (0x4c, 1),
+        ] {
+            dsp.write(r, v);
+        }
+        dsp.sample(&mut ram);
+        if !koff_held {
+            dsp.write(0x5c, 0);
+        }
+        for _ in 0..5 {
+            dsp.sample(&mut ram);
+        }
+        assert_eq!(dsp.voices[0].env, expected, "KOFF held: {koff_held}");
+    }
+}
