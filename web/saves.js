@@ -177,7 +177,7 @@ export function persistSram(hash, { id, base, epoch, data, recoveryId, revision 
 // Stage its dirty bytes under a unique key before yielding to the browser.
 const pendingPrefix = 'snes-rust:pending-sram:';
 
-export function stageSram(hash, entry) {
+export function stageSram(hash, entry, fallbackKey) {
   const key = `${pendingPrefix}${hash}:${crypto.randomUUID()}`;
   const value = JSON.stringify(entry);
   try {
@@ -187,21 +187,23 @@ export function stageSram(hash, entry) {
     if (error.name !== 'QuotaExceededError') throw error;
     // The tab's session storage survives navigation and has its own quota.
     // Replaying the entry still requires the ROM lock and the same stale-save checks.
-    sessionStorage.setItem(key, value);
-    return { storage: sessionStorage, key, durable: false };
+    // Share the older durable journal's key across the two stores so this tab
+    // can replay the newest bytes while other tabs can still recover the older ones.
+    const tabKey = fallbackKey ?? key;
+    sessionStorage.setItem(tabKey, value);
+    return { storage: sessionStorage, key: tabKey, durable: false };
   }
 }
 
-function* pendingSramEntries(hash) {
+function* pendingSramEntries(hash, includeFallback = true) {
   const prefix = `${pendingPrefix}${hash}:`;
   let tabStorage;
   try { tabStorage = sessionStorage; } catch { /* The tab journal may be unavailable. */ }
-  for (const storage of [localStorage, tabStorage]) {
-    if (!storage) continue;
-    for (const key of Object.keys(storage)) {
-      if (key.startsWith(prefix)) yield { storage, key };
-    }
+  const tabKeys = Object.keys(tabStorage ?? {}).filter(key => key.startsWith(prefix));
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith(prefix) && (includeFallback || !tabKeys.includes(key))) yield { storage: localStorage, key };
   }
+  for (const key of tabKeys) yield { storage: tabStorage, key };
 }
 
 export function hasPendingSram(hash) {
@@ -213,8 +215,8 @@ export function hasSessionPendingSram() {
   catch { return false; }
 }
 
-export function* readPendingSram(hash, size, profileId) {
-  for (const { storage, key } of pendingSramEntries(hash)) {
+export function* readPendingSram(hash, size, { profileId, includeFallback = true } = {}) {
+  for (const { storage, key } of pendingSramEntries(hash, includeFallback)) {
     const raw = storage.getItem(key);
     if (raw === null) continue;
     const entry = JSON.parse(raw);
@@ -225,8 +227,9 @@ export function* readPendingSram(hash, size, profileId) {
 }
 
 export function settlePendingSram(hash, size) {
-  for (const { storage, key, entry } of readPendingSram(hash, size)) {
-    persistSram(hash, entry);
+  for (const { storage, key, entry } of readPendingSram(hash, size, { includeFallback: false })) {
+    const saved = persistSram(hash, entry);
+    if (storage !== localStorage && saved.base === entry.data) localStorage.removeItem(key);
     storage.removeItem(key);
   }
 }

@@ -314,13 +314,15 @@ function adoptSramTarget(session, saved, data) {
 function persistActiveSram(data, revision = nextSramRevision(activeSram)) {
   const session = activeSram;
   const journal = session.pending;
-  const removed = journal?.storage.getItem(journal.key) === null;
-  const replayed = removed ? journal.entry : session.replayCandidate;
+  const removed = [journal, journal?.fallback].find(copy => copy?.storage.getItem(copy.key) === null);
+  let replayed = session.replayCandidate;
+  if (removed && (!replayed || removed.entry.revision > replayed.revision)) replayed = removed.entry;
   if (replayed) {
     // A removed journal may have been replayed or consumed by a state load.
     // Under the ROM lock, adopt its target only if the bytes and epoch still match.
     adoptSramTarget(session, persistSram(activeHash, replayed, { settled: true }), replayed.data);
-    if (removed) session.pending = undefined;
+    if (removed && removed === journal) session.pending = undefined;
+    else if (removed) journal.fallback = undefined;
     session.replayCandidate = undefined;
     if (replayed.revision >= revision) return;
   }
@@ -328,6 +330,11 @@ function persistActiveSram(data, revision = nextSramRevision(activeSram)) {
   const { target, recoveryId, clean, pending } = session;
   const saved = persistSram(activeHash, { ...target, recoveryId, data, revision }, { dirty: data !== clean });
   adoptSramTarget(session, saved, data);
+  const fallback = pending?.fallback;
+  if (fallback && fallback.entry.revision < revision && saved.base === data) {
+    fallback.storage.removeItem(fallback.key);
+    pending.fallback = undefined;
+  }
   if (pending && (pending.entry.revision === revision || (pending.entry.revision < revision && saved.base === data))) {
     // A regular autosave can durably replace a delayed lifecycle save.
     pending.storage.removeItem(pending.key);
@@ -353,18 +360,30 @@ async function save(lifecycleEvent) {
     try {
       if (session.pending?.entry.data !== data) {
         const previous = session.pending;
+        const fallback = previous?.durable ? previous : previous?.fallback;
+        // A session write can reuse the same key. Check for replay before it
+        // replaces a missing session entry, and check shared storage afterward.
+        const sessionReplayed = previous && !previous.durable && previous.storage.getItem(previous.key) === null;
         const entry = { ...session.target, recoveryId: session.recoveryId, data, revision };
-        const journal = stageSram(hash, entry);
-        session.pending = { ...journal, entry };
-        if (previous) {
-          if (previous.storage.getItem(previous.key) === null) session.replayCandidate = previous.entry;
-          else previous.storage.removeItem(previous.key);
+        const journal = stageSram(hash, entry, fallback?.key);
+        const retained = journal.durable ? undefined : fallback;
+        session.pending = { ...journal, entry, fallback: retained };
+        for (const copy of [previous, previous?.fallback]) {
+          if (!copy) continue;
+          if ((copy === previous && sessionReplayed) || copy.storage.getItem(copy.key) === null) {
+            if (!session.replayCandidate || copy.entry.revision > session.replayCandidate.revision) {
+              session.replayCandidate = copy.entry;
+            }
+            if (copy === retained) session.pending.fallback = undefined;
+          } else if (copy !== retained && (copy.storage !== journal.storage || copy.key !== journal.key)) {
+            copy.storage.removeItem(copy.key);
+          }
         }
       }
       pending = session.pending;
     } catch (error) { finishSramSave(error); }
-    // Session storage can carry the save through navigation, but closing the
-    // tab erases it. Ask the user to stay if we have no durable journal yet.
+    // Session storage survives navigation and is erased on tab close. Warn
+    // if the current bytes have no durable journal yet.
     if (lifecycleEvent.type === 'beforeunload' && dirty && !pending?.durable) {
       warnBeforeUnload(lifecycleEvent);
     }
@@ -1492,7 +1511,7 @@ function preserveSram(scope) {
   if (persisted && !sameSram(current, persisted)) priorImages.push({ data: persisted, source: 'Last saved' });
   // The ROM lock serializes replay with this restore. Preserve journal images
   // alongside live and saved SRAM so replay cannot replace the selected bytes.
-  const pending = [...readPendingSram(hash, current.length, profile)];
+  const pending = [...readPendingSram(hash, current.length, { profileId: profile })];
   for (const { data } of pending) {
     if (!priorImages.some(image => sameSram(data, image.data))) priorImages.push({ data, source: 'Pending save' });
   }

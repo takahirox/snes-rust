@@ -467,6 +467,55 @@ test('closing a dirty tab at quota warns while another tab holds the save lock',
   expect(await sram(holder)).toBe(0x79);
 });
 
+for (const exit of ['close', 'navigate', 'cancel']) test(`durable SRAM survives a session-only replacement at quota (${exit})`, async ({ page, context }) => {
+  const largeRom = Buffer.from(rom);
+  largeRom[0x7fd8] = 8; // 256 KiB SRAM.
+  const largeHash = createHash('sha256').update(largeRom).digest('hex');
+  const key = `snes-rust:sram:${largeHash}`;
+  const image = value => Buffer.alloc(256 * 1024, value).toString('base64');
+  await ready(page);
+  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [key, image(0x21)]);
+  await local(page, largeRom);
+  await pause(page);
+  const holder = await context.newPage();
+  await ready(holder);
+  await holdSaveLock(holder, largeHash);
+
+  await sram(page, 0x50);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  const durableJournals = () => holder.evaluate(hash => Object.keys(localStorage)
+    .filter(key => key.startsWith(`snes-rust:pending-sram:${hash}:`)).length, largeHash);
+  expect(await durableJournals()).toBe(1);
+  await fillLocalStorage(holder);
+  await sram(page, 0x61);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await sram(page, 0x72);
+
+  const warning = page.waitForEvent('dialog', { timeout: 5000 });
+  const exited = exit === 'navigate' ? page.goto('/?after-journal-replacement')
+    : page.close({ runBeforeUnload: true });
+  const closed = exit === 'close' ? page.waitForEvent('close') : undefined;
+  const dialog = await warning;
+  expect(dialog.type()).toBe('beforeunload');
+  if (exit === 'cancel') await dialog.dismiss();
+  else await dialog.accept();
+  await exited;
+  await closed;
+
+  expect(await holder.evaluate(key => localStorage.getItem(key), key)).toBe(image(0x21));
+  await holder.evaluate(() => releaseExitSaveLock());
+  const reopened = exit === 'close' ? holder : page;
+  if (exit !== 'cancel') {
+    await expect(reopened.locator('#status')).toHaveText('Ready');
+    await local(reopened, largeRom);
+    await expect(reopened.locator('#status')).toHaveText('Playing');
+  }
+  const expected = exit === 'close' ? 0x50 : 0x72;
+  expect(await sram(reopened)).toBe(expected);
+  await expect.poll(() => holder.evaluate(key => localStorage.getItem(key), key)).toBe(image(expected));
+  expect(await durableJournals()).toBe(0);
+});
+
 test('closing after navigation still warns about a session-only SRAM journal at quota', async ({ page, context }) => {
   const prior = Buffer.alloc(2048, 0x21).toString('base64');
   const newer = Buffer.alloc(2048, 0x43).toString('base64');
