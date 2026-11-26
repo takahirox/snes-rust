@@ -53,10 +53,10 @@ those recovered bytes. Profiles with attached states can be deleted after
 their states are removed. Removing a saved ROM from the cartridge picker
 leaves all its profiles and snapshots in place.
 
-If another tab has replaced a profile's SRAM, a stale tab preserves new
-progress as **Recovery · Another tab** in Save data. It stages that progress
-on page exit so the picker can recover it even if the tab closes during a
-save.
+Use one tab at a time for a given ROM and save profile. Browser persistence and
+exit recovery are best-effort. Unsaved progress can be lost if the tab closes
+abruptly or a storage write fails, for example when the browser quota is full.
+Browser eviction can remove stored saves.
 
 Saves remain in the current browser and site origin. Export backups before
 clearing site data or changing browsers. Raw SRAM backups provide a portable
