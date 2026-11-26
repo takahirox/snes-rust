@@ -1179,6 +1179,7 @@ window.addEventListener('pagehide', event => { void save(event); });
 
 const profileDialog = $('save-data-dialog'), profileList = $('save-profiles');
 const statePicker = $('state-picker'), stateToggle = $('choose-state'), newState = $('new-state');
+const closeStatePicker = $('close-state-picker'), importState = $('import-state');
 const stateList = $('state-history'), stateMessage = $('state-message'), moreStates = $('more-states');
 for (const controls of [profileDialog, statePicker, stateToggle.parentElement]) {
   controls.addEventListener('keydown', event => {
@@ -1558,6 +1559,13 @@ statePicker.addEventListener('toggle', () => {
     stateView = undefined;
   }
 });
+statePicker.addEventListener('keydown', event => {
+  if (event.key !== 'Tab') return;
+  const last = moreStates.hidden ? importState : moreStates;
+  if (event.target !== (event.shiftKey ? closeStatePicker : last)) return;
+  event.preventDefault();
+  (event.shiftKey ? last : closeStatePicker).focus();
+});
 newState.addEventListener('click', () => chooseState(stateView));
 moreStates.addEventListener('click', () => {
   if (isHistoryOpen(stateView)) void saveAction(statePicker, () => showHistory(stateView, true));
@@ -1665,7 +1673,7 @@ function deleteHistoryState(view, key, row, url) {
   });
 }
 
-$('import-state').addEventListener('click', () => { if (!saveBusy && isHistoryOpen(stateView)) $('state-file').click(); });
+importState.addEventListener('click', () => { if (!saveBusy && isHistoryOpen(stateView)) $('state-file').click(); });
 $('state-file').addEventListener('change', async event => {
   const file = event.target.files[0];
   event.target.value = '';
