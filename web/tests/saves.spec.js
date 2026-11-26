@@ -72,20 +72,21 @@ function states(page) {
   return page.getByRole('button', { name: /^Load state from/ });
 }
 
-async function fillLocalStorage(page) {
-  await page.evaluate(() => {
+async function fillStorage(page, name = 'localStorage') {
+  await page.evaluate(name => {
+    const storage = window[name];
     // Find the browser's actual quota, then leave no room for a journal entry.
     let low = 0, high = 6 * 1024 * 1024;
     while (low + 1 < high) {
       const middle = Math.floor((low + high) / 2);
-      try { localStorage.setItem('quota-test', 'x'.repeat(middle)); low = middle; }
+      try { storage.setItem('quota-test', 'x'.repeat(middle)); low = middle; }
       catch (error) {
         if (error.name !== 'QuotaExceededError') throw error;
         high = middle;
       }
     }
-    localStorage.setItem('quota-test', 'x'.repeat(low));
-  });
+    storage.setItem('quota-test', 'x'.repeat(low));
+  }, name);
 }
 
 test('legacy Save 1, new and duplicate profiles, persisted selection, raw export/import and deletion', async ({ page }) => {
@@ -396,7 +397,7 @@ for (const contention of [false, true]) test(`navigation preserves dirty SRAM at
   await local(page);
   await pause(page);
   expect(await sram(page)).toBe(0x21);
-  await fillLocalStorage(page);
+  await fillStorage(page);
   await page.evaluate(([key, prior, updated]) => {
     // A same-size replacement succeeds. The exit still cannot add a new key.
     localStorage.setItem(key, updated);
@@ -442,7 +443,7 @@ test('closing a dirty tab at quota warns while another tab holds the save lock',
   await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, prior]);
   await local(page);
   await pause(page);
-  await fillLocalStorage(page);
+  await fillStorage(page);
   const holder = await context.newPage();
   await ready(holder);
   await holdSaveLock(holder);
@@ -486,7 +487,7 @@ for (const exit of ['close', 'navigate', 'cancel']) test(`durable SRAM survives 
   const durableJournals = () => holder.evaluate(hash => Object.keys(localStorage)
     .filter(key => key.startsWith(`snes-rust:pending-sram:${hash}:`)).length, largeHash);
   expect(await durableJournals()).toBe(1);
-  await fillLocalStorage(holder);
+  await fillStorage(holder);
   await sram(page, 0x61);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await sram(page, 0x72);
@@ -516,6 +517,108 @@ for (const exit of ['close', 'navigate', 'cancel']) test(`durable SRAM survives 
   expect(await durableJournals()).toBe(0);
 });
 
+test.describe('large SRAM journal replacement across navigation', () => {
+  const largeRom = Buffer.from(rom);
+  largeRom[0x7fd8] = 8; // 256 KiB SRAM.
+  const largeHash = createHash('sha256').update(largeRom).digest('hex');
+  const key = `snes-rust:sram:${largeHash}`;
+  const image = value => Buffer.alloc(256 * 1024, value).toString('base64');
+  const pagehide = page => page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  const pending = (page, storage) => page.evaluate(([storage, hash]) => Object.keys(window[storage])
+    .filter(key => key.startsWith(`snes-rust:pending-sram:${hash}:`)), [storage, largeHash]);
+
+  test.beforeEach(async ({ page }) => {
+    await ready(page);
+    await page.evaluate(([key, data]) => localStorage.setItem(key, data), [key, image(0x21)]);
+    await local(page, largeRom);
+    await pause(page);
+    page.on('dialog', dialog => dialog.accept());
+  });
+
+  test('the latest session-only journal replaces a same-size entry at quota', async ({ page, context }) => {
+    const holder = await context.newPage();
+    await ready(holder);
+    await holdSaveLock(holder, largeHash);
+    await fillStorage(holder);
+    await sram(page, 0x50);
+    await pagehide(page);
+    const staged = await pending(page, 'sessionStorage');
+    expect(staged).toHaveLength(1);
+    expect(await pending(page, 'localStorage')).toHaveLength(0);
+    await fillStorage(page, 'sessionStorage');
+    await sram(page, 0x72);
+    await page.goto('/?replace-session-journal');
+    expect(await pending(page, 'sessionStorage')).toEqual(staged);
+    expect(await holder.evaluate(key => localStorage.getItem(key), key)).toBe(image(0x21));
+
+    await holder.evaluate(() => releaseExitSaveLock());
+    await local(page, largeRom);
+    await pause(page);
+    expect(await sram(page)).toBe(0x72);
+    expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(image(0x72));
+    expect(await pending(page, 'sessionStorage')).toHaveLength(0);
+  });
+
+  for (const intervening of ['none', 'independent save', 'same-byte state restore']) {
+    test(`a successor to a durable replay survives navigation at quota (${intervening})`, async ({ page, context }) => {
+      // The writer navigates away before its delayed lifecycle callbacks run.
+      await page.evaluate(hash => {
+        const lock = navigator.locks.request.bind(navigator.locks);
+        navigator.locks.request = (name, callback) => name === `snes-rust:saves:${hash}`
+          ? new Promise(() => {}) : lock(name, callback);
+      }, largeHash);
+      await sram(page, 0x50);
+      await pagehide(page);
+      const durable = await pending(page, 'localStorage');
+      expect(durable).toHaveLength(1);
+      await fillStorage(page);
+      await sram(page, 0x72);
+      await pagehide(page);
+      expect(await pending(page, 'sessionStorage')).toEqual(durable);
+
+      const other = await context.newPage();
+      await ready(other);
+      await local(other, largeRom);
+      await pause(other);
+      expect(await sram(other)).toBe(0x50);
+      expect(await pending(other, 'localStorage')).toHaveLength(0);
+      const stored = () => other.evaluate(key => localStorage.getItem(key), key);
+      if (intervening === 'independent save') {
+        // Returning to the exact replayed bytes must not give its writer
+        // permission to overwrite this tab's independent save.
+        for (const value of [0x51, 0x50]) {
+          await sram(other, value);
+          await pagehide(other);
+          await expect.poll(stored).toBe(image(value));
+        }
+      } else if (intervening === 'same-byte state restore') {
+        await capture(other);
+        await other.locator('#load-state').click();
+        await states(other).first().click();
+        await expect(other.locator('#save-status')).toHaveText('State loaded.');
+      }
+      await fillStorage(other);
+      await page.goto('/?after-durable-replay');
+      await local(page, largeRom);
+      await pause(page);
+
+      const expected = intervening === 'none' ? 0x72 : 0x50;
+      expect(await sram(page)).toBe(expected);
+      expect(await stored()).toBe(image(expected));
+      if (intervening !== 'none') {
+        expect(await pending(page, 'sessionStorage')).toEqual(durable);
+        await other.evaluate(() => localStorage.removeItem('quota-test'));
+        await page.locator('#save-data').click();
+        await page.getByRole('button', { name: 'Recovery · Another tab', exact: true }).click();
+        await expect(page.locator('#save-data-dialog')).toBeHidden();
+        expect(await sram(page)).toBe(0x72);
+        expect(await stored()).toBe(image(0x50));
+      }
+      expect(await pending(page, 'sessionStorage')).toHaveLength(0);
+    });
+  }
+});
+
 test('closing after navigation still warns about a session-only SRAM journal at quota', async ({ page, context }) => {
   const prior = Buffer.alloc(2048, 0x21).toString('base64');
   const newer = Buffer.alloc(2048, 0x43).toString('base64');
@@ -530,7 +633,7 @@ test('closing after navigation still warns about a session-only SRAM journal at 
   await sram(other, 0x43);
   await other.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await expect.poll(() => other.evaluate(key => localStorage.getItem(key), sramKey)).toBe(newer);
-  await fillLocalStorage(other);
+  await fillStorage(other);
 
   await sram(page, 0x79);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -602,7 +705,7 @@ for (const mode of ['paused', 'changed', 'changed at quota', 'changed after a sa
     expect(await stored()).toBe(0x21);
 
     if (dirty) await sram(stale, 0x52);
-    if (mode === 'changed at quota') await fillLocalStorage(page);
+    if (mode === 'changed at quota') await fillStorage(page);
     if (journal) {
       // The restored bytes match this tab's original base. Force page exit
       // while the lock is held so only the synchronous journal can save it.
@@ -677,7 +780,7 @@ for (const next of ['pause at quota', 'pagehide at quota', 'another write', 'sam
       await expect.poll(stored).toBe(0x51);
     }
     const atQuota = next.endsWith('at quota');
-    if (atQuota) await fillLocalStorage(other);
+    if (atQuota) await fillStorage(other);
 
     if (next !== 'pagehide at quota') await page.locator('#play').click();
     await sram(page, 0x61);
@@ -768,7 +871,7 @@ for (const replayed of [false, true]) test(`successive stale-tab saves update on
 
     // A new journal falls back to sessionStorage. Only a same-size update
     // fits in localStorage, and the picker must be able to replay it.
-    await fillLocalStorage(page);
+    await fillStorage(page);
     await sram(stale, 0x51);
     await stale.evaluate(() => window.dispatchEvent(new Event('pagehide')));
     await expect.poll(() => stale.evaluate(() => Object.keys(sessionStorage)

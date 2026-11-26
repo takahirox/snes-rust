@@ -4,6 +4,7 @@ export const originalProfile = 'legacy';
 const catalogKey = hash => `snes-rust:save-profiles:${hash}`;
 const sramKey = (hash, id) => `snes-rust:sram:${hash}${id === originalProfile ? '' : `:${id}`}`;
 const legacyTimeKey = hash => `snes-rust:sram-time:${hash}`;
+const replayKey = (hash, id) => `snes-rust:sram-replay:${hash}:${id}`;
 const isProfileUuid = id => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id);
 const validId = id => id === originalProfile || isProfileUuid(id);
 const validRevision = revision => typeof revision === 'string' && /^[a-f0-9]{14}$/.test(revision);
@@ -74,23 +75,34 @@ function writeSram(hash, id, bytes) {
 
 export function writeSramData(hash, id, data, recoveryRevision) {
   const key = sramKey(hash, id);
-  if (id === originalProfile) {
-    const changed = localStorage.getItem(key) !== data;
-    localStorage.setItem(key, data);
-    if (changed) {
-      // A timestamp is advisory. The original save has already been written.
-      try { localStorage.setItem(legacyTimeKey(hash), String(Date.now())); } catch {}
+  const legacy = id === originalProfile;
+  const raw = localStorage.getItem(key);
+  const previous = legacy ? { data: raw } : JSON.parse(raw);
+  const changed = previous?.data !== data;
+  const updated = changed ? Date.now() : previous?.updated;
+  const revision = recoveryRevision ?? (changed ? undefined : previous?.recoveryRevision);
+  const value = legacy ? data : JSON.stringify({ data, updated, recoveryRevision: revision });
+  // Revoke the replay claim before changing the bytes. A failed write leaves
+  // the previous SRAM intact, so it is safe to reinstate its claim.
+  const receiptKey = replayKey(hash, id);
+  const receipt = changed ? localStorage.getItem(receiptKey) : null;
+  if (receipt !== null) localStorage.removeItem(receiptKey);
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    if (receipt !== null) {
+      try { localStorage.setItem(receiptKey, receipt); } catch {}
     }
-  } else {
-    const previous = JSON.parse(localStorage.getItem(key));
-    const unchanged = previous?.data === data;
-    const updated = unchanged ? previous.updated : Date.now();
-    const revision = recoveryRevision ?? (unchanged ? previous.recoveryRevision : undefined);
-    localStorage.setItem(key, JSON.stringify({ data, updated, recoveryRevision: revision }));
+    throw error;
+  }
+  if (legacy && changed) {
+    // A timestamp is advisory. The original save has already been written.
+    try { localStorage.setItem(legacyTimeKey(hash), String(updated)); } catch {}
   }
 }
 
 export function removeSram(hash, id) {
+  localStorage.removeItem(replayKey(hash, id));
   localStorage.removeItem(sramKey(hash, id));
   if (id === originalProfile) localStorage.removeItem(legacyTimeKey(hash));
 }
@@ -139,13 +151,26 @@ export function recoverSram(hash, id, data, source) {
 
 // Call while holding the ROM's save lock. The returned target is safe to
 // update only as long as its stored bytes and epoch still match.
-export function persistSram(hash, { id, base, epoch, data, recoveryId, revision }, { dirty = true, settled = false } = {}) {
+export function persistSram(hash, { id, base, epoch, data, recoveryId, revision }, { dirty = true, settled = false, replaying = false } = {}) {
   const catalog = readProfiles(hash);
   const profile = catalog.profiles.find(profile => profile.id === id);
   const stored = profile ? readSramData(hash, id) : undefined;
-  if (profile && (settled ? data : base) === stored && epoch === profile.epoch) {
-    if (!settled) writeSramData(hash, id, data);
-    return { id, base: data, epoch };
+  if (profile && epoch === profile.epoch) {
+    // The saved bytes may already be a replay from this writer. Preserve
+    // their ordering even when the originating document has navigated away.
+    const writer = replaying && isProfileUuid(recoveryId) && validRevision(revision) ? `${recoveryId}:` : null;
+    const receipt = writer && localStorage.getItem(replayKey(hash, id));
+    const predecessor = receipt?.startsWith(writer) ? receipt.slice(writer.length) : null;
+    const sameWriter = validRevision(predecessor);
+    if (sameWriter && revision <= predecessor) {
+      return data === stored ? { id, base: data, epoch } : { id, epoch };
+    }
+    if ((settled ? data : base) === stored || sameWriter) {
+      if (!settled) writeSramData(hash, id, data);
+      const saved = { id, base: data, epoch };
+      if (writer && (data !== stored || sameWriter)) saved.receipt = `${writer}${revision}`;
+      return saved;
+    }
   }
   if (!dirty || data === stored) return { id, epoch };
 
@@ -187,8 +212,8 @@ export function stageSram(hash, entry, fallbackKey) {
     if (error.name !== 'QuotaExceededError') throw error;
     // The tab's session storage survives navigation and has its own quota.
     // Replaying the entry still requires the ROM lock and the same stale-save checks.
-    // Share the older durable journal's key across the two stores so this tab
-    // can replay the newest bytes while other tabs can still recover the older ones.
+    // Replace this tab's prior entry in place at quota. If it has a durable
+    // copy, sharing the key lets this tab prefer its newer session entry.
     const tabKey = fallbackKey ?? key;
     sessionStorage.setItem(tabKey, value);
     return { storage: sessionStorage, key: tabKey, durable: false };
@@ -228,9 +253,14 @@ export function* readPendingSram(hash, size, { profileId, includeFallback = true
 
 export function settlePendingSram(hash, size) {
   for (const { storage, key, entry } of readPendingSram(hash, size, { includeFallback: false })) {
-    const saved = persistSram(hash, entry);
+    const saved = persistSram(hash, entry, { replaying: true });
     if (storage !== localStorage && saved.base === entry.data) localStorage.removeItem(key);
     storage.removeItem(key);
+    if (saved.receipt) {
+      // Reclaim the journal's space first. A session-only save can still
+      // succeed at quota even when localStorage has no room for a receipt.
+      try { localStorage.setItem(replayKey(hash, saved.id), saved.receipt); } catch {}
+    }
   }
 }
 

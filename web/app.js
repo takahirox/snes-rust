@@ -365,7 +365,7 @@ async function save(lifecycleEvent) {
         // replaces a missing session entry, and check shared storage afterward.
         const sessionReplayed = previous && !previous.durable && previous.storage.getItem(previous.key) === null;
         const entry = { ...session.target, recoveryId: session.recoveryId, data, revision };
-        const journal = stageSram(hash, entry, fallback?.key);
+        const journal = stageSram(hash, entry, previous?.key);
         const retained = journal.durable ? undefined : fallback;
         session.pending = { ...journal, entry, fallback: retained };
         for (const copy of [previous, previous?.fallback]) {
