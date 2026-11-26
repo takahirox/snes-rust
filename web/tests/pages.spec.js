@@ -1,4 +1,4 @@
-import { selectDemo } from './cartridge.js';
+import { savedSramByte, seedSram, selectDemo, selectedProfile, sramKey } from './cartridge.js';
 import { test, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -9,8 +9,8 @@ const dist = new URL('../dist/', import.meta.url);
 const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'saves.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream', 'yonaki.sfc': 'application/octet-stream' };
 const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
 const yonakiHash = '0488989baeddcc43ec0a0ec3118e4c999df5539656357f7e7cd63d14ace4408b';
-const saveKey = `snes-rust:sram:${demoHash}`;
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
+const fixtureHash = createHash('sha256').update(fixture).digest('hex');
 const prefix = '/snes-rust/';
 let server, origin;
 
@@ -231,7 +231,10 @@ test('Yonaki plays from the title through name entry into the prologue, with its
   await selectDemo(page, 'demo-yonaki'); await expect(page.locator('#status')).toHaveText('Playing');
   await loadDemo(page); expect(await marker(page)).toBe(0x79);
   const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('snes-rust:sram:')).sort());
-  expect(keys).toEqual([saveKey, `snes-rust:sram:${yonakiHash}`].sort());
+  expect(keys).toEqual([
+    sramKey(demoHash, await selectedProfile(page, demoHash)),
+    sramKey(yonakiHash, await selectedProfile(page, yonakiHash)),
+  ].sort());
   expect(errors).toEqual([]);
   expect(requests.filter(url => url.endsWith('.sfc'))).toEqual([`${origin}${prefix}shionari.sfc`, `${origin}${prefix}yonaki.sfc`, `${origin}${prefix}shionari.sfc`]);
 });
@@ -256,7 +259,10 @@ test('demo battery SRAM survives reset/reload, shares local identity and stays i
   await loadDemo(page); expect(await marker(page)).toBe(0x48);
   await localRom(page); expect(await marker(page)).toBe(0x26);
   const keys = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('snes-rust:sram:')).sort());
-  expect(keys).toEqual([saveKey, `snes-rust:sram:${createHash('sha256').update(fixture).digest('hex')}`].sort());
+  expect(keys).toEqual([
+    sramKey(demoHash, await selectedProfile(page, demoHash)),
+    sramKey(fixtureHash, await selectedProfile(page, fixtureHash)),
+  ].sort());
 });
 
 test('failed saves protect both demo and local cartridges, including same-demo reload', async ({ page }) => {
@@ -285,14 +291,18 @@ test('failed saves protect both demo and local cartridges, including same-demo r
 
 for (const failure of ['read', 'base64', 'size']) test(`failed demo restore (${failure}) blocks writes and both sources until retry`, async ({ page }) => {
   await boot(page); await loadDemo(page); await setMarker(page, 0x79);
+  const saveKey = sramKey(demoHash, await selectedProfile(page, demoHash));
   await page.locator('#reset').click();
-  await expect.poll(() => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), saveKey)).toBe(0x79);
+  await expect.poll(() => savedSramByte(page, saveKey)).toBe(0x79);
   await page.reload();
   await expect(page.locator('#demo')).toBeEnabled();
   await page.evaluate(({ saveKey, failure }) => {
     window.validSave = localStorage.getItem(saveKey);
-    if (failure === 'base64') localStorage.setItem(saveKey, '%invalid%');
-    if (failure === 'size') localStorage.setItem(saveKey, btoa('short'));
+    if (failure !== 'read') {
+      const record = JSON.parse(validSave);
+      record.data = failure === 'base64' ? '%invalid%' : btoa('short');
+      localStorage.setItem(saveKey, JSON.stringify(record));
+    }
     window.persistedSave = localStorage.getItem(saveKey);
     window.originalGetItem = Storage.prototype.getItem;
     if (failure === 'read') Storage.prototype.getItem = () => { throw new DOMException('Storage unavailable', 'SecurityError'); };
@@ -386,24 +396,23 @@ test('demo loading reports progress, accepts binary MIME types and rechecks savi
 for (const destination of ['demo', 'local']) for (const failure of ['read', 'base64', 'size']) {
   test(`switching to ${destination}: failed ${failure} restore retains the inserted machine and both saves until retry`, async ({ page }) => {
     await boot(page);
-    const localKey = `snes-rust:sram:${createHash('sha256').update(fixture).digest('hex')}`;
-    const targetKey = destination === 'demo' ? saveKey : localKey;
-    const oldKey = destination === 'demo' ? localKey : saveKey;
     if (destination === 'demo') await localRom(page); else await loadDemo(page);
+    const [currentHash, targetHash] = destination === 'demo' ? [fixtureHash, demoHash] : [demoHash, fixtureHash];
+    const oldKey = sramKey(currentHash, await selectedProfile(page, currentHash));
     await setMarker(page, 0x79);
     const oldName = await page.locator('#current-game').textContent();
     const valid = Buffer.alloc(destination === 'demo' ? 8192 : 1024 << fixture[0x7fd8]);
     valid[3] = 0x48;
-    await page.evaluate(({ targetKey, valid, failure }) => {
-      window.targetSave = valid;
-      localStorage.setItem(targetKey, failure === 'base64' ? '%invalid%' : failure === 'size' ? btoa('short') : valid);
+    const data = failure === 'base64' ? '%invalid%' : failure === 'size' ? Buffer.from('short').toString('base64') : valid.toString('base64');
+    const targetKey = await seedSram(page, targetHash, data);
+    await page.evaluate(({ targetKey, failure }) => {
       window.targetBefore = localStorage.getItem(targetKey);
       window.originalGetItem = Storage.prototype.getItem;
       if (failure === 'read') Storage.prototype.getItem = function (key) {
         if (key === targetKey) throw new DOMException('Storage unavailable', 'SecurityError');
         return window.originalGetItem.call(this, key);
       };
-    }, { targetKey, valid: valid.toString('base64'), failure });
+    }, { targetKey, failure });
     if (destination === 'demo') await selectDemo(page);
     else await page.locator('#rom').setInputFiles({ name: 'local.sfc', mimeType: 'application/octet-stream', buffer: fixture });
     await expect(page.locator('#error')).toContainText('Save could not be restored');
@@ -412,8 +421,8 @@ for (const destination of ['demo', 'local']) for (const failure of ['read', 'bas
     await expect(page.locator('#play')).toBeDisabled();
     await page.evaluate(() => { Storage.prototype.getItem = originalGetItem; window.dispatchEvent(new Event('pagehide')); });
     expect(await page.evaluate(targetKey => localStorage.getItem(targetKey), targetKey)).toBe(await page.evaluate(() => targetBefore));
-    expect(await page.evaluate(oldKey => atob(localStorage.getItem(oldKey)).charCodeAt(3), oldKey)).toBe(0x79);
-    await page.evaluate(targetKey => localStorage.setItem(targetKey, targetSave), targetKey);
+    expect(await savedSramByte(page, oldKey)).toBe(0x79);
+    await seedSram(page, targetHash, valid.toString('base64'));
     await page.locator('#retry-save').click();
     await expect(page.locator('#status')).toHaveText('Playing');
     await expect(page.locator('#error')).toBeEmpty();

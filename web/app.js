@@ -407,12 +407,12 @@ function restoreSave() {
   const { hash, name, remember } = pendingCartridge;
   try {
     const size = core.prepared_sram_len();
+    const catalog = size ? readProfiles(hash, { initialize: true }) : null;
     let pendingError;
     if (size) {
       try { settlePendingSram(hash, size); }
       catch (error) { pendingError = error; }
     }
-    const catalog = size ? readProfiles(hash) : null;
     const profile = catalog ? requireProfile(catalog, catalog.selected) : null;
     const base = profile ? readSramData(hash, profile.id) : null;
     const saved = decodeSram(base, size);

@@ -35,9 +35,14 @@ Other emulator state formats are outside this compatibility policy.
 
 ## Browser storage and recovery
 
-Save 1 reads and writes the original per-ROM SRAM key. Other profiles use stable
-IDs and separate SRAM keys. Profiles retain the selected ID and last changed
-time. State metadata and JPEG previews are paginated independently of the
+Every profile, including Save 1, has a stable ID. Its SRAM record stores the
+bytes and the last-changed timestamp. The profile list retains the selected ID.
+
+This development-stage update drops legacy SRAM storage compatibility. Old
+Save 1 data and its associated browser states may become inaccessible. Export
+important SRAM before updating.
+
+State metadata and JPEG previews are paginated independently of the
 compressed payloads in IndexedDB. A state belongs to its cartridge and the
 profile where it was captured. Exported state files carry the ROM identity and
 can be added to another profile for that same ROM. Imports never replace an

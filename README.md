@@ -124,8 +124,8 @@ to return to the player.
 - **Save data** appears beside a battery-backed cartridge. Select a profile to
   restart that cartridge with its SRAM. **New save** starts fresh, **Duplicate
   current** copies the inserted profile, and **Reset** keeps that profile's SRAM.
-  Existing single saves appear as **Save 1**. Delete a profile after removing any
-  states in its history. **Export current SRAM** downloads raw bytes. **Import
+  The first profile is **Save 1**. Delete a profile after removing its saved
+  states. **Export current SRAM** downloads raw bytes. **Import
   SRAM** checks the size and creates a new profile for the inserted cartridge.
   Choose a file from the same ROM revision because raw SRAM carries no identity.
 - Open **Save state ▾** to choose a timestamped screenshot or **New state** for

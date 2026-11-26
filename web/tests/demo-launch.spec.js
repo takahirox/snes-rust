@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { delayLocalFileRead, selectDemo } from './cartridge.js';
+import { delayLocalFileRead, savedSramByte, seedSram, selectDemo } from './cartridge.js';
 import { setTabHidden, waitForAnimationFrames } from './playback.js';
 const rom = readFileSync(new URL('../../demos/shionari.sfc', import.meta.url));
 test.beforeEach(async ({ page }) => {
@@ -174,10 +174,10 @@ for (const source of ['demo', 'local']) {
 }
 
 test('a demo selected before hiding restores SRAM and starts without another Play click', async ({ page }) => {
-  const saveKey = `snes-rust:sram:${createHash('sha256').update(rom).digest('hex')}`;
+  const hash = createHash('sha256').update(rom).digest('hex');
   const save = Buffer.alloc(8192);
   save[3] = 0x79;
-  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [saveKey, save.toString('base64')]);
+  const saveKey = await seedSram(page, hash, save.toString('base64'));
   let pending; await page.route('**/shionari.sfc', route => { pending = route; });
   await selectDemo(page); await expect.poll(() => Boolean(pending)).toBe(true);
   await setTabHidden(page, true);
@@ -194,7 +194,7 @@ test('a demo selected before hiding restores SRAM and starts without another Pla
     return restored;
   });
   expect(restored).toBe(0x79);
-  await expect.poll(() => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), saveKey)).toBe(0x48);
+  await expect.poll(() => savedSramByte(page, saveKey)).toBe(0x48);
   await waitForAnimationFrames(page);
   expect(await page.evaluate(() => launchMetrics.frames)).toBe(0);
   await setTabHidden(page, false);
