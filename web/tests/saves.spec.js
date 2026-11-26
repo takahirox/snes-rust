@@ -1041,6 +1041,51 @@ test('the shared picker targets saves and loads separately and removes the selec
   expect(await machineState(page)).toEqual(olderMachine);
 });
 
+for (const hasTouch of [false, true]) {
+  test.describe(hasTouch ? 'touch backdrop' : 'mouse backdrop', () => {
+    test.use({ hasTouch, viewport: { width: 1280, height: 900 } });
+
+    test('dismissing the save-state picker over Save or Load leaves both snapshots intact', async ({ page }) => {
+      await ready(page);
+      await local(page, nonBattery);
+      await pause(page);
+      const savedMachine = await machineState(page);
+      await capture(page);
+      const [{ key }] = await savedHistory(page);
+      const picker = page.getByRole('dialog', { name: 'Save states' });
+
+      for (const action of ['load-state', 'save-state']) {
+        await test.step(`Dismiss over #${action}`, async () => {
+          await page.evaluate(() => saveCore.run_frame(0x0100));
+          const liveMachine = await machineState(page);
+          expect(liveMachine).not.toEqual(savedMachine);
+          await page.locator('#choose-state').click();
+          await expect(states(page).first()).toHaveAttribute('aria-current', 'true');
+
+          const button = page.locator(`#${action}`);
+          const bounds = await button.boundingBox();
+          const panel = await picker.boundingBox();
+          const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+          expect(x < panel.x || x > panel.x + panel.width || y < panel.y || y > panel.y + panel.height).toBe(true);
+          if (hasTouch) await page.touchscreen.tap(x, y);
+          else await page.mouse.click(x, y);
+
+          await expect(picker).toBeHidden();
+          await expect(button).toBeEnabled();
+          await expect(page.locator('#status')).toHaveText('Paused');
+          const storedMachine = await page.evaluate(async key => {
+            const { readState } = await import('/saves.js');
+            const snapshot = await readState(key);
+            return snapshot && [...snapshot];
+          }, key);
+          expect.soft(storedMachine, 'Stored snapshot after dismissal').toEqual(savedMachine);
+          expect.soft(await machineState(page), 'Live snapshot after dismissal').toEqual(liveMachine);
+        });
+      }
+    });
+  });
+}
+
 test('Tab wraps inside the save-state picker on a narrow screen', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await ready(page);

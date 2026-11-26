@@ -377,7 +377,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
   overflow: auto;
   overscroll-behavior: contain;
 }
-.save-dialog::backdrop { background: #090d14b0; }
+.save-dialog::backdrop, #state-picker-backdrop { background: #090d14b0; }
 .save-dialog-header, .save-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .save-dialog-header { justify-content: space-between; }
 .save-dialog h2 { font-size: 1.2rem; margin: 0; }
@@ -388,13 +388,20 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
   #choose-state { inline-size: 96px; padding-block: 0; }
 }
+/* Keep the backdrop inside the popover until the dismissal click completes. */
 #state-picker {
+  inset: 0; width: auto; height: auto; margin: 0; padding: 0; border: 0;
+  background: transparent; overflow: hidden;
+}
+#state-picker-backdrop { position: absolute; inset: 0; }
+#state-picker > .save-dialog {
   --save-dialog-width: 26rem; --save-dialog-height: 26rem;
+  position: absolute; height: fit-content; margin: auto;
+  display: flex; flex-direction: column; gap: 8px;
   container-type: inline-size;
   box-shadow: 0 8px 32px #10201830; font-size: 13px;
 }
-#state-picker:popover-open { display: flex; flex-direction: column; gap: 8px; }
-#state-picker > :not(.state-list) { flex-shrink: 0; }
+#state-picker > .save-dialog > :not(.state-list) { flex-shrink: 0; }
 #state-picker h2 { font-size: 15px; }
 #state-picker button { min-height: 44px; font-size: inherit; padding: 6px 10px; }
 #state-message { margin: 0; }
