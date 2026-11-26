@@ -135,11 +135,15 @@ to return to the player.
   Use each entry's **Export** to download a `.snesstate` file. **Import state**
   validates a file and adds it to the selected history for you to load.
 - Save identity uses the SHA-256 of the ROM with any copier header removed.
-  Profiles persist in local storage and state history in IndexedDB, subject to
-  browser quota. SRAM saves every five seconds and on pause, reset, cartridge
-  changes and page exit. If writing fails, keep the tab open and retry. After a
-  restore error on cartridge insertion, **Retry restoring save** rechecks the
-  selected profile before replacing or starting the cartridge.
+  Profiles use local storage and state history uses IndexedDB. The player tries
+  to save SRAM every five seconds and on pause, reset, cartridge changes and
+  page exit. Browser persistence and exit recovery are best-effort. Abrupt tab
+  closure or a failed write, such as when the browser quota is full, can lose
+  unsaved progress. Browser eviction can remove stored saves. Use one tab at a
+  time for a given ROM and save profile. If writing fails, keep the tab open
+  and retry. After a restore error on cartridge insertion, **Retry restoring
+  save** rechecks the selected profile before replacing or starting the
+  cartridge.
 
 See the [snapshot format and compatibility policy](docs/save-states.md) for
 file limits and validation details.
