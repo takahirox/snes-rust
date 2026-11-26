@@ -306,13 +306,13 @@ for (const contention of [false, true]) test(`navigation preserves dirty SRAM at
   expect(await page.evaluate(key => localStorage.getItem(key), sramKey)).toBe(updated);
 });
 
-function holdSaveLock(page) {
+function holdSaveLock(page, romHash = hash) {
   return page.evaluate(hash => new Promise(ready => {
     void navigator.locks.request(`snes-rust:saves:${hash}`, () => new Promise(resolve => {
       window.releaseExitSaveLock = resolve;
       ready();
     }));
-  }), hash);
+  }), romHash);
 }
 
 test('closing a dirty tab at quota warns while another tab holds the save lock', async ({ page, context }) => {
@@ -407,6 +407,65 @@ for (const mode of ['paused', 'changed', 'changed at quota']) {
     }
   });
 }
+
+test('successive saves in a stale tab update one recovery profile', async ({ page, context }) => {
+  const largeRom = Buffer.from(rom);
+  largeRom[0x7fd8] = 8; // 256 KiB, large enough for repeated copies to exhaust localStorage.
+  const largeHash = createHash('sha256').update(largeRom).digest('hex');
+  const key = `snes-rust:sram:${largeHash}`;
+  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key);
+  async function persist(value) {
+    await sram(page, value);
+    await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    await expect.poll(stored).toBe(value);
+  }
+  await ready(page);
+  await local(page, largeRom);
+  await pause(page);
+  await persist(0x21);
+  await capture(page);
+
+  const stale = await context.newPage();
+  await ready(stale);
+  await local(stale, largeRom);
+  await pause(stale);
+  await persist(0x79);
+  await page.locator('#load-state').click();
+  await states(page).first().click();
+  await expect(page.locator('#save-status')).toContainText('State loaded.');
+
+  const recoveryProfiles = () => stale.evaluate(async hash => {
+    // Wait behind any queued lifecycle write before inspecting the catalog and SRAM.
+    return navigator.locks.request(`snes-rust:saves:${hash}`, () => {
+      const { profiles } = JSON.parse(localStorage.getItem(`snes-rust:save-profiles:${hash}`));
+      return profiles.filter(({ name }) => name === 'Recovery · Another tab').map(({ id }) => ({
+        id, value: atob(JSON.parse(localStorage.getItem(`snes-rust:sram:${hash}:${id}`)).data).charCodeAt(3),
+      }));
+    });
+  }, largeHash);
+  let recoveryId;
+  for (let value = 0x50; value <= 0x52; value++) {
+    await sram(stale, value);
+    await stale.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    const profiles = await recoveryProfiles();
+    recoveryId ??= profiles[0]?.id;
+    expect(profiles).toEqual([{ id: recoveryId, value }]);
+    expect(await stored()).toBe(0x21);
+  }
+  // Force the last save through the same journal replay used after a tab closes.
+  await sram(stale, 0x53);
+  await holdSaveLock(page, largeHash);
+  await stale.goto('/?closed-stale-game');
+  await page.evaluate(() => releaseExitSaveLock());
+  await page.locator('#save-data').click();
+  const recovery = page.getByRole('button', { name: 'Recovery · Another tab', exact: true });
+  await expect(recovery).toHaveCount(1);
+  await expect.poll(recoveryProfiles).toEqual([{ id: recoveryId, value: 0x53 }]);
+  await recovery.click();
+  await expect(page.locator('#save-data-dialog')).toBeHidden();
+  expect(await sram(page)).toBe(0x53);
+  expect(await stored()).toBe(0x21);
+});
 
 test('105 non-battery captures persist, page thumbnails, and restore arbitrary entries', async ({ page }) => {
   test.setTimeout(60000);

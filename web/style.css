@@ -118,6 +118,8 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 #status:has(+ #fullscreen-status:not(:empty)) { display: none; }
 #fullscreen-status { color: #805511; }
 #fullscreen-status:empty { position: absolute; }
+#save-status:empty { display: none; }
+#save-status { order: 2; flex-basis: 100%; margin: 0; font-size: 12px; }
 #error { color: #a32f29; white-space: pre-wrap; overflow-wrap: anywhere; }
 #audio-status, #display-status { color: #805511; }
 #error:empty, #audio-status:empty, #display-status:empty { display: none; }
@@ -225,6 +227,17 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
   #volume { width: 58px; }
   #play { width: 34px; }
   #status, #fullscreen-status { font-size: 10px; text-align: center; margin: 0; }
+  /* Share the existing status space so a save does not push down the controls. */
+  .playback-status:has(#save-status:not(:empty)) {
+    order: 1;
+    display: flex;
+    flex: 1 0 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+  .playback-status:has(#save-status:not(:empty)) :is(#status, #fullscreen-status, #save-status) { flex: 0 1 auto; }
+  #save-status { font-size: 10px; line-height: 1.1; text-align: center; overflow-wrap: anywhere; }
 }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 640px) {
   main { --landscape-chrome-height: 165px; }
@@ -244,6 +257,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
     flex-basis: clamp(0px, 100vw - max(12px, env(safe-area-inset-left))
       - max(12px, env(safe-area-inset-right)) - 250px, 110px);
   }
+  .playback-status:has(#save-status:not(:empty)) { flex: 1 1 64px; min-width: 0; max-width: 240px; }
   .toolbar-settings .display-controls { gap: 3px; }
   .toolbar-settings label { gap: 2px; font-size: 10px; }
   .toolbar-settings select { padding-inline: 3px; font-size: 11px; }
@@ -264,6 +278,9 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
   .cartridge-value { text-align: center; }
   #status { flex-basis: auto; }
   #fullscreen-status { flex-basis: 120px; }
+  /* Let longer feedback use the width below the playback buttons. */
+  .playback-status:has(#save-status:not(:empty)) { flex-basis: auto; max-width: 100%; }
+  .playback-status:has(#save-status:not(:empty)) :is(#status, #fullscreen-status) { line-height: 1.1; }
   .controls-reference { padding-inline: 6px; overflow-wrap: anywhere; }
   .controls-reference dl { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 4px; }
 }
@@ -336,8 +353,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
   }
 }
 
-#save-status:empty, .save-dialog [role="status"]:empty { display: none; }
-#save-status { order: 2; flex-basis: 100%; margin: 0; font-size: 12px; }
+.save-dialog [role="status"]:empty { display: none; }
 .save-dialog {
   inset: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
     max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));

@@ -273,18 +273,27 @@ function report(error) { operationError = error.message || String(error); showEr
 function clearError() { operationError = ''; showErrors(); }
 function saveBeforeUnload(event) { void save(event); }
 function trackSram(base, epoch) {
-  activeSram = activeProfile ? { base, epoch, clean: encodeSram(liveSram()) } : undefined;
+  activeSram = activeProfile ? {
+    target: { id: activeProfile.id, base, epoch },
+    recoveryId: crypto.randomUUID(),
+    clean: encodeSram(liveSram()),
+  } : undefined;
   // Try saving before pagehide, while the browser can still warn about unsaved progress.
   if (activeSram) window.addEventListener('beforeunload', saveBeforeUnload);
   else window.removeEventListener('beforeunload', saveBeforeUnload);
 }
 
-function persistActiveSram(data) {
-  const { base, epoch, clean } = activeSram;
-  const { current, recovered } = persistSram(activeHash, { id: activeProfile.id, base, epoch, data }, core.sram_len(), data !== clean);
-  activeSram.base = current ? data : undefined;
+function persistActiveSram(data, settledEntry) {
+  const { target, recoveryId, clean } = activeSram;
+  const entry = settledEntry ?? { ...target, recoveryId, data };
+  const settled = Boolean(settledEntry);
+  const saved = persistSram(activeHash, entry, { dirty: settled || data !== clean, settled });
+  if (saved.id !== target.id) {
+    activeSram.recoveryId = crypto.randomUUID();
+    $('save-status').textContent = 'This tab’s progress is in Recovery under Save data.';
+  }
+  activeSram.target = saved;
   activeSram.clean = data;
-  if (recovered) $('save-status').textContent = 'Save data changed in another tab. This tab’s progress is available in Save data.';
 }
 
 function finishSramSave(error) {
@@ -302,10 +311,11 @@ async function save(lifecycleEvent) {
   const dirty = data !== session.clean;
   if (lifecycleEvent && (dirty || session.pending)) {
     try {
-      if (session.pending?.data !== data) {
+      if (session.pending?.entry.data !== data) {
         const previous = session.pending;
-        const journal = stageSram(hash, { id: activeProfile.id, base: session.base, epoch: session.epoch, data });
-        session.pending = { ...journal, data };
+        const entry = { ...session.target, recoveryId: session.recoveryId, data };
+        const journal = stageSram(hash, entry);
+        session.pending = { ...journal, entry };
         if (previous) previous.storage.removeItem(previous.key);
       }
       pending = session.pending;
@@ -324,9 +334,7 @@ async function save(lifecycleEvent) {
       if (pending && pending.storage.getItem(pending.key) === null) {
         if (session.pending && session.pending !== pending) return true;
         // This journal entry has already been settled.
-        const profile = readProfiles(hash).profiles.find(profile => profile.id === activeProfile.id);
-        session.base = profile && profile.epoch === session.epoch && readSramData(hash, profile.id) === data ? data : undefined;
-        session.clean = data;
+        persistActiveSram(data, pending.entry);
       } else {
         persistActiveSram(data);
         if (pending) pending.storage.removeItem(pending.key);
