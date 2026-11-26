@@ -212,6 +212,37 @@ for (const retainProfile of [false, true]) {
   });
 }
 
+test('obsolete exit saves stay untouched while a current exit save replays at quota', async ({ page }) => {
+  await ready(page);
+  const base = Buffer.alloc(2048, 0x21).toString('base64');
+  const data = Buffer.alloc(2048, 0x79).toString('base64');
+  const key = await seedSram(page, hash, base);
+  const id = await selectedProfile(page, hash);
+  const prefix = `snes-rust:pending-sram:${hash}:`;
+  const obsoleteKey = `${prefix}obsolete`;
+  const obsoleteTabKey = `${prefix}obsolete-tab`;
+  const currentKey = `${prefix}current`;
+  const obsolete = JSON.stringify({ id: 'legacy', base, data });
+  await page.evaluate(({ obsoleteKey, obsoleteTabKey, currentKey, obsolete, current }) => {
+    localStorage.setItem(obsoleteKey, obsolete);
+    sessionStorage.setItem(obsoleteTabKey, obsolete);
+    sessionStorage.setItem(currentKey, current);
+  }, { obsoleteKey, obsoleteTabKey, currentKey, obsolete, current: JSON.stringify({ id, base, data }) });
+  await fillStorage(page);
+
+  await local(page);
+  await pause(page);
+  expect(await sram(page)).toBe(0x79);
+  expect(await savedSramData(page, key)).toBe(data);
+  await expect(page.locator('#save-status')).toBeEmpty();
+  await page.locator('#save-data').click();
+  await expect(page.getByRole('button', { name: /^Recovery · / })).toHaveCount(0);
+  expect(await page.evaluate(([obsoleteKey, obsoleteTabKey, currentKey]) => [
+    localStorage.getItem(obsoleteKey), sessionStorage.getItem(obsoleteTabKey), sessionStorage.getItem(currentKey),
+  ], [obsoleteKey, obsoleteTabKey, currentKey])).toEqual([obsolete, obsolete, null]);
+  expect(await page.evaluate(() => window.dispatchEvent(new Event('beforeunload', { cancelable: true })))).toBe(true);
+});
+
 test('historical restore protects SRAM, refuses unsafe deletion, and reloads the exact paused machine', async ({ page }) => {
   await ready(page);
   await local(page);

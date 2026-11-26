@@ -221,32 +221,46 @@ export function stageSram(hash, entry, fallbackKey) {
   }
 }
 
-function* pendingSramEntries(hash, includeFallback = true) {
+function pendingSramEntry(storage, key) {
+  const raw = storage.getItem(key);
+  if (raw === null) return;
+  let entry;
+  try { entry = JSON.parse(raw); } catch { /* Report malformed entries when replaying. */ }
+  if (typeof entry?.id === 'string' && !isProfileUuid(entry.id)) return;
+  return { storage, key, entry };
+}
+
+function* pendingSramEntries(storage, prefix) {
+  for (const key of Object.keys(storage ?? {})) {
+    if (!key.startsWith(prefix)) continue;
+    const pending = pendingSramEntry(storage, key);
+    if (pending) yield pending;
+  }
+}
+
+function* pendingSramForRom(hash, includeFallback = true) {
   const prefix = `${pendingPrefix}${hash}:`;
   let tabStorage;
   try { tabStorage = sessionStorage; } catch { /* The tab journal may be unavailable. */ }
-  const tabKeys = Object.keys(tabStorage ?? {}).filter(key => key.startsWith(prefix));
-  for (const key of Object.keys(localStorage)) {
-    if (key.startsWith(prefix) && (includeFallback || !tabKeys.includes(key))) yield { storage: localStorage, key };
+  const tabEntries = [...pendingSramEntries(tabStorage, prefix)];
+  for (const pending of pendingSramEntries(localStorage, prefix)) {
+    if (includeFallback || !tabEntries.some(({ key }) => key === pending.key)) yield pending;
   }
-  for (const key of tabKeys) yield { storage: tabStorage, key };
+  yield* tabEntries;
 }
 
 export function hasPendingSram(hash) {
-  return !pendingSramEntries(hash).next().done;
+  return !pendingSramForRom(hash).next().done;
 }
 
 export function hasSessionPendingSram() {
-  try { return Object.keys(sessionStorage).some(key => key.startsWith(pendingPrefix)); }
+  try { return !pendingSramEntries(sessionStorage, pendingPrefix).next().done; }
   catch { return false; }
 }
 
 export function* readPendingSram(hash, size, { profileId, includeFallback = true } = {}) {
-  for (const { storage, key } of pendingSramEntries(hash, includeFallback)) {
-    const raw = storage.getItem(key);
-    if (raw === null) continue;
-    const entry = JSON.parse(raw);
-    if (typeof entry?.data !== 'string') throw new Error('Pending save data is invalid');
+  for (const { storage, key, entry } of pendingSramForRom(hash, includeFallback)) {
+    if (typeof entry?.id !== 'string' || typeof entry.data !== 'string') throw new Error('Pending save data is invalid');
     if (profileId !== undefined && entry.id !== profileId) continue;
     yield { storage, key, entry, data: decodeSram(entry.data, size) };
   }
@@ -255,7 +269,7 @@ export function* readPendingSram(hash, size, { profileId, includeFallback = true
 export function settlePendingSram(hash, size) {
   for (const { storage, key, entry } of readPendingSram(hash, size, { includeFallback: false })) {
     const saved = persistSram(hash, entry, { replaying: true });
-    if (storage !== localStorage && saved.base === entry.data) localStorage.removeItem(key);
+    if (storage !== localStorage && saved.base === entry.data && pendingSramEntry(localStorage, key)) localStorage.removeItem(key);
     storage.removeItem(key);
     if (saved.receipt) {
       // Reclaim the journal's space first. A session-only save can still
