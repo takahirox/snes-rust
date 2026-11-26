@@ -145,7 +145,7 @@ test('Reset guards absent, loading and unresolved save restoration without overw
     releaseHash();
   });
   await expect(page.locator('#error')).toContainText('Save could not be restored');
-  // The outgoing save is written after hashing, before attempting restoration.
+  // Suspension already made the outgoing SRAM durable before restoration.
   const savedBytes = await page.evaluate(() => Object.entries(localStorage));
   const hash = createHash('sha256').update(buffer).digest('hex');
   const savedSram = new Map(savedBytes).get(`snes-rust:sram:${hash}`);
@@ -249,7 +249,7 @@ test('suspension saves SRAM once and preserves write failures until saving succe
   await setTabHidden(page, true);
   await setTabHidden(page, true);
   const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key);
-  expect(await stored()).toBe(0x79);
+  await expect.poll(stored).toBe(0x79);
   expect(await page.evaluate(() => saveAttempts)).toBe(1);
   await setTabHidden(page, false);
   await page.evaluate(() => {
@@ -264,7 +264,7 @@ test('suspension saves SRAM once and preserves write failures until saving succe
   await expect(page.locator('#error')).toContainText('Could not persist SRAM');
   expect(await sram(page)).toBe(0x48);
   await page.evaluate(() => { window.denySave = false; window.dispatchEvent(new Event('pagehide')); });
-  expect(await stored()).toBe(0x48);
+  await expect.poll(stored).toBe(0x48);
   await expect(page.locator('#error')).toBeEmpty();
 });
 

@@ -1,6 +1,6 @@
 # snes-rust
 
-An experimental SNES interpreter written from scratch in Rust, with a dependency-free
+An experimental SNES interpreter written from scratch in Rust, with a
 WebAssembly adapter and a browser frontend. No existing emulator core,
 Nintendo firmware, commercial ROM, or third-party game ROM is included.
 
@@ -63,11 +63,11 @@ for the exact permission, authorship and known asset notices. Castle/Memory and
 diagnostic fixtures are test-only and were never shipped in the browser app.
 
 Visitors can alternatively select their own legally obtained ROM locally.
-Personal ROMs, filenames and SRAM stay in this browser profile and origin.
+Personal ROMs, filenames, SRAM and save states stay in this browser profile and origin.
 
 Requirements: Rust 1.94+ with Cargo, the `wasm32-unknown-unknown` standard library,
 Node.js 24+, npm, and Python 3.12+. Only browser tests use an npm dependency
-(Playwright); the Rust workspace has no external dependencies.
+(Playwright). Rust uses SHA-256 and zlib implementations for save states.
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -82,9 +82,9 @@ Newly inserted cartridges start automatically after validation and save
 restoration. The browser remembers successfully imported personal ROMs when
 storage is available. To play one again, choose it under **Insert cartridge →
 My cartridges**. Use **Remove** beside its name to remove the stored ROM while
-keeping its SRAM and original file.
-Clearing this site's browser data can erase stored ROMs and SRAM. Keep your
-original files separately.
+keeping its profiles, save states and original file. Reimport the same ROM to
+see its saves again. Clearing site data erases browser saves. Keep your original
+ROMs and exported backups separately.
 The static production output is `web/dist`; the local server serves the same
 assets as GitHub Pages.
 
@@ -119,26 +119,34 @@ continues automatically; choose CRT again to retry. See the
 controller available on touch devices. Press Escape or tap **Exit fullscreen**
 to return to the player.
 
-SRAM for battery-backed cartridges is stored locally under the SHA-256 of the
-ROM after removing any copier header. Reset clears volatile machine state and
-controllers, preserving SRAM. Changing cartridges restores the new game’s own
-saved SRAM before replacing the inserted machine. Dismissing the picker or cancelling the file chooser keeps
-the current game running. Selecting the already inserted cartridge leaves playback
-unchanged. Each demo keeps its own save. Use the shared Play/Pause control for playback and Reset to start again
-while preserving SRAM. Opening the identical game locally
-(including a copier-header variant) shares the same save identity as the demo.
-Saves are persisted every five seconds, on pause/reset/ROM changes and on page
-exit; browser storage failure is reported. A failed save blocks opening
-another cartridge, preserving the current machine's recoverable SRAM. Play and
-Reset retain the warning until a later save succeeds. Keep the tab open while
-storage is unavailable. A failed save restoration blocks saving, Play, Reset and
-cartridge replacement so existing persisted bytes cannot be overwritten by empty
-SRAM. Use **Retry restoring save** after restoring storage access (or repairing
-corrupt stored data); recovery must succeed before playing. The previous cartridge
-and its recoverable SRAM remain inserted until restoration succeeds; retry then
-inserts and starts the selected cartridge. There are no save states or save-file
-import/export controls yet. See the [cartridge-switcher validation record](docs/issue-122-validation.md)
-for workflow screenshots, save-failure coverage and required post-merge checks.
+### Save and resume
+
+- **Save data** appears beside a battery-backed cartridge. Select a profile to
+  restart that cartridge with its SRAM. **New save** starts fresh, **Duplicate
+  current** copies the inserted profile, and **Reset** keeps that profile's SRAM.
+  Existing single saves appear as **Save 1**. Delete a profile after removing any
+  states in its history. **Export current SRAM** downloads raw bytes. **Import
+  SRAM** checks the size and creates a new profile for the inserted cartridge.
+  Choose a file from the same ROM revision because raw SRAM carries no identity.
+- **Save state** adds a screenshot to the current game's history, including
+  games without SRAM. **Load state** shows the newest snapshots first. Loading
+  resumes the captured machine and preserves manual Pause. If loading replaces
+  newer SRAM, **Save data** offers a recovery profile you can select normally.
+  Use each entry's **Export** to download a `.snesstate` file. **Import state**
+  validates a file and adds it to the selected history for you to load.
+- Save identity uses the SHA-256 of the ROM with any copier header removed.
+  Profiles use local storage and state history uses IndexedDB. The player tries
+  to save SRAM every five seconds and on pause, reset, cartridge changes and
+  page exit. Browser persistence and exit recovery are best-effort. Abrupt tab
+  closure or a failed write, such as when the browser quota is full, can lose
+  unsaved progress. Browser eviction can remove stored saves. Use one tab at a
+  time for a given ROM and save profile. If writing fails, keep the tab open
+  and retry. After a restore error on cartridge insertion, **Retry restoring
+  save** rechecks the selected profile before replacing or starting the
+  cartridge.
+
+See the [snapshot format and compatibility policy](docs/save-states.md) for
+file limits and validation details.
 
 If Homebrew Cargo picks a different `rustc` from rustup on macOS, select the
 compiler that owns the installed wasm standard library:
@@ -404,14 +412,14 @@ both core and browser jobs to pass. Pull requests and other branch pushes run
 checks separately, without production deployment permissions. Production runs
 share a concurrency group to prevent overlapping deployments.
 
-The Pages artifact contains exactly `index.html`, `app.js`, `style.css`,
+The Pages artifact contains exactly `index.html`, `app.js`, `saves.js`, `style.css`,
 `snes_wasm.wasm` and the pinned `shionari.sfc` and `yonaki.sfc`. Rebuilding clears stale output,
 and the smoke test enforces this allowlist before upload. Relative URLs, including
 `fetch('snes_wasm.wasm')`, work
 under the project subpath, as do the demo fetches. Generated `web/dist`
 stays ignored by Git. No other ROMs, firmware, `.srm` saves, source/download
 caches or test evidence are published. Saves on the public origin are
-separate from saves on localhost and remain in that browser's local storage.
+separate from saves on localhost and remain in that browser profile.
 
 Inspect the repository's [Actions tab](https://github.com/takahirox/snes-rust/actions)
 for the deployment run, failed job/step logs and the `github-pages` artifact;

@@ -459,6 +459,10 @@ impl Cpu {
             self.y &= 255;
         }
     }
+    pub(crate) fn valid_mode(&self) -> bool {
+        (!self.e || (self.p & (M | X) == M | X && self.s >> 8 == 1))
+            && (!self.flag(X) || (self.x | self.y) >> 8 == 0)
+    }
     fn fetch(&mut self, b: &mut impl Bus) -> u8 {
         let v = b.read(((self.pb as u32) << 16) | self.pc as u32);
         self.pc = self.pc.wrapping_add(1);
@@ -1178,3 +1182,20 @@ impl Cpu {
         }
     }
 }
+
+crate::snapshot::snapshot_fields!(
+    Cpu,
+    a,
+    x,
+    y,
+    s,
+    d,
+    pc,
+    pb,
+    db,
+    p,
+    e,
+    waiting,
+    stopped,
+    instructions
+);

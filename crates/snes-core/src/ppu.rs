@@ -1681,3 +1681,79 @@ mod cgram_tests;
 #[cfg(test)]
 #[path = "ppu_mode7_tests.rs"]
 mod mode7_tests;
+
+use crate::snapshot::{self, Reader, Value};
+
+snapshot::snapshot_members!(
+    Ppu,
+    regs,
+    frame_width,
+    raster_x,
+    obj_line,
+    obj_line_valid,
+    obj_oam,
+    obj_sizes,
+    raster_overflow,
+    vaddr,
+    vbuffer,
+    caddr,
+    clatch,
+    oaddr,
+    oport_addr,
+    olatch,
+    scroll_latch,
+    scroll,
+    m7,
+    m7_scroll,
+    m7_latch,
+    fixed,
+    h,
+    v,
+    field,
+    hflip,
+    vflip,
+    counters,
+    counter_latched,
+    latch_enabled,
+    open1,
+    open2,
+    obj_overflow,
+);
+
+impl Ppu {
+    pub(crate) fn write_snapshot(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.vram[..]);
+        out.extend_from_slice(&self.cgram);
+        out.extend_from_slice(&self.oam);
+        self.write_members(out);
+        // The power-on candidate cache represents no objects until the
+        // first OAM/size change, so retain it as well as the latched OBJ line.
+        self.obj_rows.write(out);
+        out.extend_from_slice(&self.frame);
+    }
+
+    pub(crate) fn read_snapshot(&mut self, input: &mut Reader<'_>) -> snapshot::Result<()> {
+        self.vram.copy_from_slice(input.take(0x10000)?);
+        self.cgram.copy_from_slice(input.take(512)?);
+        self.oam.copy_from_slice(input.take(544)?);
+        self.read_members(input)?;
+        if !matches!(self.frame_width, WIDTH | 512)
+            || self.raster_x > WIDTH
+            || self.obj_sizes > 7
+            || self.caddr >= 512
+            || self.oaddr >= 1024
+            || self.oport_addr >= 1024
+            || self.fixed.iter().any(|&value| value > 31)
+            || self.v >= 262
+            || u64::from(self.h) >= self.line_clocks()
+            || self.counters[0] > 340
+            || self.counters[1] >= 262
+            || (self.raster_overflow | self.obj_overflow) & 0x3f != 0
+        {
+            return Err(snapshot::invalid());
+        }
+        *self.obj_rows = Value::read(input)?;
+        self.frame = input.take(self.frame_width * HEIGHT * 4)?.to_vec();
+        Ok(())
+    }
+}

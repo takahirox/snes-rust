@@ -243,7 +243,7 @@ test('remembers normalized ROMs, restores guest progress after reload and revisi
     expect(method).toBe('GET');
     expect(body).toBeNull();
     expect(new URL(url).origin).toBe(origin);
-    expect(['/', '/app.js', '/style.css', '/snes_wasm.wasm']).toContain(new URL(url).pathname);
+    expect(['/', '/app.js', '/saves.js', '/style.css', '/snes_wasm.wasm']).toContain(new URL(url).pathname);
     expect(new URL(url).search).toBe('');
   }
 });

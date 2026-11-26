@@ -59,8 +59,8 @@ test('emulator-first layout exposes display settings and GitHub with optional ke
   await expect(page.locator('details p')).toHaveText(/touch D-pad for diagonals.*Standard gamepads/);
   await page.keyboard.press('Enter');
   await expect(keyboard).toBeHidden();
-  for (const control of [github, page.locator('#video'), page.locator('#mute'),
-    page.locator('#volume'), page.locator('#fullscreen'), scale, display, page.locator('#change-cartridge')]) {
+  for (const control of [github, page.locator('#video'), page.locator('#fullscreen'),
+    page.locator('#mute'), page.locator('#volume'), scale, display, page.locator('#change-cartridge')]) {
     await page.keyboard.press('Tab');
     await expect(control).toBeFocused();
     await expect(control).toHaveCSS('outline-style', 'solid');

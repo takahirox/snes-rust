@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'">
   <title>snes-rust · Experimental SNES emulator</title>
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
@@ -45,28 +45,43 @@
         <button id="exit-fullscreen">Exit fullscreen</button>
       </div>
       <div class="toolbar" role="group" aria-label="Player controls">
-        <button id="play" disabled>Play</button>
-        <button id="reset" disabled>Reset</button>
-        <div id="volume-control" role="group" aria-label="Audio">
-          <button id="mute" type="button" aria-label="Mute" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 4 5 9H2v6h3l6 5Z"/>
-              <path class="sound-waves" d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>
-              <path class="mute-mark" d="m16 9 6 6m0-6-6 6"/>
-            </svg>
-          </button>
-          <input id="volume" type="range" min="0" max="100" step="1" value="100" aria-label="Volume">
+        <div class="playback-controls">
+          <button id="play" disabled>Play</button>
+          <button id="reset" disabled>Reset</button>
+          <button id="save-state" disabled>Save state</button>
+          <button id="load-state" aria-haspopup="dialog" disabled>Load state</button>
+          <button id="fullscreen">Fullscreen</button>
+          <div class="playback-status">
+            <p id="status" role="status">Loading emulator…</p>
+            <p id="fullscreen-status" role="status"></p>
+            <p id="save-status" role="status"></p>
+          </div>
         </div>
-        <button id="fullscreen">Fullscreen</button>
-        <div class="display-controls" role="group" aria-label="Display settings">
-          <label>Scale <select id="scale"><option value="1">1×</option><option value="2">2×</option><option value="3" selected>3×</option></select></label>
-          <label>Display <select id="display"><option value="crt">CRT</option><option value="pixel">Pixel</option></select></label>
+        <div class="toolbar-settings">
+          <div id="volume-control" role="group" aria-label="Audio">
+            <button id="mute" type="button" aria-label="Mute" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4 5 9H2v6h3l6 5Z"/>
+                <path class="sound-waves" d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>
+                <path class="mute-mark" d="m16 9 6 6m0-6-6 6"/>
+              </svg>
+            </button>
+            <input id="volume" type="range" min="0" max="100" step="1" value="100" aria-label="Volume">
+          </div>
+          <div class="display-controls" role="group" aria-label="Display settings">
+            <label>Scale <select id="scale"><option value="1">1×</option><option value="2">2×</option><option value="3" selected>3×</option></select></label>
+            <label>Display <select id="display"><option value="crt">CRT</option><option value="pixel">Pixel</option></select></label>
+          </div>
         </div>
-        <p id="status" role="status">Loading emulator…</p>
-        <p id="fullscreen-status" role="status"></p>
       </div>
       <div class="game-entry" role="group" aria-label="Cartridge slot">
-        <div class="cartridge-value"><span id="cartridge-label">Inserted cartridge</span><p id="current-game" aria-labelledby="cartridge-label" title="None">None</p></div>
+        <div class="cartridge-value">
+          <div class="cartridge-summary">
+            <span id="cartridge-label">Inserted cartridge</span>
+            <p id="current-game" aria-labelledby="cartridge-label" title="None">None</p>
+          </div>
+          <button id="save-data" aria-haspopup="dialog" hidden>Save data <span id="active-save-name"></span></button>
+        </div>
         <button id="change-cartridge" popovertarget="cartridge-picker" aria-haspopup="dialog" disabled>Insert cartridge</button>
         <div id="cartridge-picker" popover role="dialog" aria-labelledby="cartridge-title">
           <h2 id="cartridge-title">Cartridges</h2>
@@ -112,6 +127,34 @@
         </div>
       </div>
     </section>
+    <dialog id="save-data-dialog" aria-labelledby="save-data-title" class="save-dialog">
+      <div class="save-dialog-header">
+        <h2 id="save-data-title">Save data</h2>
+        <form method="dialog"><button autofocus aria-label="Close save data">Close</button></form>
+      </div>
+      <p id="save-data-message" role="status"></p>
+      <ul id="save-profiles" class="save-list"></ul>
+      <div class="save-actions">
+        <button id="new-save-profile">New save</button>
+        <button id="duplicate-save-profile">Duplicate current</button>
+        <button id="export-sram">Export current SRAM</button>
+        <button id="import-sram">Import SRAM</button>
+        <input id="sram-file" type="file" accept=".srm,.sav" hidden aria-label="Import SRAM file">
+      </div>
+    </dialog>
+    <dialog id="save-state-dialog" aria-labelledby="save-state-title" class="save-dialog">
+      <div class="save-dialog-header">
+        <h2 id="save-state-title">Load state</h2>
+        <form method="dialog"><button autofocus aria-label="Close save states">Close</button></form>
+      </div>
+      <p id="save-state-message" role="status"></p>
+      <ul id="state-history" class="save-list"></ul>
+      <div class="save-actions">
+        <button id="more-states" hidden>Show older states</button>
+        <button id="import-state">Import state</button>
+        <input id="state-file" type="file" accept=".snesstate" hidden aria-label="Import save state file">
+      </div>
+    </dialog>
     <p id="error" role="alert"></p>
     <p id="audio-status" role="status"></p>
     <p id="display-status" role="status"></p>

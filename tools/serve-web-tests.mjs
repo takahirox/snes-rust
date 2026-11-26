@@ -3,7 +3,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 const types = {
-  'index.html': 'text/html', 'app.js': 'text/javascript', 'style.css': 'text/css',
+  'index.html': 'text/html', 'app.js': 'text/javascript', 'saves.js': 'text/javascript', 'style.css': 'text/css',
   'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream', 'yonaki.sfc': 'application/octet-stream',
 };
 const files = new Map(Object.entries(types).map(([name, type]) => [

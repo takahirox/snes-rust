@@ -903,3 +903,56 @@ mod terminal_tests {
         }
     }
 }
+
+use crate::snapshot::{self, Value};
+
+snapshot::snapshot_fields!(
+    Voice,
+    addr,
+    loop_addr,
+    header,
+    nibble,
+    history,
+    decoded,
+    preload,
+    preload_next,
+    first_output,
+    key_delay,
+    phase,
+    env,
+    hidden_env,
+    stage,
+    active,
+);
+snapshot::snapshot_members!(
+    Dsp, regs, voices, kon, counter, noise, echo_pos, echo_hist, echo_index
+);
+
+impl Dsp {
+    pub(crate) fn valid_snapshot(&self) -> bool {
+        self.counter < 30720
+            && self.noise <= 0x7fff
+            && self.echo_index < 8
+            && self.echo_pos < 15 * 2048
+            && self.echo_pos.is_multiple_of(4)
+            && self
+                .echo_hist
+                .iter()
+                .flatten()
+                .all(|&x| (-16384..=16383).contains(&x))
+            && self.voices.iter().all(|v| {
+                v.nibble <= 16
+                    && (v.preload_next == 0 || (4..=12).contains(&v.preload_next))
+                    && v.key_delay <= 5
+                    && v.phase <= 0x7fff
+                    && (0..=2047).contains(&v.env)
+                    && (-32..=3071).contains(&v.hidden_env)
+                    && v.stage <= 3
+                    && v.history
+                        .iter()
+                        .chain(&v.decoded)
+                        .chain(&v.preload)
+                        .all(|&x| (-16384..=16383).contains(&x))
+            })
+    }
+}

@@ -247,11 +247,15 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }
   });
 }
 
-for (const viewport of [{ width: 375, height: 667 }, { width: 360, height: 640 }]) {
-  test(`demo selection keeps every touch control in view at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+for (const viewport of [{ width: 320, height: 568 }, { width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }]) {
+  test(`demo selection and save feedback keep every touch control in view at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page, false); await layout(page);
     await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Paused'); await layout(page);
     await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
+    await page.locator('#save-state').tap();
+    await expect(page.locator('#save-status')).toHaveText('State saved.');
+    await expect(page.locator('#save-status')).toBeInViewport({ ratio: 1 });
+    await layout(page);
     expect(await page.evaluate(() => scrollY)).toBe(0);
   });
 }
@@ -439,12 +443,28 @@ for (const viewport of [{ width: 844, height: 390 }, { width: 568, height: 320 }
     const session = await page.context().newCDPSession(page);
     const insets = { left: 44, right: 44, top: 8, bottom: 21 };
     await session.send('Emulation.setSafeAreaInsetsOverride', { insets });
-    await boot(page); const result = await layout(page);
-    for (const r of [result.screen, ...result.actions, ...result.buttons]) {
-      expect(r.x, r.label).toBeGreaterThanOrEqual(insets.left);
-      expect(r.right, r.label).toBeLessThanOrEqual(viewport.width - insets.right);
-      expect(r.y, r.label).toBeGreaterThanOrEqual(insets.top);
-      expect(r.bottom, r.label).toBeLessThanOrEqual(viewport.height - insets.bottom);
+    await boot(page);
+    const status = page.locator('#save-status');
+    for (const saved of [false, true]) {
+      if (saved) {
+        await page.locator('#save-state').tap();
+        await expect(status).toHaveText('State saved.');
+        await expect(status).toBeInViewport({ ratio: 1 });
+      }
+      const result = await layout(page);
+      const items = [result.screen, ...result.actions, ...result.buttons];
+      if (saved) {
+        items.push(await status.evaluate(element => {
+          const { x, y, right, bottom } = element.getBoundingClientRect();
+          return { x, y, right, bottom, label: element.id };
+        }));
+      }
+      for (const r of items) {
+        expect(r.x, r.label).toBeGreaterThanOrEqual(insets.left);
+        expect(r.right, r.label).toBeLessThanOrEqual(viewport.width - insets.right);
+        expect(r.y, r.label).toBeGreaterThanOrEqual(insets.top);
+        expect(r.bottom, r.label).toBeLessThanOrEqual(viewport.height - insets.bottom);
+      }
     }
     expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover');
   });

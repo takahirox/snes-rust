@@ -44,6 +44,7 @@ pub struct Machine {
     pub cpu: Cpu,
     pub bus: SystemBus,
     probe: Option<LoopProbe>,
+    snapshot_boundary: bool,
 }
 // CPU and bus state at an instruction boundary, used to recognize a loop
 // iteration that only read ROM/WRAM on the access fast path.
@@ -110,20 +111,24 @@ pub struct SystemBus {
 }
 impl Machine {
     pub fn new(rom: &[u8]) -> Result<Self, String> {
-        let cart = Cartridge::load(rom)?;
+        Ok(Self::powered_on(Cartridge::load(rom)?))
+    }
+    fn powered_on(cart: Cartridge) -> Self {
         let mut m = Self {
             cpu: Cpu::default(),
             bus: SystemBus::new(cart),
             probe: None,
+            snapshot_boundary: true,
         };
         m.cpu.reset(&mut m.bus);
-        Ok(m)
+        m
     }
     /// Reset preserves cartridge SRAM, clears volatile state, and releases controllers.
     pub fn reset(&mut self) {
         let cart = self.bus.cart.clone();
         self.bus = SystemBus::new(cart);
         self.probe = None;
+        self.snapshot_boundary = true;
         self.cpu.reset(&mut self.bus);
     }
     fn loop_probe(&self) -> LoopProbe {
@@ -169,6 +174,10 @@ impl Machine {
         }
     }
     pub fn step(&mut self) {
+        self.snapshot_boundary = false;
+        self.step_instruction();
+    }
+    fn step_instruction(&mut self) {
         if self.bus.access_limit != 0 && !self.cpu.waiting && !self.cpu.stopped {
             self.skip_pure_loop();
         }
@@ -191,6 +200,7 @@ impl Machine {
         self.cpu.step(&mut self.bus);
     }
     pub fn run_frame(&mut self) -> Result<(), String> {
+        self.snapshot_boundary = false;
         self.bus.defer_raster = true;
         self.bus.defer_apu = true;
         self.bus.invalidate_fast();
@@ -208,13 +218,14 @@ impl Machine {
                 .ppu
                 .render_until(self.bus.v as usize - 1, self.bus.h);
         }
+        self.snapshot_boundary = result.is_ok();
         result
     }
     fn run_field(&mut self) -> Result<(), String> {
         let end = self.bus.frames + 1;
         let deadline = self.bus.clocks + 400_000;
         while self.bus.frames < end {
-            self.step();
+            self.step_instruction();
             if self.bus.clocks > deadline && self.bus.frames < end {
                 return Err(format!(
                     "Frame deadline exceeded at {:02x}:{:04x}",
@@ -1540,3 +1551,139 @@ mod late_horizontal_irq_tests;
 
 #[cfg(test)]
 mod raster_tests;
+
+use crate::snapshot::{self, Reader, Value};
+
+snapshot::snapshot_fields!(AutoJoypad, next, step);
+snapshot::snapshot_members!(
+    SystemBus,
+    clocks,
+    frames,
+    io,
+    dma,
+    open,
+    waddr,
+    h,
+    v,
+    nmi_flag,
+    nmi_pending,
+    irq,
+    buttons,
+    buttons2,
+    joy,
+    serial,
+    strobe,
+    auto_start,
+    auto_poll,
+    auto_latch,
+    dma_pending,
+    hdma_active,
+    hdma_line,
+    hdma_transfer,
+    hdma_pending,
+    hdma_init,
+    math,
+);
+
+impl Machine {
+    /// Build a reset machine for the same cartridge, using fresh or supplied SRAM.
+    pub fn restart_with_sram(&self, data: Option<&[u8]>) -> Result<Self, String> {
+        let mut cart = self.bus.cart.clone();
+        if let Some(data) = data {
+            if data.len() != cart.sram.len() {
+                return Err("Save size does not match cartridge SRAM".into());
+            }
+            cart.sram.copy_from_slice(data);
+        } else {
+            cart.sram.fill(0);
+        }
+        Ok(Self::powered_on(cart))
+    }
+
+    /// Encode the machine after reset or a successful field, without advancing it.
+    /// Audio already produced and host trace output are outside the snapshot.
+    pub fn save_snapshot(&self) -> Result<Vec<u8>, String> {
+        if !self.snapshot_boundary {
+            return Err("Save state requires a completed field or a reset machine".into());
+        }
+        let bus = &self.bus;
+        let cart = &bus.cart;
+        let mut body = Vec::with_capacity(
+            bus.wram.len() + self.framebuffer().len() + cart.sram.len() + 150_000,
+        );
+        self.cpu.write(&mut body);
+        bus.write_members(&mut body);
+        body.extend_from_slice(&bus.wram[..]);
+        body.extend_from_slice(&cart.sram);
+        bus.ppu.write_snapshot(&mut body);
+        bus.apu.write_snapshot(&mut body);
+        Ok(snapshot::pack(
+            cart.rom_hash(),
+            cart.mapping.snapshot_id(),
+            cart.battery,
+            cart.sram.len(),
+            &body,
+        ))
+    }
+
+    /// Decode a candidate using this machine's cartridge. The original remains
+    /// available for validation and any required storage work before replacement.
+    pub fn prepare_snapshot(&self, file: &[u8]) -> Result<Self, String> {
+        let cart = &self.bus.cart;
+        let body = snapshot::unpack(
+            file,
+            cart.rom_hash(),
+            cart.mapping.snapshot_id(),
+            cart.battery,
+            cart.sram.len(),
+        )?;
+        let mut input = Reader(&body);
+        let cpu = Cpu::read(&mut input)?;
+        if !cpu.valid_mode() {
+            return Err(snapshot::invalid());
+        }
+        let mut bus = SystemBus::new(cart.clone());
+        bus.read_members(&mut input)?;
+        bus.wram.copy_from_slice(input.take(0x20000)?);
+        let size = cart.sram.len();
+        bus.cart.sram.copy_from_slice(input.take(size)?);
+        bus.ppu.read_snapshot(&mut input)?;
+        bus.apu.read_snapshot(&mut input)?;
+        if !input.0.is_empty()
+            || cpu.stopped
+            || cpu.instructions >= u64::MAX / 2
+            || bus.waddr >= bus.wram.len()
+            || bus.clocks >= u64::MAX / 2
+            || bus.frames > bus.clocks / 350_000
+            || bus.v != bus.ppu.v
+            || bus.h != u64::from(bus.ppu.h)
+            || (bus.buttons | bus.buttons2) & 15 != 0
+            || bus
+                .auto_start
+                .is_some_and(|next| next <= bus.clocks || next - bus.clocks > 385)
+            || bus.auto_poll.as_ref().is_some_and(|poll| {
+                poll.step > 16 || poll.next <= bus.clocks || poll.next - bus.clocks > 256
+            })
+            || bus
+                .math
+                .is_some_and(|(cycles, _, _)| !(1..=16).contains(&cycles))
+        {
+            return Err(snapshot::invalid());
+        }
+        // Reconstruct from ordinary slow-path defaults. These caches are
+        // pure event bounds or probes for skipping equivalent execution.
+        bus.apu.trace_limit = self.bus.apu.trace_limit;
+        Ok(Self {
+            cpu,
+            bus,
+            probe: None,
+            snapshot_boundary: true,
+        })
+    }
+
+    /// Validate before replacing any current state.
+    pub fn load_snapshot(&mut self, file: &[u8]) -> Result<(), String> {
+        *self = self.prepare_snapshot(file)?;
+        Ok(())
+    }
+}

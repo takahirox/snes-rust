@@ -18,3 +18,6 @@ pub fn frame_hash(bytes: &[u8]) -> u64 {
 pub(crate) fn zeroed<const N: usize>() -> Box<[u8; N]> {
     vec![0; N].into_boxed_slice().try_into().unwrap()
 }
+
+mod snapshot;
+pub use snapshot::MAX_SNAPSHOT_BYTES;
