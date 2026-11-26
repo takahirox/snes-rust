@@ -233,6 +233,41 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
   await expect(page.locator('#save-state-message')).toContainText('different ROM revision');
 });
 
+test('a failed state load leaves another tab able to autosave to Save 1', async ({ page, context }) => {
+  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
+  await ready(page);
+  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, Buffer.alloc(2048, 0x79).toString('base64')]);
+  await local(page);
+  await pause(page);
+  await sram(page, 0x21);
+  await capture(page);
+  await sram(page, 0x79);
+
+  const other = await context.newPage();
+  await ready(other);
+  await local(other);
+  await pause(other);
+  expect(await sram(other)).toBe(0x79);
+  await page.evaluate(key => {
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (record, data) {
+      if (record === key) throw new DOMException('Write denied', 'SecurityError');
+      return set.call(this, record, data);
+    };
+  }, sramKey);
+  await page.locator('#load-state').click();
+  await states(page).first().click();
+  await expect(page.locator('#save-state-message')).toContainText('Write denied');
+  expect(await stored()).toBe(0x79);
+  expect(await sram(page)).toBe(0x79);
+
+  await sram(other, 0x52);
+  await other.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect.poll(stored).toBe(0x52);
+  await other.locator('#save-data').click();
+  await expect(other.getByRole('button', { name: 'Recovery · Another tab', exact: true })).toHaveCount(0);
+});
+
 for (const contention of [false, true]) test(`navigation preserves dirty SRAM at localStorage quota ${contention ? 'with' : 'without'} lock contention`, async ({ page, context }) => {
   const prior = Buffer.alloc(2048, 0x21).toString('base64');
   const updated = Buffer.alloc(2048, 0x79).toString('base64');
@@ -279,6 +314,38 @@ function holdSaveLock(page) {
     }));
   }), hash);
 }
+
+test('closing a dirty tab at quota warns while another tab holds the save lock', async ({ page, context }) => {
+  const prior = Buffer.alloc(2048, 0x21).toString('base64');
+  const updated = Buffer.alloc(2048, 0x79).toString('base64');
+  await ready(page);
+  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, prior]);
+  await local(page);
+  await pause(page);
+  await fillLocalStorage(page);
+  const holder = await context.newPage();
+  await ready(holder);
+  await holdSaveLock(holder);
+  await sram(page, 0x79);
+
+  const warning = page.waitForEvent('dialog', { timeout: 5000 });
+  await page.close({ runBeforeUnload: true });
+  const dialog = await warning;
+  expect(dialog.type()).toBe('beforeunload');
+  await dialog.dismiss();
+  const stored = () => holder.evaluate(key => localStorage.getItem(key), sramKey);
+  expect(await stored()).toBe(prior);
+  expect(await sram(page)).toBe(0x79);
+
+  await holder.evaluate(() => releaseExitSaveLock());
+  await expect.poll(stored).toBe(updated);
+  const closed = page.waitForEvent('close');
+  await page.close({ runBeforeUnload: true });
+  await closed;
+  await local(holder);
+  await expect(holder.locator('#status')).toHaveText('Playing');
+  expect(await sram(holder)).toBe(0x79);
+});
 
 for (const mode of ['paused', 'changed', 'changed at quota']) {
   test(`closing a ${mode} stale tab preserves restored SRAM`, async ({ page, context }) => {

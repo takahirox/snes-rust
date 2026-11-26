@@ -271,11 +271,10 @@ function showErrors() {
 }
 function report(error) { operationError = error.message || String(error); showErrors(); }
 function clearError() { operationError = ''; showErrors(); }
-function saveBeforeUnload() { void save(); }
+function saveBeforeUnload(event) { void save(event); }
 function trackSram(base, epoch) {
   activeSram = activeProfile ? { base, epoch, clean: encodeSram(liveSram()) } : undefined;
-  // Start the locked in-place save earlier in navigation. A new pagehide
-  // journal entry can exceed quota even when the existing record still fits.
+  // Try saving before pagehide, while the browser can still warn about unsaved progress.
   if (activeSram) window.addEventListener('beforeunload', saveBeforeUnload);
   else window.removeEventListener('beforeunload', saveBeforeUnload);
 }
@@ -294,13 +293,14 @@ function finishSramSave(error) {
   return !error;
 }
 
-async function save(lifecycle = false) {
+async function save(lifecycleEvent) {
   if (!activeSram) return true;
   if (restorePending) return false;
   const session = activeSram, hash = activeHash;
   const data = encodeSram(liveSram());
   let pending;
-  if (lifecycle && (data !== session.clean || session.pending)) {
+  const dirty = data !== session.clean;
+  if (lifecycleEvent && (dirty || session.pending)) {
     try {
       if (session.pending?.data !== data) {
         const previous = session.pending;
@@ -310,6 +310,12 @@ async function save(lifecycle = false) {
       }
       pending = session.pending;
     } catch (error) { finishSramSave(error); }
+    // Session storage can carry the save through navigation, but closing the
+    // tab erases it. Ask the user to stay if we have no durable journal yet.
+    if (lifecycleEvent.type === 'beforeunload' && dirty && !pending?.durable) {
+      lifecycleEvent.preventDefault();
+      lifecycleEvent.returnValue = true;
+    }
   }
   try {
     return await lockSaves(hash, () => {
@@ -1093,12 +1099,12 @@ for (const button of touchButtons) {
   });
   button.addEventListener('blur', () => { virtualKeys.delete(button); paintVirtualInput(); });
 }
-document.addEventListener('visibilitychange', () => {
+document.addEventListener('visibilitychange', event => {
   if (!syncPlayback(true)) return;
-  const saved = save(true);
+  const saved = save(event);
   if (loading) loading.savedOnSuspend = saved;
 });
-window.addEventListener('pagehide', () => { void save(true); });
+window.addEventListener('pagehide', event => { void save(event); });
 
 const profileDialog = $('save-data-dialog'), stateDialog = $('save-state-dialog');
 const profileList = $('save-profiles'), historyList = $('state-history');
@@ -1454,8 +1460,15 @@ function preserveSram(scope) {
     // intervening restore stays stale even when the restored SRAM matches its base.
     record.epoch = crypto.randomUUID();
     writeProfiles(hash, catalog);
-    if (activeSram.base === base && activeSram.epoch === previousEpoch) activeSram.epoch = record.epoch;
-    writeSramData(hash, profile, data);
+    try {
+      writeSramData(hash, profile, data);
+    } catch (error) {
+      // The SRAM write was rejected. Restore the prior epoch under the same lock
+      // so tabs with the unchanged SRAM can still save to this profile.
+      record.epoch = previousEpoch;
+      writeProfiles(hash, catalog);
+      throw error;
+    }
   }
   return { data, epoch: record.epoch, recovered: Boolean(recover.length) };
 }

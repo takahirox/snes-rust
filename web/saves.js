@@ -149,13 +149,13 @@ export function stageSram(hash, entry) {
   const value = JSON.stringify(entry);
   try {
     localStorage.setItem(key, value);
-    return { storage: localStorage, key };
+    return { storage: localStorage, key, durable: true };
   } catch (error) {
     if (error.name !== 'QuotaExceededError') throw error;
     // The tab's session storage survives navigation and has its own quota.
     // Replaying the entry still requires the ROM lock and the same stale-save checks.
     sessionStorage.setItem(key, value);
-    return { storage: sessionStorage, key };
+    return { storage: sessionStorage, key, durable: false };
   }
 }
 
