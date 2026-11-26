@@ -1169,14 +1169,16 @@ document.addEventListener('visibilitychange', event => {
 window.addEventListener('pagehide', event => { void save(event); });
 
 const profileDialog = $('save-data-dialog'), stateDialog = $('save-state-dialog');
-const profileList = $('save-profiles'), historyList = $('state-history');
-for (const dialog of [profileDialog, stateDialog]) {
-  dialog.addEventListener('keydown', event => {
+const profileList = $('save-profiles');
+const destinationPicker = $('save-destination-picker'), newDestination = $('new-state-destination');
+const destinationToggle = $('choose-save-destination');
+for (const controls of [profileDialog, stateDialog, destinationPicker, destinationToggle.parentElement]) {
+  controls.addEventListener('keydown', event => {
     if (event.key === 'Enter' && event.repeat) event.preventDefault();
   });
 }
-let historyView, profileView;
-const previews = new Set();
+let historyView, profileView, destinationView, saveNoticeTimer;
+const saveDestinations = new Map();
 
 function requireProfile(catalog, id) {
   const profile = catalog.profiles.find(profile => profile.id === id);
@@ -1186,9 +1188,11 @@ function requireProfile(catalog, id) {
 
 function updateSaveControls() {
   const disabled = !loaded || Boolean(loading) || restorePending;
+  if (disabled && destinationPicker.matches(':popover-open')) destinationPicker.hidePopover();
+  updateSaveDestination();
   $('save-data').hidden = !activeProfile;
   $('active-save-name').textContent = activeProfile?.name ?? '';
-  for (const button of [$('save-data'), $('save-state'), $('load-state')]) {
+  for (const button of [$('save-data'), $('save-state'), destinationToggle, $('load-state')]) {
     button.disabled = disabled;
     if (saveBusy) button.setAttribute('aria-disabled', 'true');
     else button.removeAttribute('aria-disabled');
@@ -1397,6 +1401,25 @@ function saveScope() {
   return { hash: activeHash, profile: activeProfile?.id ?? '' };
 }
 
+const destinationScope = ({ hash, profile }) => `${hash}:${profile}`;
+const saveDestination = scope => saveDestinations.get(destinationScope(scope));
+const stateTime = key => new Date(key[2]).toLocaleString();
+
+function updateSaveDestination() {
+  const key = saveDestination(saveScope());
+  const label = $('save-destination');
+  label.textContent = key ? new Date(key[2]).toLocaleString(undefined, {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }) : 'New state';
+  label.title = key ? stateTime(key) : '';
+}
+
+function selectSaveDestination(scope, key) {
+  if (key) saveDestinations.set(destinationScope(scope), key);
+  else saveDestinations.delete(destinationScope(scope));
+  updateSaveDestination();
+}
+
 function ensureScope(scope) {
   if (scope.hash !== activeHash || scope.profile !== (activeProfile?.id ?? '')) {
     throw new Error('The cartridge or save data profile changed. Try again.');
@@ -1423,69 +1446,143 @@ function thumbnail(pointer, width) {
 }
 
 $('save-state').addEventListener('click', () => void saveAction(null, async () => {
+  if (destinationPicker.matches(':popover-open')) destinationPicker.hidePopover();
   const scope = saveScope();
+  const destination = saveDestination(scope);
   const time = Date.now();
   check(core.save_snapshot());
   const snapshot = bytes(core.snapshot_buffer(), core.snapshot_len()).slice();
   const preview = await thumbnail(core.framebuffer(), core.framebuffer_width());
-  await lockSaves(scope.hash, () => {
+  const key = await lockSaves(scope.hash, () => {
     ensureScope(scope);
-    return writeState(scope, time, snapshot, preview);
+    return writeState(scope, time, snapshot, preview, destination);
   });
-  $('save-status').textContent = 'State saved.';
+  selectSaveDestination(scope, key);
+  if (!key) throw new Error('The save destination no longer exists. Save again to create a new state.');
+  const message = $('save-status');
+  message.textContent = 'State saved.';
+  clearTimeout(saveNoticeTimer);
+  saveNoticeTimer = setTimeout(() => {
+    if (message.textContent === 'State saved.') message.textContent = '';
+  }, 3000);
 }));
 
-function clearHistory() {
-  for (const url of previews) URL.revokeObjectURL(url);
-  previews.clear();
-  historyList.replaceChildren();
-  $('more-states').hidden = true;
+function clearHistory(view) {
+  if (!view) return;
+  for (const url of view.previews) URL.revokeObjectURL(url);
+  view.previews.clear();
+  view.list.replaceChildren();
+  view.more.hidden = true;
+  view.before = undefined;
+}
+
+function isHistoryOpen(view) {
+  return view.selecting ? view === destinationView && destinationPicker.matches(':popover-open') :
+    view === historyView && stateDialog.open;
 }
 
 async function showHistory(view, append = false) {
   const { entries, more } = await historyPage(view.scope, append ? view.before : undefined);
-  if (!stateDialog.open || view !== historyView) return;
-  if (!append) clearHistory();
-  $('save-state-message').textContent = historyList.children.length || entries.length ? '' : 'No saved states yet.';
+  if (!isHistoryOpen(view)) return;
+  if (!append) clearHistory(view);
+  view.message.textContent = view.list.children.length || entries.length ? '' : 'No saved states yet.';
+  const selected = view.selecting ? saveDestination(view.scope) : undefined;
   let first;
   for (const { key, thumbnail } of entries) {
     view.before = key;
     const row = document.createElement('li');
-    const time = new Date(key[2]).toLocaleString();
-    const load = button(time, () => void loadHistoryState(view, key), `Load state from ${time}`);
+    const time = stateTime(key);
+    const action = view.selecting
+      ? button(time, () => chooseDestination(view, key), `Select state from ${time}`)
+      : button(time, () => void loadHistoryState(view, key), `Load state from ${time}`);
     const image = document.createElement('img');
     image.alt = '';
     image.width = 128;
     image.height = 112;
     const url = URL.createObjectURL(thumbnail);
     image.src = url;
-    previews.add(url);
-    load.prepend(image);
-    row.append(load,
-      button('Export', () => void exportHistoryState(view, key), `Export state from ${time}`),
-      button('Remove', () => void deleteHistoryState(view, key, row, url), `Remove state from ${time}`));
-    historyList.append(row);
-    first ??= load;
+    view.previews.add(url);
+    action.prepend(image);
+    row.append(action);
+    if (view.selecting) {
+      action.classList.add('destination-option');
+      if (key[3] === selected?.[3]) action.setAttribute('aria-current', 'true');
+      const mark = document.createElement('span');
+      mark.className = 'destination-check';
+      mark.setAttribute('aria-hidden', 'true');
+      mark.textContent = '✓';
+      action.append(mark);
+    } else {
+      row.append(
+        button('Export', () => void exportHistoryState(view, key), `Export state from ${time}`),
+        button('Remove', () => void deleteHistoryState(view, key, row, url), `Remove state from ${time}`));
+    }
+    view.list.append(row);
+    first ??= action;
   }
-  $('more-states').hidden = !more;
+  view.more.hidden = !more;
   if (append) first?.focus();
 }
 
+function openHistory(view) {
+  view.message.textContent = 'Loading history…';
+  void showHistory(view).catch(error => {
+    if (isHistoryOpen(view)) view.message.textContent = error.message;
+  });
+}
+
+function chooseDestination(view, key) {
+  if (!view || !isHistoryOpen(view) || saveBusy) return;
+  selectSaveDestination(view.scope, key);
+  destinationPicker.hidePopover();
+}
+
+destinationPicker.addEventListener('beforetoggle', event => {
+  if (event.newState !== 'open') return;
+  if (!loaded || loading || saveBusy || restorePending) {
+    event.preventDefault();
+    return;
+  }
+  clearHistory(destinationView);
+  const view = {
+    scope: saveScope(), selecting: true, previews: new Set(),
+    list: $('destination-history'), message: $('destination-message'), more: $('more-destinations'),
+  };
+  destinationView = view;
+  newDestination.setAttribute('aria-current', String(!saveDestination(view.scope)));
+  openHistory(view);
+});
+destinationPicker.addEventListener('toggle', () => {
+  if (destinationPicker.matches(':popover-open')) return;
+  clearHistory(destinationView);
+  destinationView = undefined;
+});
+newDestination.addEventListener('click', () => chooseDestination(destinationView));
+$('more-destinations').addEventListener('click', async () => {
+  const view = destinationView;
+  if (!view || !isHistoryOpen(view) || view.paging) return;
+  view.paging = true;
+  try { await showHistory(view, true); }
+  catch (error) { if (isHistoryOpen(view)) view.message.textContent = error.message; }
+  finally { view.paging = false; }
+});
+
 $('load-state').addEventListener('click', () => {
   if (!loaded || loading || saveBusy || restorePending) return;
-  clearHistory();
-  const view = { scope: saveScope() };
+  if (destinationPicker.matches(':popover-open')) destinationPicker.hidePopover();
+  clearHistory(historyView);
+  const view = {
+    scope: saveScope(), previews: new Set(),
+    list: $('state-history'), message: $('save-state-message'), more: $('more-states'),
+  };
   historyView = view;
   stateDialog.showModal();
-  $('save-state-message').textContent = 'Loading history…';
-  void showHistory(view).catch(error => {
-    if (stateDialog.open && view === historyView) $('save-state-message').textContent = error.message;
-  });
+  openHistory(view);
 });
 stateDialog.addEventListener('close', () => {
   if (stateDialog.open) return;
+  clearHistory(historyView);
   historyView = undefined;
-  clearHistory();
 });
 $('more-states').addEventListener('click', () => void saveAction(stateDialog, () => showHistory(historyView, true)));
 
@@ -1557,6 +1654,7 @@ function loadHistoryState(view, key) {
       try { protectedSram = preserveSram(view.scope); }
       catch (error) { throw new Error(`Could not protect SRAM before restoring: ${error.message}. Retry when storage is available.`); }
       finishSaveRestore(protectedSram?.data, protectedSram?.epoch);
+      selectSaveDestination(view.scope, key);
       stateDialog.close();
       $('save-status').textContent = protectedSram?.recovered ? 'State loaded. Previous SRAM is available in Save data.' : 'State loaded.';
     });
@@ -1574,14 +1672,15 @@ function exportHistoryState(view, key) {
 
 function deleteHistoryState(view, key, row, url) {
   return saveAction(stateDialog, async () => {
-    if (!confirm(`Remove the saved state from ${new Date(key[2]).toLocaleString()}?`)) return;
+    if (!confirm(`Remove the saved state from ${stateTime(key)}?`)) return;
     await lockSaves(view.scope.hash, () => removeState(key));
+    if (saveDestination(view.scope)?.[3] === key[3]) selectSaveDestination(view.scope);
     if (!stateDialog.open || view !== historyView) return;
     const next = row.nextElementSibling ?? row.previousElementSibling;
     row.remove();
     URL.revokeObjectURL(url);
-    previews.delete(url);
-    if (!historyList.children.length && $('more-states').hidden) $('save-state-message').textContent = 'No saved states yet.';
+    view.previews.delete(url);
+    if (!view.list.children.length && view.more.hidden) view.message.textContent = 'No saved states yet.';
     (next?.querySelector('button') ?? stateDialog.querySelector('[autofocus]')).focus();
   });
 }

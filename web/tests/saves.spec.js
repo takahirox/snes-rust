@@ -72,6 +72,16 @@ function states(page) {
   return page.getByRole('button', { name: /^Load state from/ });
 }
 
+function savedHistory(page, buffer = nonBattery, profile = '') {
+  return page.evaluate(async scope => {
+    const { historyPage } = await import('/saves.js');
+    const { entries } = await historyPage(scope);
+    return Promise.all(entries.map(async ({ key, thumbnail }) => ({
+      key, thumbnail: [...new Uint8Array(await thumbnail.arrayBuffer())],
+    })));
+  }, { hash: createHash('sha256').update(buffer).digest('hex'), profile });
+}
+
 async function fillStorage(page, name = 'localStorage') {
   await page.evaluate(name => {
     const storage = window[name];
@@ -166,9 +176,13 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
     };
     window.storageRecovered = () => { Storage.prototype.setItem = set; };
   }, sramKey);
+  await page.locator('#choose-save-destination').click();
+  await page.getByRole('button', { name: 'New state', exact: true }).click();
+  const destination = page.locator('#save-destination');
   await page.locator('#load-state').click();
   await states(page).first().click();
   await expect(page.locator('#save-state-message')).toContainText('Could not protect SRAM');
+  await expect(destination).toHaveText('New state');
   expect(await machineState(page)).toEqual(prior);
   await page.evaluate(() => storageRecovered());
   const storedBefore = await page.evaluate(key => localStorage.getItem(key), sramKey);
@@ -206,6 +220,8 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
   expect(await sram(page)).toBe(0x21);
   await page.locator('#load-state').click();
   await expect(states(page)).toHaveCount(1);
+  const selected = await destination.getAttribute('title');
+  expect(selected).toBeTruthy();
   const downloaded = page.waitForEvent('download');
   await page.getByRole('button', { name: /^Export state from/ }).click();
   const file = readFileSync(await (await downloaded).path());
@@ -221,6 +237,7 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
   await backupFile(page, '#state-file', 'valid.snesstate', file);
   await expect(page.locator('#save-state-message')).toContainText('State imported');
   await expect(states(page)).toHaveCount(2);
+  await expect(destination).toHaveAttribute('title', selected);
   await states(page).first().click();
   await expect(page.locator('#save-state-dialog')).toBeHidden();
   expect(await machineState(page)).toEqual(historical);
@@ -913,6 +930,133 @@ for (const replayed of [false, true]) test(`successive stale-tab saves update on
   expect(await stored()).toBe(0x21);
 });
 
+test('the split save control overwrites the chosen state and keeps older states restorable', async ({ page }) => {
+  await ready(page);
+  await local(page, nonBattery);
+  await pause(page);
+  const destination = page.locator('#save-destination');
+  const picker = page.getByRole('dialog', { name: 'Save destination' });
+  const arrow = page.getByRole('button', { name: 'Choose save state destination' });
+  const newState = picker.getByRole('button', { name: 'New state' });
+  const options = picker.getByRole('button', { name: /^Select state from/ });
+  let time = Date.UTC(2026, 10, 26, 12);
+  const advanceTime = () => page.clock.setFixedTime(new Date(time += 1000));
+
+  await expect(destination).toHaveText('New state');
+  await page.evaluate(() => { saveCore.reset(); saveCore.run_frame(0); });
+  await advanceTime();
+  await capture(page);
+  const [first] = await savedHistory(page);
+  const firstLabel = await destination.textContent();
+  await page.evaluate(() => { for (let i = 0; i < 57; i++) saveCore.run_frame(0); });
+  const updatedMachine = await machineState(page);
+  await advanceTime();
+  await capture(page);
+  const history = await savedHistory(page);
+  expect(history).toHaveLength(1);
+  const [updated] = history;
+  expect(updated.key[3]).toBe(first.key[3]);
+  expect(updated.key[2]).toBe(time);
+  expect(updated.thumbnail).not.toEqual(first.thumbnail);
+  await expect(destination).not.toHaveText(firstLabel);
+
+  await arrow.press('Enter');
+  await expect(newState).toBeFocused();
+  await expect(options).toHaveCount(1);
+  await expect(options.first()).toHaveAttribute('aria-current', 'true');
+  await expect(options.first().locator('.destination-check')).toBeVisible();
+  expect(await options.first().locator('img').evaluate(async image => {
+    await image.decode();
+    return [image.naturalWidth, image.naturalHeight];
+  })).toEqual([128, 112]);
+  await page.keyboard.press('Escape');
+  await expect(picker).toBeHidden();
+  await expect(arrow).toBeFocused();
+  await page.evaluate(() => saveCore.run_frame(0x0100));
+  await page.locator('#load-state').click();
+  await states(page).first().click();
+  await expect(page.locator('#save-status')).toHaveText('State loaded.');
+  expect(await machineState(page)).toEqual(updatedMachine);
+  await arrow.press('Space');
+  await newState.press('Enter');
+  await expect(destination).toHaveText('New state');
+  expect(await savedHistory(page)).toEqual(history);
+  expect(await machineState(page)).toEqual(updatedMachine);
+  await expect(page.locator('#status')).toHaveText('Paused');
+
+  await page.evaluate(() => saveCore.run_frame(0x0100));
+  const olderMachine = await machineState(page);
+  await advanceTime();
+  await capture(page);
+  const [newEntry, formerEntry] = await savedHistory(page);
+  expect(newEntry.key[3]).not.toBe(first.key[3]);
+  expect(formerEntry).toEqual(updated);
+  await arrow.click();
+  await expect(options).toHaveCount(2);
+  await expect(options.first()).toHaveAttribute('aria-current', 'true');
+  await options.last().click();
+  expect(await savedHistory(page)).toEqual([newEntry, updated]);
+  expect(await machineState(page)).toEqual(olderMachine);
+  await expect(page.locator('#status')).toHaveText('Paused');
+
+  await page.evaluate(() => saveCore.run_frame(0));
+  await advanceTime();
+  await capture(page);
+  expect((await savedHistory(page)).map(({ key }) => key[3])).toEqual([first.key[3], newEntry.key[3]]);
+  await page.locator('#load-state').click();
+  await states(page).last().click();
+  await expect(page.locator('#save-status')).toHaveText('State loaded.');
+  expect(await machineState(page)).toEqual(olderMachine);
+  await advanceTime();
+  await capture(page);
+  expect((await savedHistory(page)).map(({ key }) => key[3])).toEqual([newEntry.key[3], first.key[3]]);
+
+  await page.locator('#load-state').click();
+  const remove = page.getByRole('button', { name: /^Remove state from/ }).first();
+  page.once('dialog', dialog => dialog.dismiss());
+  await remove.click();
+  await expect(destination).not.toHaveText('New state');
+  page.once('dialog', dialog => dialog.accept());
+  await remove.click();
+  await expect(states(page)).toHaveCount(1);
+  await expect(destination).toHaveText('New state');
+});
+
+test('save destinations are remembered separately for each ROM and SRAM profile', async ({ page }) => {
+  await ready(page);
+  await local(page);
+  await pause(page);
+  const destination = page.locator('#save-destination');
+  const saveData = page.locator('#save-data');
+  await capture(page);
+  const save1 = await destination.getAttribute('title');
+  const [original] = await savedHistory(page, rom, 'legacy');
+  await saveData.click();
+  await page.getByRole('button', { name: 'New save', exact: true }).click();
+  await expect(saveData).toContainText('Save 2');
+  await expect(destination).toHaveText('New state');
+  await capture(page);
+  const save2 = await destination.getAttribute('title');
+  expect(await savedHistory(page, rom, 'legacy')).toEqual([original]);
+
+  await local(page, nonBattery);
+  await pause(page);
+  await expect(destination).toHaveText('New state');
+  await capture(page);
+  const separateRom = await savedHistory(page);
+  await local(page);
+  await pause(page);
+  await expect(saveData).toContainText('Save 2');
+  await expect(destination).toHaveAttribute('title', save2);
+  await saveData.click();
+  await page.getByRole('button', { name: 'Save 1', exact: true }).click();
+  await expect(saveData).toContainText('Save 1');
+  await expect(destination).toHaveAttribute('title', save1);
+  await capture(page);
+  expect((await savedHistory(page, rom, 'legacy')).map(({ key }) => key[3])).toEqual([original.key[3]]);
+  expect(await savedHistory(page)).toEqual(separateRom);
+});
+
 test('105 non-battery captures persist, page thumbnails, and restore arbitrary entries', async ({ page }) => {
   test.setTimeout(60000);
   const errors = [];
@@ -927,7 +1071,10 @@ test('105 non-battery captures persist, page thumbnails, and restore arbitrary e
     const saved = [];
     const button = document.getElementById('save-state');
     const status = document.getElementById('save-status');
+    const picker = document.getElementById('save-destination-picker');
+    const newState = document.getElementById('new-state-destination');
     for (let i = 0; i < 105; i++) {
+      if (i) { picker.showPopover(); newState.click(); }
       if (!saveCore.run_frame(i % 4 === 0 ? 0x0100 : 0)) throw new Error('Fixture failed');
       if (!saveCore.save_snapshot()) throw new Error('Capture probe failed');
       const snapshot = new Uint8Array(saveCore.memory.buffer, saveCore.snapshot_buffer(), saveCore.snapshot_len());
@@ -947,6 +1094,14 @@ test('105 non-battery captures persist, page thumbnails, and restore arbitrary e
   await page.locator('#change-cartridge').click();
   await page.getByRole('button', { name: 'no-battery.sfc', exact: true }).click();
   await pause(page);
+  await page.locator('#choose-save-destination').click();
+  const destinations = page.getByRole('button', { name: /^Select state from/ });
+  await expect(destinations).toHaveCount(24);
+  await page.locator('#more-destinations').click();
+  await expect(destinations).toHaveCount(48);
+  await expect(destinations.nth(24)).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#save-destination')).toHaveText('New state');
   await page.locator('#load-state').click();
   await expect(states(page)).toHaveCount(24);
   for (let pageNumber = 2; pageNumber <= 5; pageNumber++) {
@@ -1002,30 +1157,50 @@ test('105 non-battery captures persist, page thumbnails, and restore arbitrary e
   console.log(`105 captures: median ${stats[52].toFixed(1)} ms, p95 ${stats[99].toFixed(1)} ms; one UI load ${latency} ms; selected compressed file ${snapshot.length} bytes`);
 });
 
-test('aborted IndexedDB write leaves no orphan entry, and a closed dialog cancels a pending restore', async ({ page }) => {
+test('aborted IndexedDB writes roll back creation and overwrite, and cancelled restores keep their destination', async ({ page }) => {
   await ready(page);
   await local(page, nonBattery, 'no-battery.sfc');
   await pause(page);
   await page.evaluate(() => {
     const add = IDBObjectStore.prototype.add;
+    window.abortSnapshotWrite = true;
     IDBObjectStore.prototype.add = function (...args) {
       const request = add.apply(this, args);
-      if (this.name === 'snapshots') {
+      if (this.name === 'snapshots' && window.abortSnapshotWrite) {
         request.addEventListener('success', () => this.transaction.abort(), { once: true });
       }
       return request;
     };
-    window.restoreIdb = () => { IDBObjectStore.prototype.add = add; };
   });
   await page.locator('#save-state').click();
   await expect(page.locator('#error')).toContainText('transaction aborted');
   await page.locator('#load-state').click();
   await expect(page.locator('#save-state-message')).toHaveText('No saved states yet.');
   await page.keyboard.press('Escape');
-  await page.evaluate(() => restoreIdb());
+  await page.evaluate(() => { window.abortSnapshotWrite = false; });
+  const originalMachine = await machineState(page);
   await capture(page);
+  const original = await savedHistory(page);
+  const destination = page.locator('#save-destination');
+  const originalLabel = await destination.getAttribute('title');
   await page.evaluate(() => saveCore.run_frame(0x0100));
   const newer = await machineState(page);
+  expect(newer).not.toEqual(originalMachine);
+  await page.evaluate(() => { window.abortSnapshotWrite = true; });
+  await page.locator('#save-state').click();
+  await expect(page.locator('#error')).toContainText('transaction aborted');
+  await expect(page.locator('#save-status')).toBeEmpty();
+  await expect(destination).toHaveAttribute('title', originalLabel);
+  expect(await savedHistory(page)).toEqual(original);
+  expect(await machineState(page)).toEqual(newer);
+
+  await page.locator('#load-state').click();
+  await states(page).first().click();
+  await expect(page.locator('#save-status')).toHaveText('State loaded.');
+  expect(await machineState(page)).toEqual(originalMachine);
+  await page.evaluate(() => saveCore.run_frame(0x0100));
+  await page.locator('#choose-save-destination').click();
+  await page.getByRole('button', { name: 'New state', exact: true }).click();
   await page.locator('#load-state').click();
   await page.evaluate(() => {
     const request = LockManager.prototype.request;
@@ -1040,6 +1215,26 @@ test('aborted IndexedDB write leaves no orphan entry, and a closed dialog cancel
   await page.evaluate(() => releaseSaveLock());
   await expect(page.locator('#load-state')).toBeEnabled();
   expect(await machineState(page)).toEqual(newer);
+  await expect(destination).toHaveText('New state');
+});
+
+test('a vanished destination fails safely and returns to New state', async ({ page }) => {
+  await ready(page);
+  await local(page, nonBattery);
+  await pause(page);
+  await capture(page);
+  const [vanished] = await savedHistory(page);
+  await page.evaluate(async key => {
+    const { removeState } = await import('/saves.js');
+    await removeState(key);
+  }, vanished.key);
+  await page.locator('#save-state').click();
+  await expect(page.locator('#error')).toContainText('The save destination no longer exists.');
+  await expect(page.locator('#save-status')).toBeEmpty();
+  await expect(page.locator('#save-destination')).toHaveText('New state');
+  expect(await savedHistory(page)).toEqual([]);
+  await capture(page);
+  expect((await savedHistory(page))[0].key[3]).not.toBe(vanished.key[3]);
 });
 
 test('bundled cartridge snapshots respect visibility and paused intent on narrow and short touch layouts', async ({ browser }) => {
@@ -1051,6 +1246,12 @@ test('bundled cartridge snapshots respect visibility and paused intent on narrow
     await expect(page.locator('#status')).toHaveText('Playing');
     await page.locator('#save-state').tap();
     await expect(page.locator('#save-status')).toHaveText('State saved.');
+    await page.locator('#choose-save-destination').tap();
+    const picker = page.getByRole('dialog', { name: 'Save destination' });
+    await expect(picker).toBeInViewport({ ratio: 1 });
+    await picker.getByRole('button', { name: 'New state' }).tap();
+    await expect(page.locator('#save-destination')).toHaveText('New state');
+    await expect(page.locator('#status')).toHaveText('Playing');
     await page.locator('#load-state').tap();
     await expect(states(page)).toHaveCount(1);
     await setTabHidden(page, true);
@@ -1060,6 +1261,10 @@ test('bundled cartridge snapshots respect visibility and paused intent on narrow
     await expect(page.locator('#status')).toHaveText('Playing');
     await page.setViewportSize({ width: 667, height: 375 });
     await pause(page);
+    await page.locator('#choose-save-destination').tap();
+    await expect(picker).toBeInViewport({ ratio: 1 });
+    await picker.getByRole('button', { name: /^Select state from/ }).tap();
+    await expect(picker).toBeHidden();
     await page.locator('#load-state').tap();
     await expect(page.locator('#save-state-dialog')).toBeInViewport({ ratio: 1 });
     await states(page).first().tap();
