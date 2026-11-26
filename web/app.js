@@ -1,5 +1,5 @@
 import {
-  addStoredProfile, decodeSram, encodeSram, hasPendingSram, historyExists, historyPage, lockSaves,
+  addStoredProfile, decodeSram, encodeSram, hasPendingSram, hasSessionPendingSram, historyExists, historyPage, lockSaves,
   persistNewProfile, persistSram, readPendingSram, readProfiles, readSramData, readState,
   recoverSram, removeSram, removeState, sameSram, settlePendingSram, sramTimestamp, stageSram,
   writeProfiles, writeSramData, writeState,
@@ -271,7 +271,22 @@ function showErrors() {
 }
 function report(error) { operationError = error.message || String(error); showErrors(); }
 function clearError() { operationError = ''; showErrors(); }
-function saveBeforeUnload(event) { void save(event); }
+function warnBeforeUnload(event) {
+  event.preventDefault();
+  event.returnValue = true;
+}
+function saveBeforeUnload(event) {
+  void save(event);
+  if (hasSessionPendingSram()) warnBeforeUnload(event);
+}
+function updateUnloadGuard() {
+  // A session-only journal can survive navigation and cartridge changes.
+  if (activeSram || hasSessionPendingSram()) window.addEventListener('beforeunload', saveBeforeUnload);
+  else window.removeEventListener('beforeunload', saveBeforeUnload);
+}
+updateUnloadGuard();
+window.addEventListener('pageshow', updateUnloadGuard);
+
 function trackSram(base, epoch) {
   activeSram = activeProfile ? {
     target: { id: activeProfile.id, base, epoch },
@@ -279,9 +294,7 @@ function trackSram(base, epoch) {
     saveRevision: 0,
     clean: encodeSram(liveSram()),
   } : undefined;
-  // Try saving before pagehide, while the browser can still warn about unsaved progress.
-  if (activeSram) window.addEventListener('beforeunload', saveBeforeUnload);
-  else window.removeEventListener('beforeunload', saveBeforeUnload);
+  updateUnloadGuard();
 }
 
 function nextSramRevision(session) {
@@ -289,22 +302,36 @@ function nextSramRevision(session) {
   return (++session.saveRevision).toString(16).padStart(14, '0');
 }
 
-function persistActiveSram(data, revision = nextSramRevision(activeSram), settledEntry) {
-  const { target, recoveryId, clean } = activeSram;
-  const entry = settledEntry ?? { ...target, recoveryId, data, revision };
-  const settled = Boolean(settledEntry);
-  const saved = persistSram(activeHash, entry, { dirty: settled || data !== clean, settled });
-  if (saved.id !== target.id) {
-    activeSram.recoveryId = crypto.randomUUID();
+function adoptSramTarget(session, saved, data) {
+  if (saved.id !== session.target.id) {
+    session.recoveryId = crypto.randomUUID();
     $('save-status').textContent = 'This tab’s progress is in Recovery under Save data.';
   }
-  activeSram.target = saved;
-  activeSram.clean = data;
-  const pending = activeSram.pending;
+  session.target = saved;
+  session.clean = data;
+}
+
+function persistActiveSram(data, revision = nextSramRevision(activeSram)) {
+  const session = activeSram;
+  const journal = session.pending;
+  const removed = journal?.storage.getItem(journal.key) === null;
+  const replayed = removed ? journal.entry : session.replayCandidate;
+  if (replayed) {
+    // A removed journal may have been replayed or consumed by a state load.
+    // Under the ROM lock, adopt its target only if the bytes and epoch still match.
+    adoptSramTarget(session, persistSram(activeHash, replayed, { settled: true }), replayed.data);
+    if (removed) session.pending = undefined;
+    session.replayCandidate = undefined;
+    if (replayed.revision >= revision) return;
+  }
+
+  const { target, recoveryId, clean, pending } = session;
+  const saved = persistSram(activeHash, { ...target, recoveryId, data, revision }, { dirty: data !== clean });
+  adoptSramTarget(session, saved, data);
   if (pending && (pending.entry.revision === revision || (pending.entry.revision < revision && saved.base === data))) {
     // A regular autosave can durably replace a delayed lifecycle save.
-    if (!settled) pending.storage.removeItem(pending.key);
-    activeSram.pending = undefined;
+    pending.storage.removeItem(pending.key);
+    session.pending = undefined;
   }
 }
 
@@ -329,15 +356,17 @@ async function save(lifecycleEvent) {
         const entry = { ...session.target, recoveryId: session.recoveryId, data, revision };
         const journal = stageSram(hash, entry);
         session.pending = { ...journal, entry };
-        if (previous) previous.storage.removeItem(previous.key);
+        if (previous) {
+          if (previous.storage.getItem(previous.key) === null) session.replayCandidate = previous.entry;
+          else previous.storage.removeItem(previous.key);
+        }
       }
       pending = session.pending;
     } catch (error) { finishSramSave(error); }
     // Session storage can carry the save through navigation, but closing the
     // tab erases it. Ask the user to stay if we have no durable journal yet.
     if (lifecycleEvent.type === 'beforeunload' && dirty && !pending?.durable) {
-      lifecycleEvent.preventDefault();
-      lifecycleEvent.returnValue = true;
+      warnBeforeUnload(lifecycleEvent);
     }
   }
   try {
@@ -345,8 +374,7 @@ async function save(lifecycleEvent) {
       if (session !== activeSram) return true;
       if (restorePending) return false;
       if (pending && session.pending !== pending) return true;
-      const settled = pending && pending.storage.getItem(pending.key) === null;
-      persistActiveSram(data, pending?.entry.revision ?? revision, settled ? pending.entry : undefined);
+      persistActiveSram(data, pending?.entry.revision ?? revision);
       return finishSramSave();
     });
   } catch (error) {

@@ -175,10 +175,10 @@ export function persistSram(hash, { id, base, epoch, data, recoveryId, revision 
 
 // A closing/frozen tab might not get another turn to acquire the Web Lock.
 // Stage its dirty bytes under a unique key before yielding to the browser.
-const pendingPrefix = hash => `snes-rust:pending-sram:${hash}:`;
+const pendingPrefix = 'snes-rust:pending-sram:';
 
 export function stageSram(hash, entry) {
-  const key = pendingPrefix(hash) + crypto.randomUUID();
+  const key = `${pendingPrefix}${hash}:${crypto.randomUUID()}`;
   const value = JSON.stringify(entry);
   try {
     localStorage.setItem(key, value);
@@ -193,7 +193,7 @@ export function stageSram(hash, entry) {
 }
 
 function* pendingSramEntries(hash) {
-  const prefix = pendingPrefix(hash);
+  const prefix = `${pendingPrefix}${hash}:`;
   let tabStorage;
   try { tabStorage = sessionStorage; } catch { /* The tab journal may be unavailable. */ }
   for (const storage of [localStorage, tabStorage]) {
@@ -206,6 +206,11 @@ function* pendingSramEntries(hash) {
 
 export function hasPendingSram(hash) {
   return !pendingSramEntries(hash).next().done;
+}
+
+export function hasSessionPendingSram() {
+  try { return Object.keys(sessionStorage).some(key => key.startsWith(pendingPrefix)); }
+  catch { return false; }
 }
 
 export function* readPendingSram(hash, size, profileId) {

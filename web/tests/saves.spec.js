@@ -467,6 +467,60 @@ test('closing a dirty tab at quota warns while another tab holds the save lock',
   expect(await sram(holder)).toBe(0x79);
 });
 
+test('closing after navigation still warns about a session-only SRAM journal at quota', async ({ page, context }) => {
+  const prior = Buffer.alloc(2048, 0x21).toString('base64');
+  const newer = Buffer.alloc(2048, 0x43).toString('base64');
+  await ready(page);
+  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, prior]);
+  await local(page);
+  await pause(page);
+  const other = await context.newPage();
+  await ready(other);
+  await local(other);
+  await pause(other);
+  await sram(other, 0x43);
+  await other.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect.poll(() => other.evaluate(key => localStorage.getItem(key), sramKey)).toBe(newer);
+  await fillLocalStorage(other);
+
+  await sram(page, 0x79);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  const pending = () => page.evaluate(() => Object.keys(sessionStorage)
+    .filter(key => key.startsWith('snes-rust:pending-sram:')).length);
+  expect(await pending()).toBe(1);
+  const acceptNavigation = dialog => dialog.accept();
+  page.on('dialog', acceptNavigation);
+  await page.goto('/?session-only-recovery');
+  page.off('dialog', acceptNavigation);
+  await expect(page.locator('#status')).toHaveText('Ready');
+  const warnedWithoutCartridge = await page.evaluate(() =>
+    !window.dispatchEvent(new Event('beforeunload', { cancelable: true })));
+
+  await local(page);
+  await pause(page);
+  expect(await sram(page)).toBe(0x43);
+  await expect(page.locator('#save-status')).toContainText('Open Save data to retry');
+  expect(await pending()).toBe(1);
+  const warning = page.waitForEvent('dialog', { timeout: 5000 });
+  await page.close({ runBeforeUnload: true });
+  const dialog = await warning;
+  expect(dialog.type()).toBe('beforeunload');
+  await dialog.dismiss();
+  expect(warnedWithoutCartridge).toBe(true);
+  expect(await pending()).toBe(1);
+
+  await other.evaluate(() => localStorage.removeItem('quota-test'));
+  await page.locator('#save-data').click();
+  await page.getByRole('button', { name: 'Recovery · Another tab', exact: true }).click();
+  await expect(page.locator('#save-data-dialog')).toBeHidden();
+  expect(await sram(page)).toBe(0x79);
+  expect(await pending()).toBe(0);
+  const closed = page.waitForEvent('close');
+  await page.close({ runBeforeUnload: true });
+  await closed;
+});
+
 for (const mode of ['paused', 'changed', 'changed at quota', 'changed after a same-byte restore']) {
   test(`closing a stale tab preserves restored SRAM (${mode})`, async ({ page, context }) => {
     const dirty = mode !== 'paused';
@@ -525,6 +579,81 @@ for (const mode of ['paused', 'changed', 'changed at quota', 'changed after a sa
       expect(await stored()).toBe(0x21);
     } else {
       await expect(recovery).toHaveCount(0);
+    }
+  });
+}
+
+for (const next of ['pause at quota', 'pagehide at quota', 'another write', 'same-byte restore']) {
+  test(`a writer reconciles a replay into Save 1 before its next save (${next})`, async ({ page, context }) => {
+    const largeRom = Buffer.from(rom);
+    largeRom[0x7fd8] = 8; // 256 KiB SRAM.
+    const largeHash = createHash('sha256').update(largeRom).digest('hex');
+    const key = `snes-rust:sram:${largeHash}`;
+    const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key);
+    await ready(page);
+    await page.evaluate(([key, prior]) => localStorage.setItem(key, prior),
+      [key, Buffer.alloc(256 * 1024, 0x21).toString('base64')]);
+    await local(page, largeRom);
+    await pause(page);
+
+    // Stage the exit journal, then let the other tab replay it before the
+    // originating tab gets its turn to acquire the ROM lock.
+    await page.evaluate(hash => {
+      const lock = navigator.locks.request.bind(navigator.locks);
+      navigator.locks.request = async (name, callback) => {
+        if (name === `snes-rust:saves:${hash}`) {
+          navigator.locks.request = lock;
+          await new Promise(resolve => { window.releaseFirstSave = resolve; });
+        }
+        return lock(name, callback);
+      };
+    }, largeHash);
+    await sram(page, 0x50);
+    await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    const other = await context.newPage();
+    await ready(other);
+    await local(other, largeRom);
+    await pause(other);
+    expect(await stored()).toBe(0x50);
+    expect(await sram(other)).toBe(0x50);
+    if (next === 'same-byte restore') {
+      await capture(other);
+      await other.locator('#load-state').click();
+      await states(other).first().click();
+      await expect(other.locator('#save-status')).toHaveText('State loaded.');
+    }
+    if (next === 'another write') {
+      await sram(other, 0x51);
+      await other.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      await expect.poll(stored).toBe(0x51);
+    }
+    const atQuota = next.endsWith('at quota');
+    if (atQuota) await fillLocalStorage(other);
+
+    if (next !== 'pagehide at quota') await page.locator('#play').click();
+    await sram(page, 0x61);
+    if (next === 'pagehide at quota') await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    else await pause(page);
+
+    if (atQuota) {
+      await expect.poll(stored).toBe(0x61);
+      await expect(page.locator('#error')).toBeEmpty();
+    } else {
+      await expect(page.locator('#save-status')).toContainText('This tab’s progress is in Recovery');
+    }
+    await page.evaluate(hash => {
+      releaseFirstSave();
+      return Promise.resolve().then(() => navigator.locks.request(`snes-rust:saves:${hash}`, () => {}));
+    }, largeHash);
+    expect(await stored()).toBe(atQuota ? 0x61 : next === 'another write' ? 0x51 : 0x50);
+    await page.locator('#save-data').click();
+    const recovery = page.getByRole('button', { name: 'Recovery · Another tab', exact: true });
+    if (atQuota) await expect(recovery).toHaveCount(0);
+    else {
+      await expect(recovery).toHaveCount(1);
+      await recovery.click();
+      await expect(page.locator('#save-data-dialog')).toBeHidden();
+      expect(await sram(page)).toBe(0x61);
     }
   });
 }
