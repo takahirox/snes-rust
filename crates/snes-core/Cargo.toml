@@ -1,9 +1,0 @@
-[package]
-name = "snes-core"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[[bin]]
-name = "snes-run"
-path = "src/bin/runner.rs"
