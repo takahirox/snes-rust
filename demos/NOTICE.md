@@ -50,7 +50,7 @@ broader license is granted. The repository's MIT license for emulator source cod
 
 - File: `demos/yonaki.sfc` (published unchanged as `yonaki.sfc`).
 - Size: 3,145,728 bytes; headerless ordinary LoROM, 8 KiB battery-backed SRAM.
-- SHA-256: `0488989baeddcc43ec0a0ec3118e4c999df5539656357f7e7cd63d14ace4408b`.
+- SHA-256: `672378e83e49b619a99a3142f07731dd07bbd3848e1d2cbd74568d45bfbc8f2a`.
 - Added for [Issue #126](https://github.com/takahirox/snes-rust/issues/126) and updated to the current build for
   [Issue #130](https://github.com/takahirox/snes-rust/issues/130), [Issue #132](https://github.com/takahirox/snes-rust/issues/132) and
   [Issue #138](https://github.com/takahirox/snes-rust/issues/138). Their bodies record
@@ -79,6 +79,10 @@ broader license is granted. The repository's MIT license for emulator source cod
   committed [snes-roms release](https://github.com/takahirox/snes-roms/commit/10fb57baa5ff425c1b11f2cd58ff82fbae095ea3).
   Its `dist/yonaki.sfc` combines the 3 MiB packed assets, frame scheduler, and save recovery with
   the reading controls, outlined text, continuous chapter transitions, and silhouette dissolves.
+- Updated from the maintainer's validated snes-roms commit `1334304`:
+  the culprit is typed on the name entry grid, most choices continue the sentence above them, the
+  photo dims under text by its own brightness, a guest register precedes a new game, and the
+  scenario's clues and pacing are revised. Saves from earlier builds start fresh.
 - The code, story, music, sound effects and SPC700 driver were created for this
   game with AI assistance under the maintainer's direction; instruments are
   synthesised, not sampled. Background photographs and character silhouettes were

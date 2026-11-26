@@ -8,7 +8,7 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 const dist = new URL('../dist/', import.meta.url);
 const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'saves.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream', 'yonaki.sfc': 'application/octet-stream' };
 const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
-const yonakiHash = '0488989baeddcc43ec0a0ec3118e4c999df5539656357f7e7cd63d14ace4408b';
+const yonakiHash = '672378e83e49b619a99a3142f07731dd07bbd3848e1d2cbd74568d45bfbc8f2a';
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const fixtureHash = createHash('sha256').update(fixture).digest('hex');
 const prefix = '/snes-rust/';
@@ -187,7 +187,7 @@ test('Shionari skips its opening to the title and keyboard A starts the warehous
   expect(requests.filter(url => url.endsWith('.sfc'))).toEqual([`${origin}${prefix}shionari.sfc`]);
 });
 
-test('Yonaki plays from the title through name entry into the prologue, with its own save', async ({ page }, testInfo) => {
+test('Yonaki plays from the title through the guest register into the prologue, with its own save', async ({ page }, testInfo) => {
   const errors = [], requests = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -205,15 +205,12 @@ test('Yonaki plays from the title through name entry into the prologue, with its
   await page.waitForTimeout(500);
   expect(await scene(page)).toBe(title);
   await testInfo.attach('Yonaki title', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
-  await tapA(page); // New Game opens name entry.
+  await tapA(page); // New Game opens the guest register with the kept names.
   await expect.poll(() => scene(page)).not.toBe(title);
   await page.waitForTimeout(500);
   const names = await scene(page);
-  await testInfo.attach('Yonaki name entry', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
-  // Start accepts the default family name, then the heroine's given name.
-  for (let i = 0; i < 2; i++) {
-    await page.keyboard.down('Enter'); await page.waitForTimeout(100); await page.keyboard.up('Enter'); await page.waitForTimeout(400);
-  }
+  await testInfo.attach('Yonaki guest register', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
+  await tapA(page); // このまま始める starts with those names.
   await expect.poll(() => scene(page), { timeout: 10000 }).not.toBe(names);
   await page.waitForTimeout(3000);
   const story = await scene(page);

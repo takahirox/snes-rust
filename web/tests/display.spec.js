@@ -449,7 +449,7 @@ for (const demo of ['demo', 'demo-yonaki']) {
     const tap = async code => { await page.keyboard.down(code); await page.waitForTimeout(100); await page.keyboard.up(code); await page.waitForTimeout(500); };
     await page.waitForTimeout(3000);
     if (demo === 'demo') { await tap('KeyX'); await page.waitForTimeout(1500); await tap('KeyX'); await tap('KeyX'); }
-    else { await tap('KeyX'); await tap('KeyX'); await tap('Enter'); await tap('Enter'); }
+    else { await tap('KeyX'); await tap('KeyX'); }  // New Game, then このまま始める in the guest register
     if (demo === 'demo-yonaki') {
       // The chapter card is grayscale; the prologue photo has colored pixels.
       // Its palette can be only 112 colors in the translucent-figure ROM.
