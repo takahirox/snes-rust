@@ -194,8 +194,8 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
     main:has(#retry-save:not([hidden])) { --save-restore-space: calc(5lh + 16px + 45px); }
   }
 }
-@media (orientation: portrait) and (max-width: 400px) {
-  /* Keep a usable volume slider when the toolbar wraps. */
+@media (orientation: portrait) and (max-width: 460px) {
+  /* Fit the split Save control and playback buttons above the display settings. */
   .toolbar button { padding-inline: 3px; font-size: 11px; }
   #play { width: 44px; }
   #volume { width: 58px; }
@@ -383,7 +383,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 }
 .save-state-split > button:focus-visible { z-index: 1; }
 #save-destination { display: block; font-size: .8em; white-space: nowrap; }
-@media (orientation: portrait) and (max-width: 400px) {
+@media (orientation: portrait) and (max-width: 460px) {
   #save-destination { max-width: 68px; overflow: hidden; text-overflow: ellipsis; }
 }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
