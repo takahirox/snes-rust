@@ -1566,6 +1566,7 @@ statePicker.addEventListener('keydown', event => {
   event.preventDefault();
   (event.shiftKey ? last : closeStatePicker).focus();
 });
+$('state-picker-backdrop').addEventListener('click', () => statePicker.hidePopover());
 newState.addEventListener('click', () => chooseState(stateView));
 moreStates.addEventListener('click', () => {
   if (isHistoryOpen(stateView)) void saveAction(statePicker, () => showHistory(stateView, true));
