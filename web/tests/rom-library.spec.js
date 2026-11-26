@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { selectDemo } from './cartridge.js';
+import { savedSramByte, seedSram, selectDemo, selectedProfile, sramKey } from './cartridge.js';
 import { setTabHidden, waitForAnimationFrames } from './playback.js';
 
 const smoke = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
@@ -219,14 +219,15 @@ test('remembers normalized ROMs, restores guest progress after reload and revisi
   await selectSaved(revisit, firstHash, 'homebrew.smc');
   await expect.poll(() => bootSave(revisit)).toBe(0x79);
   await openPicker(revisit);
-  const unmodifiedSram = await revisit.evaluate(hash => localStorage.getItem(`snes-rust:sram:${hash}`), firstHash);
+  const key = sramKey(firstHash, await selectedProfile(revisit, firstHash));
+  const unmodifiedSram = await revisit.evaluate(key => localStorage.getItem(key), key);
   await removeSaved(revisit, firstHash, 'homebrew.smc');
   await expect(saved(revisit, firstHash)).toHaveCount(0);
   await expect(status(revisit)).toHaveText('Playing');
   await expect(current(revisit)).toHaveText('homebrew.smc');
   expect(await commits(revisit)).toBe(1);
   expect(await sram(revisit)).toBe(0x79);
-  expect(await revisit.evaluate(hash => localStorage.getItem(`snes-rust:sram:${hash}`), firstHash)).toBe(unmodifiedSram);
+  expect(await revisit.evaluate(key => localStorage.getItem(key), key)).toBe(unmodifiedSram);
   await revisit.keyboard.press('Escape');
   await importRom(revisit, 'reimported.sfc', first);
   expect(await commits(revisit)).toBe(1);
@@ -306,10 +307,9 @@ test('Escape and Insert cartridge cancel a saved selection during hash verificat
   expect(await commits(page)).toBe(2);
   await expect.poll(() => page.evaluate(() => libraryFrames)).toBeGreaterThan(suspendedFrames);
 
-  await page.evaluate(hash => {
-    const save = new Uint8Array(2048); save[3] = 0x79;
-    localStorage.setItem(`snes-rust:sram:${hash}`, btoa(String.fromCharCode(...save)));
-  }, firstHash);
+  const save = Buffer.alloc(2048);
+  save[3] = 0x79;
+  await seedSram(page, firstHash, save.toString('base64'));
   await openPicker(page);
   await select.press('Enter');
   await expect.poll(() => page.evaluate(() => savedDigests.length)).toBe(3);
@@ -533,13 +533,13 @@ test('pausing on a rejected local file saves active guest SRAM and reports write
   await expect.poll(() => sram(page)).toBe(0x79);
   await page.keyboard.up('z');
 
-  const key = `snes-rust:sram:${firstHash}`;
+  const key = sramKey(firstHash, await selectedProfile(page, firstHash));
   await page.evaluate(key => {
     const setItem = Storage.prototype.setItem;
     window.pausedSaveWrites = [];
     Storage.prototype.setItem = function (name, value) {
       if (name === key && document.getElementById('status').textContent === 'Paused') {
-        pausedSaveWrites.push(atob(value).charCodeAt(3));
+        pausedSaveWrites.push(atob(JSON.parse(value).data).charCodeAt(3));
         if (window.failPausedSave) throw new DOMException('Storage full', 'QuotaExceededError');
       }
       return setItem.call(this, name, value);
@@ -550,7 +550,7 @@ test('pausing on a rejected local file saves active guest SRAM and reports write
   await expect(status(page)).toHaveText('Paused');
   await expect(error).toContainText('Choose an .sfc or .smc');
   expect(await page.evaluate(() => pausedSaveWrites)).toEqual([0x79]);
-  expect(await page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key)).toBe(0x79);
+  expect(await savedSramByte(page, key)).toBe(0x79);
 
   await page.locator('#play').click();
   await expect(status(page)).toHaveText('Playing');
@@ -726,22 +726,20 @@ test('saved ROMs with copier headers must match the normalized SRAM identity', a
   await expect.poll(() => bootSave(page)).toBe(0x79);
   await expect(status(page)).toHaveText('Playing');
   expect(await commits(page)).toBe(3);
-  expect(await page.evaluate(hash => localStorage.getItem(`snes-rust:sram:${hash}`), rawHash)).toBeNull();
+  expect(await selectedProfile(page, rawHash)).toBeUndefined();
 });
 
 test('writes a ROM only after restoring SRAM, including on retry', async ({ page }) => {
   await page.goto('/'); await ready(page);
-  await page.evaluate(hash => localStorage.setItem(`snes-rust:sram:${hash}`, '%invalid%'), firstHash);
+  await seedSram(page, firstHash, '%invalid%');
   await importRom(page, 'retry.sfc', first);
   await expect(page.locator('#error')).toContainText('Save could not be restored');
   await openPicker(page);
   await expect(rows(page)).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await page.evaluate(hash => {
-    const sram = new Uint8Array(2048);
-    sram[3] = 0x79;
-    localStorage.setItem(`snes-rust:sram:${hash}`, btoa(String.fromCharCode(...sram)));
-  }, firstHash);
+  const save = Buffer.alloc(2048);
+  save[3] = 0x79;
+  await seedSram(page, firstHash, save.toString('base64'));
   await page.locator('#retry-save').click();
   await expect(status(page)).toHaveText('Playing');
   await openPicker(page);

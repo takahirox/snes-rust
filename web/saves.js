@@ -1,27 +1,36 @@
-// Save 1 uses the original key. Profile metadata and individual SRAM writes
-// are separate so saving one profile never rewrites another profile's bytes.
-export const originalProfile = 'legacy';
+// Profile metadata and SRAM are separate so saving one profile never
+// rewrites another profile's bytes.
 const catalogKey = hash => `snes-rust:save-profiles:${hash}`;
-const sramKey = (hash, id) => `snes-rust:sram:${hash}${id === originalProfile ? '' : `:${id}`}`;
-const legacyTimeKey = hash => `snes-rust:sram-time:${hash}`;
+const sramKey = (hash, id) => `snes-rust:sram:${hash}:${id}`;
 const replayKey = (hash, id) => `snes-rust:sram-replay:${hash}:${id}`;
 const isProfileUuid = id => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id);
-const validId = id => id === originalProfile || isProfileUuid(id);
 const validRevision = revision => typeof revision === 'string' && /^[a-f0-9]{14}$/.test(revision);
 
-export function readProfiles(hash) {
+export function readProfiles(hash, { initialize = false } = {}) {
   const raw = localStorage.getItem(catalogKey(hash));
-  if (raw === null) return { version: 1, selected: originalProfile, next: 2, profiles: [{ id: originalProfile, name: 'Save 1' }] };
-  const catalog = JSON.parse(raw);
-  if (catalog?.version !== 1 || !Number.isSafeInteger(catalog.next) || catalog.next < 2 ||
+  const catalog = raw === null ? { version: 1, next: 1, profiles: [] } : JSON.parse(raw);
+  if (raw !== null && (catalog?.version !== 1 || !Number.isSafeInteger(catalog.next) || catalog.next < 2 ||
       !Array.isArray(catalog.profiles) ||
-      catalog.profiles.some(p => !validId(p?.id) || typeof p.name !== 'string' ||
+      catalog.profiles.some(p => typeof p?.id !== 'string' || typeof p.name !== 'string' ||
         (p.recovery !== undefined && p.recovery !== true) ||
-        (p.epoch !== undefined && !validId(p.epoch))) ||
+        (p.epoch !== undefined && !isProfileUuid(p.epoch))) ||
       new Set(catalog.profiles.map(p => p.id)).size !== catalog.profiles.length ||
-      !catalog.profiles.some(p => p.id === catalog.selected)) {
+      !catalog.profiles.some(p => p.id === catalog.selected))) {
     throw new Error('Save data profile list is invalid');
   }
+  const profiles = catalog.profiles.filter(profile => isProfileUuid(profile.id));
+  if (raw !== null && profiles.length === catalog.profiles.length) return catalog;
+  if (!initialize) throw new Error('Save data profile list is invalid');
+
+  // Cartridge insertion holds the ROM's lock. Publish the selected ID before
+  // any SRAM write or state capture so it also survives an immediate reload.
+  catalog.profiles = profiles;
+  if (!profiles.length) {
+    catalog.next = 1;
+    addProfile(catalog);
+  }
+  if (!profiles.some(profile => profile.id === catalog.selected)) catalog.selected = profiles[0].id;
+  writeProfiles(hash, catalog);
   return catalog;
 }
 
@@ -41,7 +50,7 @@ function addProfile(catalog, recovery = false, id = crypto.randomUUID()) {
 
 function profileRecord(hash, id) {
   const raw = localStorage.getItem(sramKey(hash, id));
-  if (id === originalProfile) return { data: raw };
+  if (raw === null) return { data: null };
   const record = JSON.parse(raw);
   if (typeof record?.data !== 'string' || !Number.isFinite(record.updated)) throw new Error('Save data is missing or invalid');
   return record;
@@ -75,13 +84,11 @@ function writeSram(hash, id, bytes) {
 
 export function writeSramData(hash, id, data, recoveryRevision) {
   const key = sramKey(hash, id);
-  const legacy = id === originalProfile;
-  const raw = localStorage.getItem(key);
-  const previous = legacy ? { data: raw } : JSON.parse(raw);
+  const previous = JSON.parse(localStorage.getItem(key));
   const changed = previous?.data !== data;
   const updated = changed ? Date.now() : previous?.updated;
   const revision = recoveryRevision ?? (changed ? undefined : previous?.recoveryRevision);
-  const value = legacy ? data : JSON.stringify({ data, updated, recoveryRevision: revision });
+  const value = JSON.stringify({ data, updated, recoveryRevision: revision });
   // Revoke the replay claim before changing the bytes. A failed write leaves
   // the previous SRAM intact, so it is safe to reinstate its claim.
   const receiptKey = replayKey(hash, id);
@@ -95,21 +102,15 @@ export function writeSramData(hash, id, data, recoveryRevision) {
     }
     throw error;
   }
-  if (legacy && changed) {
-    // A timestamp is advisory. The original save has already been written.
-    try { localStorage.setItem(legacyTimeKey(hash), String(updated)); } catch {}
-  }
 }
 
 export function removeSram(hash, id) {
   localStorage.removeItem(replayKey(hash, id));
   localStorage.removeItem(sramKey(hash, id));
-  if (id === originalProfile) localStorage.removeItem(legacyTimeKey(hash));
 }
 
 export function sramTimestamp(hash, id) {
-  if (id !== originalProfile) return profileRecord(hash, id).updated;
-  return Number(localStorage.getItem(legacyTimeKey(hash)));
+  return profileRecord(hash, id).updated;
 }
 
 export function sameSram(left, right) {

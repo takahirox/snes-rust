@@ -1,12 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { selectDemo } from './cartridge.js';
+import { savedSramByte, savedSramData, seedSram, selectDemo, selectedProfile, sramKey } from './cartridge.js';
 import { setTabHidden, waitForAnimationFrames } from './playback.js';
 
 const rom = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const hash = createHash('sha256').update(rom).digest('hex');
-const sramKey = `snes-rust:sram:${hash}`;
 const nonBattery = Buffer.from(rom);
 nonBattery[0x7fd6] = 0;
 nonBattery[0x7fd8] = 0;
@@ -99,11 +98,28 @@ async function fillStorage(page, name = 'localStorage') {
   }, name);
 }
 
-test('legacy Save 1, new and duplicate profiles, persisted selection, raw export/import and deletion', async ({ page }) => {
+test('Save 1 and other profiles persist SRAM, selection, raw export/import and deletion', async ({ page }) => {
   await ready(page);
-  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [sramKey, Buffer.alloc(2048, 0x79).toString('base64')]);
+  await local(page);
+  await expect(page.locator('#status')).toHaveText('Playing');
+  const save1 = await selectedProfile(page, hash);
+  const key = sramKey(hash, save1);
+  expect(save1).toMatch(/^[0-9a-f-]{36}$/);
+  expect(await sram(page)).toBe(0);
+  expect(await savedSramData(page, key)).toBeNull();
+  await page.locator('#save-data').click();
+  await expect(page.getByText('No recorded save time')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await sram(page, 0x79);
+  await pause(page);
+  await expect.poll(() => savedSramByte(page, key)).toBe(0x79);
+  const updated = await page.evaluate(key => JSON.parse(localStorage.getItem(key)).updated, key);
+  expect(updated).toBeGreaterThan(0);
+  await ready(page);
   await local(page);
   await pause(page);
+  expect(await selectedProfile(page, hash)).toBe(save1);
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)).updated, key)).toBe(updated);
   expect(await sram(page)).toBe(0x79);
   await expect(page.locator('#save-data')).toContainText('Save 1');
   await page.locator('#save-data').click();
@@ -133,6 +149,7 @@ test('legacy Save 1, new and duplicate profiles, persisted selection, raw export
   expect(await sram(page)).toBe(0x62);
   await page.getByRole('button', { name: 'Save 4', exact: true }).click();
   await expect(page.locator('#save-data')).toContainText('Save 4');
+  const deletedKey = sramKey(hash, await selectedProfile(page, hash));
 
   await ready(page);
   await local(page, Buffer.concat([Buffer.alloc(512), rom]), 'headered.smc');
@@ -143,6 +160,7 @@ test('legacy Save 1, new and duplicate profiles, persisted selection, raw export
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Delete Save 4', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save 4', exact: true })).toHaveCount(0);
+  expect(await savedSramData(page, deletedKey)).toBeNull();
   await expect(page.getByRole('button', { name: 'Save 1', exact: true })).toHaveAttribute('aria-current', 'true');
   expect(await sram(page)).toBe(0x79);
   await page.getByRole('button', { name: 'Save 2', exact: true }).click();
@@ -153,10 +171,52 @@ test('legacy Save 1, new and duplicate profiles, persisted selection, raw export
   expect(await sram(page)).toBe(0x41);
 });
 
+for (const retainProfile of [false, true]) {
+  test(`an obsolete selected profile leaves a usable save (${retainProfile ? 'retained profile' : 'fresh Save 1'})`, async ({ page }) => {
+    await ready(page);
+    let retained;
+    if (retainProfile) {
+      await local(page);
+      await pause(page);
+      await sram(page, 0x21);
+      await capture(page);
+      retained = await selectedProfile(page, hash);
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      await expect.poll(() => savedSramByte(page, sramKey(hash, retained))).toBe(0x21);
+      await ready(page);
+    }
+
+    const obsoleteKey = `snes-rust:sram:${hash}`;
+    const obsoleteData = Buffer.alloc(2048, 0x79).toString('base64');
+    await page.evaluate(({ hash, obsoleteKey, obsoleteData }) => {
+      const key = `snes-rust:save-profiles:${hash}`;
+      const catalog = JSON.parse(localStorage.getItem(key)) ?? { version: 1, next: 2, profiles: [] };
+      catalog.profiles.unshift({ id: 'legacy', name: 'Old Save 1' });
+      catalog.selected = 'legacy';
+      localStorage.setItem(key, JSON.stringify(catalog));
+      localStorage.setItem(obsoleteKey, obsoleteData);
+      localStorage.setItem('unrelated', 'keep');
+    }, { hash, obsoleteKey, obsoleteData });
+
+    await local(page);
+    await pause(page);
+    const selected = await selectedProfile(page, hash);
+    expect(selected).toMatch(/^[0-9a-f-]{36}$/);
+    if (retained) expect(selected).toBe(retained);
+    expect(await sram(page)).toBe(retained ? 0x21 : 0);
+    await expect(page.locator('#save-data')).toContainText('Save 1');
+    await page.locator('#choose-state').click();
+    await expect(states(page)).toHaveCount(retained ? 1 : 0);
+    expect(await page.evaluate(key => [localStorage.getItem(key), localStorage.getItem('unrelated')], obsoleteKey))
+      .toEqual([obsoleteData, 'keep']);
+  });
+}
+
 test('historical restore protects SRAM, refuses unsafe deletion, and reloads the exact paused machine', async ({ page }) => {
   await ready(page);
   await local(page);
   await pause(page);
+  const key = sramKey(hash, await selectedProfile(page, hash));
   await sram(page, 0x21);
   const historical = await machineState(page);
   await capture(page);
@@ -168,14 +228,14 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
   await page.evaluate(() => { saveCore.run_frame(0x0100); saveCore.run_frame(0x0100); });
   await sram(page, 0x79);
   const prior = await machineState(page);
-  await page.evaluate(key => {
+  await page.evaluate(([prefix, key]) => {
     const set = Storage.prototype.setItem;
     Storage.prototype.setItem = function (record, data) {
-      if (record.startsWith(key + ':')) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      if (record.startsWith(prefix) && record !== key) throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return set.call(this, record, data);
     };
     window.storageRecovered = () => { Storage.prototype.setItem = set; };
-  }, sramKey);
+  }, [`snes-rust:sram:${hash}:`, key]);
   const destination = page.locator('#state-target');
   const selected = await destination.getAttribute('title');
   await page.locator('#load-state').click();
@@ -183,7 +243,7 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
   await expect(destination).toHaveAttribute('title', selected);
   expect(await machineState(page)).toEqual(prior);
   await page.evaluate(() => storageRecovered());
-  const storedBefore = await page.evaluate(key => localStorage.getItem(key), sramKey);
+  const storedBefore = await page.evaluate(key => localStorage.getItem(key), key);
   await page.evaluate(key => {
     const set = Storage.prototype.setItem;
     Storage.prototype.setItem = function (record, data) {
@@ -191,11 +251,11 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
       return set.call(this, record, data);
     };
     window.storageRecovered = () => { Storage.prototype.setItem = set; };
-  }, sramKey);
+  }, key);
   await page.locator('#load-state').click();
   await expect(page.locator('#error')).toContainText('Write denied');
   expect(await machineState(page)).toEqual(prior);
-  expect(await page.evaluate(key => localStorage.getItem(key), sramKey)).toBe(storedBefore);
+  expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(storedBefore);
   await page.evaluate(() => storageRecovered());
   await page.locator('#load-state').click();
   await expect(page.locator('#save-status')).toContainText('Previous SRAM is available');
@@ -261,9 +321,9 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
 });
 
 test('a failed state load leaves another tab able to autosave to Save 1', async ({ page, context }) => {
-  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
   await ready(page);
-  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, Buffer.alloc(2048, 0x79).toString('base64')]);
+  const key = await seedSram(page, hash, Buffer.alloc(2048, 0x79).toString('base64'));
+  const stored = () => savedSramByte(page, key);
   await local(page);
   await pause(page);
   await sram(page, 0x21);
@@ -281,7 +341,7 @@ test('a failed state load leaves another tab able to autosave to Save 1', async 
       if (record === key) throw new DOMException('Write denied', 'SecurityError');
       return set.call(this, record, data);
     };
-  }, sramKey);
+  }, key);
   await page.locator('#load-state').click();
   await expect(page.locator('#error')).toContainText('Write denied');
   expect(await stored()).toBe(0x79);
@@ -296,26 +356,26 @@ test('a failed state load leaves another tab able to autosave to Save 1', async 
 
 test('a same-byte state load preserves a pending exit save without changing Save 1 on replay or reload', async ({ page }) => {
   const saved = Buffer.alloc(2048, 0x21).toString('base64');
-  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
   const pending = () => page.evaluate(hash => Object.keys(localStorage)
     .filter(key => key.startsWith(`snes-rust:pending-sram:${hash}:`)).length, hash);
   await ready(page);
-  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, saved]);
+  const key = await seedSram(page, hash, saved);
+  const stored = () => savedSramByte(page, key);
   await local(page);
   await pause(page);
   await capture(page);
 
   const exitSave = Buffer.alloc(2048, 0x79).toString('base64');
-  await page.evaluate(([key, exitSave]) => {
+  await page.evaluate(([prefix, key, exitSave]) => {
     const set = Storage.prototype.setItem;
     Storage.prototype.setItem = function (record, data) {
-      if (record === key || (record.startsWith(key + ':') && JSON.parse(data).data === exitSave)) {
+      if (record === key || (record.startsWith(prefix) && JSON.parse(data).data === exitSave)) {
         throw new DOMException('Write denied', 'SecurityError');
       }
       return set.call(this, record, data);
     };
     window.storageRecovered = () => { Storage.prototype.setItem = set; };
-  }, [sramKey, exitSave]);
+  }, [`snes-rust:sram:${hash}:`, key, exitSave]);
   await sram(page, 0x79);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await expect(page.locator('#error')).toContainText('Could not persist SRAM');
@@ -353,9 +413,9 @@ test('a same-byte state load preserves a pending exit save without changing Save
 });
 
 test('state loads protect a reused recovery profile from its stale tab', async ({ page, context }) => {
-  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
   await ready(page);
-  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [sramKey, Buffer.alloc(2048, 0x21).toString('base64')]);
+  const key = await seedSram(page, hash, Buffer.alloc(2048, 0x21).toString('base64'));
+  const stored = () => savedSramByte(page, key);
   await local(page);
   await pause(page);
   await capture(page);
@@ -416,22 +476,23 @@ for (const contention of [false, true]) test(`navigation preserves dirty SRAM at
   const prior = Buffer.alloc(2048, 0x21).toString('base64');
   const updated = Buffer.alloc(2048, 0x79).toString('base64');
   await ready(page);
-  await page.evaluate(([key, prior]) => localStorage.setItem(key, prior), [sramKey, prior]);
+  const key = await seedSram(page, hash, prior);
   await local(page);
   await pause(page);
   expect(await sram(page)).toBe(0x21);
   await fillStorage(page);
-  await page.evaluate(([key, prior, updated]) => {
+  await page.evaluate(([key, updated]) => {
     // A same-size replacement succeeds. The exit still cannot add a new key.
-    localStorage.setItem(key, updated);
-    localStorage.setItem(key, prior);
+    const saved = localStorage.getItem(key);
+    localStorage.setItem(key, JSON.stringify({ ...JSON.parse(saved), data: updated }));
+    localStorage.setItem(key, saved);
     try { localStorage.setItem('extra-key', 'x'); }
     catch (error) {
       if (error.name === 'QuotaExceededError') return;
       throw error;
     }
     throw new Error('Expected localStorage to reject an additional key');
-  }, [sramKey, prior, updated]);
+  }, [key, updated]);
   const holder = contention ? await context.newPage() : null;
   if (holder) {
     await ready(holder);
@@ -440,14 +501,14 @@ for (const contention of [false, true]) test(`navigation preserves dirty SRAM at
   await sram(page, 0x79);
   await page.goto('/?after-quota-exit');
   if (holder) {
-    expect(await holder.evaluate(key => localStorage.getItem(key), sramKey)).toBe(prior);
+    expect(await savedSramData(holder, key)).toBe(prior);
     await holder.evaluate(() => releaseExitSaveLock());
     await expect(page.locator('#status')).toHaveText('Ready');
     await local(page);
     await expect(page.locator('#status')).toHaveText('Playing');
     expect(await sram(page)).toBe(0x79);
   }
-  expect(await page.evaluate(key => localStorage.getItem(key), sramKey)).toBe(updated);
+  expect(await savedSramData(page, key)).toBe(updated);
 });
 
 function holdSaveLock(page, romHash = hash) {
@@ -463,7 +524,7 @@ test('closing a dirty tab at quota warns while another tab holds the save lock',
   const prior = Buffer.alloc(2048, 0x21).toString('base64');
   const updated = Buffer.alloc(2048, 0x79).toString('base64');
   await ready(page);
-  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, prior]);
+  const key = await seedSram(page, hash, prior);
   await local(page);
   await pause(page);
   await fillStorage(page);
@@ -477,7 +538,7 @@ test('closing a dirty tab at quota warns while another tab holds the save lock',
   const dialog = await warning;
   expect(dialog.type()).toBe('beforeunload');
   await dialog.dismiss();
-  const stored = () => holder.evaluate(key => localStorage.getItem(key), sramKey);
+  const stored = () => savedSramData(holder, key);
   expect(await stored()).toBe(prior);
   expect(await sram(page)).toBe(0x79);
 
@@ -495,10 +556,9 @@ for (const exit of ['close', 'navigate', 'cancel']) test(`durable SRAM survives 
   const largeRom = Buffer.from(rom);
   largeRom[0x7fd8] = 8; // 256 KiB SRAM.
   const largeHash = createHash('sha256').update(largeRom).digest('hex');
-  const key = `snes-rust:sram:${largeHash}`;
   const image = value => Buffer.alloc(256 * 1024, value).toString('base64');
   await ready(page);
-  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [key, image(0x21)]);
+  const key = await seedSram(page, largeHash, image(0x21));
   await local(page, largeRom);
   await pause(page);
   const holder = await context.newPage();
@@ -526,7 +586,7 @@ for (const exit of ['close', 'navigate', 'cancel']) test(`durable SRAM survives 
   await exited;
   await closed;
 
-  expect(await holder.evaluate(key => localStorage.getItem(key), key)).toBe(image(0x21));
+  expect(await savedSramData(holder, key)).toBe(image(0x21));
   await holder.evaluate(() => releaseExitSaveLock());
   const reopened = exit === 'close' ? holder : page;
   if (exit !== 'cancel') {
@@ -536,7 +596,7 @@ for (const exit of ['close', 'navigate', 'cancel']) test(`durable SRAM survives 
   }
   const expected = exit === 'close' ? 0x50 : 0x72;
   expect(await sram(reopened)).toBe(expected);
-  await expect.poll(() => holder.evaluate(key => localStorage.getItem(key), key)).toBe(image(expected));
+  await expect.poll(() => savedSramData(holder, key)).toBe(image(expected));
   expect(await durableJournals()).toBe(0);
 });
 
@@ -544,7 +604,6 @@ test.describe('large SRAM journal replacement across navigation', () => {
   const largeRom = Buffer.from(rom);
   largeRom[0x7fd8] = 8; // 256 KiB SRAM.
   const largeHash = createHash('sha256').update(largeRom).digest('hex');
-  const key = `snes-rust:sram:${largeHash}`;
   const image = value => Buffer.alloc(256 * 1024, value).toString('base64');
   const pagehide = page => page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   const pending = (page, storage) => page.evaluate(([storage, hash]) => Object.keys(window[storage])
@@ -552,13 +611,14 @@ test.describe('large SRAM journal replacement across navigation', () => {
 
   test.beforeEach(async ({ page }) => {
     await ready(page);
-    await page.evaluate(([key, data]) => localStorage.setItem(key, data), [key, image(0x21)]);
+    await seedSram(page, largeHash, image(0x21));
     await local(page, largeRom);
     await pause(page);
     page.on('dialog', dialog => dialog.accept());
   });
 
   test('the latest session-only journal replaces a same-size entry at quota', async ({ page, context }) => {
+    const key = sramKey(largeHash, await selectedProfile(page, largeHash));
     const holder = await context.newPage();
     await ready(holder);
     await holdSaveLock(holder, largeHash);
@@ -572,18 +632,19 @@ test.describe('large SRAM journal replacement across navigation', () => {
     await sram(page, 0x72);
     await page.goto('/?replace-session-journal');
     expect(await pending(page, 'sessionStorage')).toEqual(staged);
-    expect(await holder.evaluate(key => localStorage.getItem(key), key)).toBe(image(0x21));
+    expect(await savedSramData(holder, key)).toBe(image(0x21));
 
     await holder.evaluate(() => releaseExitSaveLock());
     await local(page, largeRom);
     await pause(page);
     expect(await sram(page)).toBe(0x72);
-    expect(await page.evaluate(key => localStorage.getItem(key), key)).toBe(image(0x72));
+    expect(await savedSramData(page, key)).toBe(image(0x72));
     expect(await pending(page, 'sessionStorage')).toHaveLength(0);
   });
 
   for (const intervening of ['none', 'independent save', 'same-byte state restore']) {
     test(`a successor to a durable replay survives navigation at quota (${intervening})`, async ({ page, context }) => {
+      const key = sramKey(largeHash, await selectedProfile(page, largeHash));
       // The writer navigates away before its delayed lifecycle callbacks run.
       await page.evaluate(hash => {
         const lock = navigator.locks.request.bind(navigator.locks);
@@ -605,7 +666,7 @@ test.describe('large SRAM journal replacement across navigation', () => {
       await pause(other);
       expect(await sram(other)).toBe(0x50);
       expect(await pending(other, 'localStorage')).toHaveLength(0);
-      const stored = () => other.evaluate(key => localStorage.getItem(key), key);
+      const stored = () => savedSramData(other, key);
       if (intervening === 'independent save') {
         // Returning to the exact replayed bytes must not give its writer
         // permission to overwrite this tab's independent save.
@@ -645,7 +706,7 @@ test('closing after navigation still warns about a session-only SRAM journal at 
   const prior = Buffer.alloc(2048, 0x21).toString('base64');
   const newer = Buffer.alloc(2048, 0x43).toString('base64');
   await ready(page);
-  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, prior]);
+  const key = await seedSram(page, hash, prior);
   await local(page);
   await pause(page);
   const other = await context.newPage();
@@ -654,7 +715,7 @@ test('closing after navigation still warns about a session-only SRAM journal at 
   await pause(other);
   await sram(other, 0x43);
   await other.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-  await expect.poll(() => other.evaluate(key => localStorage.getItem(key), sramKey)).toBe(newer);
+  await expect.poll(() => savedSramData(other, key)).toBe(newer);
   await fillStorage(other);
 
   await sram(page, 0x79);
@@ -700,7 +761,6 @@ for (const mode of ['paused', 'changed', 'changed at quota', 'changed after a sa
     const dirty = mode !== 'paused';
     const sameByteRestore = mode === 'changed after a same-byte restore';
     const journal = mode === 'changed' || sameByteRestore;
-    const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
     async function persist(value) {
       await sram(page, value);
       await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -710,6 +770,8 @@ for (const mode of ['paused', 'changed', 'changed at quota', 'changed after a sa
     await ready(page);
     await local(page);
     await pause(page);
+    const key = sramKey(hash, await selectedProfile(page, hash));
+    const stored = () => savedSramByte(page, key);
     await persist(0x21);
     await capture(page);
     if (!dirty) await persist(0x79);
@@ -761,11 +823,9 @@ for (const next of ['pause at quota', 'pagehide at quota', 'another write', 'sam
     const largeRom = Buffer.from(rom);
     largeRom[0x7fd8] = 8; // 256 KiB SRAM.
     const largeHash = createHash('sha256').update(largeRom).digest('hex');
-    const key = `snes-rust:sram:${largeHash}`;
-    const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key);
     await ready(page);
-    await page.evaluate(([key, prior]) => localStorage.setItem(key, prior),
-      [key, Buffer.alloc(256 * 1024, 0x21).toString('base64')]);
+    const key = await seedSram(page, largeHash, Buffer.alloc(256 * 1024, 0x21).toString('base64'));
+    const stored = () => savedSramByte(page, key);
     await local(page, largeRom);
     await pause(page);
 
@@ -834,8 +894,6 @@ for (const replayed of [false, true]) test(`successive stale-tab saves update on
   const largeRom = Buffer.from(rom);
   largeRom[0x7fd8] = 8; // 256 KiB, large enough for repeated copies to exhaust localStorage.
   const largeHash = createHash('sha256').update(largeRom).digest('hex');
-  const key = `snes-rust:sram:${largeHash}`;
-  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key);
   async function persist(value) {
     await sram(page, value);
     await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -844,6 +902,9 @@ for (const replayed of [false, true]) test(`successive stale-tab saves update on
   await ready(page);
   await local(page, largeRom);
   await pause(page);
+  const profile = await selectedProfile(page, largeHash);
+  const key = sramKey(largeHash, profile);
+  const stored = () => savedSramByte(page, key);
   await persist(0x21);
   await capture(page);
 
@@ -906,7 +967,7 @@ for (const replayed of [false, true]) test(`successive stale-tab saves update on
     await expect.poll(recoveryProfiles).toEqual([{ id: recoveryId, value: 0x61 }]);
     await stale.evaluate(() => releaseSaveCallbacks());
     await expect(stale.locator('#save-status')).toContainText('This tab’s progress is in Recovery');
-    expect(await page.evaluate(hash => JSON.parse(localStorage.getItem(`snes-rust:save-profiles:${hash}`)).selected, largeHash)).toBe('legacy');
+    expect(await selectedProfile(page, largeHash)).toBe(profile);
     await page.evaluate(() => localStorage.removeItem('quota-test'));
   }
   for (let value = replayed ? 0x52 : 0x50; value <= 0x52; value++) {
@@ -1131,19 +1192,22 @@ test('Tab wraps inside the save-state picker on a narrow screen', async ({ page 
 test('save destinations are remembered separately for each ROM and SRAM profile', async ({ page }) => {
   await ready(page);
   await local(page);
-  await pause(page);
+  await expect(page.locator('#status')).toHaveText('Playing');
   const destination = page.locator('#state-target');
   const saveData = page.locator('#save-data');
+  const profile = await selectedProfile(page, hash);
   await capture(page);
+  expect(await savedSramData(page, sramKey(hash, profile))).toBeNull();
+  await pause(page);
   const save1 = await destination.getAttribute('title');
-  const [original] = await savedHistory(page, rom, 'legacy');
+  const [original] = await savedHistory(page, rom, profile);
   await saveData.click();
   await page.getByRole('button', { name: 'New save', exact: true }).click();
   await expect(saveData).toContainText('Save 2');
   await expect(destination).toHaveText('New state');
   await capture(page);
   const save2 = await destination.getAttribute('title');
-  expect(await savedHistory(page, rom, 'legacy')).toEqual([original]);
+  expect(await savedHistory(page, rom, profile)).toEqual([original]);
 
   await local(page, nonBattery);
   await pause(page);
@@ -1159,7 +1223,7 @@ test('save destinations are remembered separately for each ROM and SRAM profile'
   await expect(saveData).toContainText('Save 1');
   await expect(destination).toHaveAttribute('title', save1);
   await capture(page);
-  expect((await savedHistory(page, rom, 'legacy')).map(({ key }) => key[3])).toEqual([original.key[3]]);
+  expect((await savedHistory(page, rom, profile)).map(({ key }) => key[3])).toEqual([original.key[3]]);
   expect(await savedHistory(page)).toEqual(separateRom);
 });
 

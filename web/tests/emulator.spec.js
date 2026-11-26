@@ -153,14 +153,17 @@ for (const failure of ['read', 'base64', 'size']) {
     await page.locator('#reset').click();
     await expect.poll(() => page.evaluate(() => {
       const key = Object.keys(localStorage).find(k => k.startsWith('snes-rust:sram:'));
-      return key ? atob(localStorage.getItem(key)).charCodeAt(3) : null;
+      return key ? atob(JSON.parse(localStorage.getItem(key)).data).charCodeAt(3) : null;
     })).toBe(0x79);
     await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
     await page.evaluate((failure) => {
       window.saveKey = Object.keys(localStorage).find((k) => k.startsWith('snes-rust:sram:'));
       window.validSave = localStorage.getItem(window.saveKey);
-      if (failure === 'base64') localStorage.setItem(window.saveKey, '%invalid%');
-      if (failure === 'size') localStorage.setItem(window.saveKey, btoa('short'));
+      if (failure !== 'read') {
+        const record = JSON.parse(window.validSave);
+        record.data = failure === 'base64' ? '%invalid%' : btoa('short');
+        localStorage.setItem(window.saveKey, JSON.stringify(record));
+      }
       window.persistedSave = localStorage.getItem(window.saveKey);
       window.originalGetItem = Storage.prototype.getItem;
       if (failure === 'read') Storage.prototype.getItem = () => { throw new DOMException('Storage unavailable', 'SecurityError'); };

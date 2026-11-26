@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { savedSramByte, selectedProfile, sramKey } from './cartridge.js';
 import { setTabHidden, waitForAnimationFrames } from './playback.js';
 
 const buffer = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
@@ -128,6 +129,8 @@ test('Reset guards absent, loading and unresolved save restoration without overw
   await expect(page.locator('#status')).toHaveText('Ready');
   expect(await page.evaluate(() => [resetMetrics.calls, resetMetrics.frames])).toEqual([0, 0]);
   await load(page);
+  const hash = createHash('sha256').update(buffer).digest('hex');
+  const key = sramKey(hash, await selectedProfile(page, hash));
   await page.evaluate(() => {
     new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79;
     const digest = crypto.subtle.digest.bind(crypto.subtle);
@@ -147,10 +150,9 @@ test('Reset guards absent, loading and unresolved save restoration without overw
   await expect(page.locator('#error')).toContainText('Save could not be restored');
   // Suspension already made the outgoing SRAM durable before restoration.
   const savedBytes = await page.evaluate(() => Object.entries(localStorage));
-  const hash = createHash('sha256').update(buffer).digest('hex');
-  const savedSram = new Map(savedBytes).get(`snes-rust:sram:${hash}`);
+  const savedSram = new Map(savedBytes).get(key);
   expect(savedSram).toBeDefined();
-  expect(Buffer.from(savedSram, 'base64')[3]).toBe(0x79);
+  expect(Buffer.from(JSON.parse(savedSram).data, 'base64')[3]).toBe(0x79);
   await expect(page.locator('#reset')).toBeDisabled();
   await page.locator('#reset').dispatchEvent('click');
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -232,7 +234,8 @@ test('a fatal frame failure stops playback across later visibility changes', asy
 
 test('suspension saves SRAM once and preserves write failures until saving succeeds', async ({ page }) => {
   await load(page);
-  const key = `snes-rust:sram:${createHash('sha256').update(buffer).digest('hex')}`;
+  const hash = createHash('sha256').update(buffer).digest('hex');
+  const key = sramKey(hash, await selectedProfile(page, hash));
   await page.evaluate(key => {
     const set = Storage.prototype.setItem;
     window.saveAttempts = 0;
@@ -248,7 +251,7 @@ test('suspension saves SRAM once and preserves write failures until saving succe
   }, key);
   await setTabHidden(page, true);
   await setTabHidden(page, true);
-  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), key);
+  const stored = () => savedSramByte(page, key);
   await expect.poll(stored).toBe(0x79);
   expect(await page.evaluate(() => saveAttempts)).toBe(1);
   await setTabHidden(page, false);
