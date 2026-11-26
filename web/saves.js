@@ -146,23 +146,44 @@ const pendingPrefix = hash => `snes-rust:pending-sram:${hash}:`;
 
 export function stageSram(hash, entry) {
   const key = pendingPrefix(hash) + crypto.randomUUID();
-  localStorage.setItem(key, JSON.stringify(entry));
-  return key;
+  const value = JSON.stringify(entry);
+  try {
+    localStorage.setItem(key, value);
+    return { storage: localStorage, key };
+  } catch (error) {
+    if (error.name !== 'QuotaExceededError') throw error;
+    // The tab's session storage survives navigation and has its own quota.
+    // Replaying the entry still requires the ROM lock and the same stale-save checks.
+    sessionStorage.setItem(key, value);
+    return { storage: sessionStorage, key };
+  }
 }
 
-export function pendingSramKeys(hash) {
-  return Object.keys(localStorage).filter(key => key.startsWith(pendingPrefix(hash)));
+function* pendingSramEntries(hash) {
+  const prefix = pendingPrefix(hash);
+  let tabStorage;
+  try { tabStorage = sessionStorage; } catch { /* The tab journal may be unavailable. */ }
+  for (const storage of [localStorage, tabStorage]) {
+    if (!storage) continue;
+    for (const key of Object.keys(storage)) {
+      if (key.startsWith(prefix)) yield { storage, key };
+    }
+  }
+}
+
+export function hasPendingSram(hash) {
+  return !pendingSramEntries(hash).next().done;
 }
 
 export function settlePendingSram(hash, size) {
-  for (const key of pendingSramKeys(hash)) {
-    const raw = localStorage.getItem(key);
+  for (const { storage, key } of pendingSramEntries(hash)) {
+    const raw = storage.getItem(key);
     if (raw === null) continue;
     const entry = JSON.parse(raw);
     if (typeof entry?.data !== 'string') throw new Error('Pending save data is invalid');
     decodeSram(entry.data, size);
     persistSram(hash, entry, size, true);
-    localStorage.removeItem(key);
+    storage.removeItem(key);
   }
 }
 

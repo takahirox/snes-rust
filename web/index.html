@@ -51,8 +51,11 @@
           <button id="save-state" disabled>Save state</button>
           <button id="load-state" aria-haspopup="dialog" disabled>Load state</button>
           <button id="fullscreen">Fullscreen</button>
-          <p id="status" role="status">Loading emulator…</p>
-          <p id="fullscreen-status" role="status"></p>
+          <div class="playback-status">
+            <p id="status" role="status">Loading emulator…</p>
+            <p id="fullscreen-status" role="status"></p>
+            <p id="save-status" role="status"></p>
+          </div>
         </div>
         <div class="toolbar-settings">
           <div id="volume-control" role="group" aria-label="Audio">
@@ -70,7 +73,6 @@
             <label>Display <select id="display"><option value="crt">CRT</option><option value="pixel">Pixel</option></select></label>
           </div>
         </div>
-        <p id="save-status" role="status"></p>
       </div>
       <div class="game-entry" role="group" aria-label="Cartridge slot">
         <div class="cartridge-value">

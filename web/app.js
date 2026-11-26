@@ -1,5 +1,5 @@
 import {
-  addStoredProfile, decodeSram, encodeSram, historyExists, historyPage, lockSaves, pendingSramKeys,
+  addStoredProfile, decodeSram, encodeSram, hasPendingSram, historyExists, historyPage, lockSaves,
   persistNewProfile, persistSram, readProfiles, readSramData, readState, recoverSram, removeSram,
   removeState, sameSram, settlePendingSram, sramTimestamp, stageSram, writeProfiles,
   writeSramData, writeState,
@@ -304,9 +304,9 @@ async function save(lifecycle = false) {
     try {
       if (session.pending?.data !== data) {
         const previous = session.pending;
-        const key = stageSram(hash, { id: activeProfile.id, base: session.base, epoch: session.epoch, data });
-        session.pending = { key, data };
-        if (previous) localStorage.removeItem(previous.key);
+        const journal = stageSram(hash, { id: activeProfile.id, base: session.base, epoch: session.epoch, data });
+        session.pending = { ...journal, data };
+        if (previous) previous.storage.removeItem(previous.key);
       }
       pending = session.pending;
     } catch (error) { finishSramSave(error); }
@@ -315,15 +315,15 @@ async function save(lifecycle = false) {
     return await lockSaves(hash, () => {
       if (session !== activeSram) return true;
       if (restorePending) return false;
-      if (pending && localStorage.getItem(pending.key) === null) {
+      if (pending && pending.storage.getItem(pending.key) === null) {
         if (session.pending && session.pending !== pending) return true;
-        // Another tab already finished this journal entry.
+        // This journal entry has already been settled.
         const profile = readProfiles(hash).profiles.find(profile => profile.id === activeProfile.id);
         session.base = profile && profile.epoch === session.epoch && readSramData(hash, profile.id) === data ? data : undefined;
         session.clean = data;
       } else {
         persistActiveSram(data);
-        if (pending) localStorage.removeItem(pending.key);
+        if (pending) pending.storage.removeItem(pending.key);
       }
       if (session.pending === pending) session.pending = undefined;
       return finishSramSave();
@@ -1289,7 +1289,7 @@ $('save-data').addEventListener('click', () => {
   profileDialog.showModal();
   try {
     renderProfiles();
-    if (pendingSramKeys(activeHash).length) {
+    if (hasPendingSram(activeHash)) {
       const view = profileView;
       void saveAction(profileDialog, () => lockSaves(activeHash, () => {
         if (!profileDialog.open || view !== profileView) return;

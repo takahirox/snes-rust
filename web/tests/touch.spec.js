@@ -247,11 +247,15 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }
   });
 }
 
-for (const viewport of [{ width: 375, height: 667 }, { width: 360, height: 640 }]) {
-  test(`demo selection keeps every touch control in view at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+for (const viewport of [{ width: 320, height: 568 }, { width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }]) {
+  test(`demo selection and save feedback keep every touch control in view at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page, false); await layout(page);
     await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Paused'); await layout(page);
     await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
+    await page.locator('#save-state').tap();
+    await expect(page.locator('#save-status')).toHaveText('State saved.');
+    await expect(page.locator('#save-status')).toBeInViewport({ ratio: 1 });
+    await layout(page);
     expect(await page.evaluate(() => scrollY)).toBe(0);
   });
 }

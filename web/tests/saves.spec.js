@@ -233,7 +233,7 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
   await expect(page.locator('#save-state-message')).toContainText('different ROM revision');
 });
 
-test('navigation persists dirty SRAM when localStorage has room only to replace the save', async ({ page }) => {
+for (const contention of [false, true]) test(`navigation preserves dirty SRAM at localStorage quota ${contention ? 'with' : 'without'} lock contention`, async ({ page, context }) => {
   const prior = Buffer.alloc(2048, 0x21).toString('base64');
   const updated = Buffer.alloc(2048, 0x79).toString('base64');
   await ready(page);
@@ -246,12 +246,39 @@ test('navigation persists dirty SRAM when localStorage has room only to replace 
     // A same-size replacement succeeds. The exit still cannot add a new key.
     localStorage.setItem(key, updated);
     localStorage.setItem(key, prior);
+    try { localStorage.setItem('extra-key', 'x'); }
+    catch (error) {
+      if (error.name === 'QuotaExceededError') return;
+      throw error;
+    }
+    throw new Error('Expected localStorage to reject an additional key');
   }, [sramKey, prior, updated]);
+  const holder = contention ? await context.newPage() : null;
+  if (holder) {
+    await ready(holder);
+    await holdSaveLock(holder);
+  }
   await sram(page, 0x79);
   await page.goto('/?after-quota-exit');
-  const persisted = await page.evaluate(([key, updated]) => localStorage.getItem(key) === updated, [sramKey, updated]);
-  expect(persisted).toBe(true);
+  if (holder) {
+    expect(await holder.evaluate(key => localStorage.getItem(key), sramKey)).toBe(prior);
+    await holder.evaluate(() => releaseExitSaveLock());
+    await expect(page.locator('#status')).toHaveText('Ready');
+    await local(page);
+    await expect(page.locator('#status')).toHaveText('Playing');
+    expect(await sram(page)).toBe(0x79);
+  }
+  expect(await page.evaluate(key => localStorage.getItem(key), sramKey)).toBe(updated);
 });
+
+function holdSaveLock(page) {
+  return page.evaluate(hash => new Promise(ready => {
+    void navigator.locks.request(`snes-rust:saves:${hash}`, () => new Promise(resolve => {
+      window.releaseExitSaveLock = resolve;
+      ready();
+    }));
+  }), hash);
+}
 
 for (const mode of ['paused', 'changed', 'changed at quota']) {
   test(`closing a ${mode} stale tab preserves restored SRAM`, async ({ page, context }) => {
@@ -288,12 +315,7 @@ for (const mode of ['paused', 'changed', 'changed at quota']) {
     if (journal) {
       // The restored bytes match this tab's original base. Force page exit
       // while the lock is held so only the synchronous journal can save it.
-      await page.evaluate(hash => new Promise(ready => {
-        void navigator.locks.request(`snes-rust:saves:${hash}`, () => new Promise(resolve => {
-          window.releaseExitSaveLock = resolve;
-          ready();
-        }));
-      }), hash);
+      await holdSaveLock(page);
     }
     await stale.goto('/?closed-stale-game');
     await stale.close();

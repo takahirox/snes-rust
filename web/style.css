@@ -102,7 +102,7 @@ button:hover:enabled:not([data-button][aria-disabled="true"]) { background: #edf
 #rom-retention-notice:has(#rom-retention-warning:empty) { display: none; }
 main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hidden; }
 .toolbar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.playback-controls, .toolbar-settings { display: contents; }
+.playback-controls, .toolbar-settings, .playback-status { display: contents; }
 .toolbar button { padding: 7px 12px; font-size: 13px; }
 #play { width: 64px; flex-shrink: 0; }
 #volume-control { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
@@ -154,6 +154,14 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
   .left-controls .system { justify-self: end; }
   .right-controls .system { justify-self: start; }
   @media (orientation: portrait) {
+    .playback-status {
+      order: 1;
+      flex: 1 0 100%;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .playback-status :is(#status, #fullscreen-status, #save-status) { flex: 0 1 auto; min-width: 0; }
     /* Reserve space for both toolbar rows, the cartridge and 44px controls. */
     main {
       --portrait-screen-height: max(var(--portrait-screen-min, 1px), 100svh - 484px
