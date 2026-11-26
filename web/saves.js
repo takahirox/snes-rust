@@ -6,6 +6,7 @@ const sramKey = (hash, id) => `snes-rust:sram:${hash}${id === originalProfile ? 
 const legacyTimeKey = hash => `snes-rust:sram-time:${hash}`;
 const isProfileUuid = id => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id);
 const validId = id => id === originalProfile || isProfileUuid(id);
+const validRevision = revision => typeof revision === 'string' && /^[a-f0-9]{14}$/.test(revision);
 
 export function readProfiles(hash) {
   const raw = localStorage.getItem(catalogKey(hash));
@@ -71,7 +72,7 @@ function writeSram(hash, id, bytes) {
   writeSramData(hash, id, encodeSram(bytes));
 }
 
-export function writeSramData(hash, id, data) {
+export function writeSramData(hash, id, data, recoveryRevision) {
   const key = sramKey(hash, id);
   if (id === originalProfile) {
     const changed = localStorage.getItem(key) !== data;
@@ -82,8 +83,10 @@ export function writeSramData(hash, id, data) {
     }
   } else {
     const previous = JSON.parse(localStorage.getItem(key));
-    const updated = previous?.data === data ? previous.updated : Date.now();
-    localStorage.setItem(key, JSON.stringify({ data, updated }));
+    const unchanged = previous?.data === data;
+    const updated = unchanged ? previous.updated : Date.now();
+    const revision = recoveryRevision ?? (unchanged ? previous.recoveryRevision : undefined);
+    localStorage.setItem(key, JSON.stringify({ data, updated, recoveryRevision: revision }));
   }
 }
 
@@ -118,12 +121,17 @@ export function persistNewProfile(hash, catalog, profile) {
 
 export function recoverSram(hash, id, data, source) {
   const catalog = readProfiles(hash);
-  const exists = catalog.profiles.some(profile => {
+  const existing = catalog.profiles.find(profile => {
     if (!profile.recovery || profile.id === id) return false;
     try { return sameSram(data, readSram(hash, profile.id, data.length)); }
     catch { return false; }
   });
-  if (!exists) {
+  if (existing) {
+    // Reusing these bytes as a restore backup revokes earlier write claims,
+    // including an unadopted journal replay targeting this recovery profile.
+    existing.epoch = crypto.randomUUID();
+    writeProfiles(hash, catalog);
+  } else {
     const recovery = addStoredProfile(hash, catalog, data, source);
     persistNewProfile(hash, catalog, recovery);
   }
@@ -131,7 +139,7 @@ export function recoverSram(hash, id, data, source) {
 
 // Call while holding the ROM's save lock. The returned target is safe to
 // update only as long as its stored bytes and epoch still match.
-export function persistSram(hash, { id, base, epoch, data, recoveryId }, { dirty = true, settled = false } = {}) {
+export function persistSram(hash, { id, base, epoch, data, recoveryId, revision }, { dirty = true, settled = false } = {}) {
   const catalog = readProfiles(hash);
   const profile = catalog.profiles.find(profile => profile.id === id);
   const stored = profile ? readSramData(hash, id) : undefined;
@@ -141,15 +149,26 @@ export function persistSram(hash, { id, base, epoch, data, recoveryId }, { dirty
   }
   if (!dirty || data === stored) return { id, epoch };
 
-  // The reserved ID also identifies a recovery written by journal replay.
+  // The reserved ID belongs to this writer. Its revision is stored atomically
+  // with the replayed bytes and cleared by an independent change to those bytes.
   const recovery = catalog.profiles.find(profile => profile.id === recoveryId);
-  if (recovery?.recovery && recovery.epoch === undefined && readSramData(hash, recovery.id) === data) {
-    return { id: recovery.id, base: data };
+  if (recovery?.recovery && recovery.epoch === undefined) {
+    const saved = profileRecord(hash, recovery.id);
+    if (saved.data === data && (revision === undefined || revision === saved.recoveryRevision)) {
+      return { id: recovery.id, base: data };
+    }
+    if (!settled && validRevision(revision) && validRevision(saved.recoveryRevision)) {
+      if (revision < saved.recoveryRevision) return { id, epoch };
+      if (revision > saved.recoveryRevision) {
+        writeSramData(hash, recovery.id, data, revision);
+        return { id: recovery.id, base: data };
+      }
+    }
   }
   if (settled) return { id, epoch };
 
   const fallback = addProfile(catalog, 'Another tab', !recovery && isProfileUuid(recoveryId) ? recoveryId : undefined);
-  writeSramData(hash, fallback.id, data);
+  writeSramData(hash, fallback.id, data, revision);
   persistNewProfile(hash, catalog, fallback);
   return { id: fallback.id, base: data };
 }

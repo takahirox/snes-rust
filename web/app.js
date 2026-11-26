@@ -276,6 +276,7 @@ function trackSram(base, epoch) {
   activeSram = activeProfile ? {
     target: { id: activeProfile.id, base, epoch },
     recoveryId: crypto.randomUUID(),
+    saveRevision: 0,
     clean: encodeSram(liveSram()),
   } : undefined;
   // Try saving before pagehide, while the browser can still warn about unsaved progress.
@@ -283,9 +284,14 @@ function trackSram(base, epoch) {
   else window.removeEventListener('beforeunload', saveBeforeUnload);
 }
 
-function persistActiveSram(data, settledEntry) {
+function nextSramRevision(session) {
+  // Keep same-size recovery writes possible even at localStorage quota.
+  return (++session.saveRevision).toString(16).padStart(14, '0');
+}
+
+function persistActiveSram(data, revision = nextSramRevision(activeSram), settledEntry) {
   const { target, recoveryId, clean } = activeSram;
-  const entry = settledEntry ?? { ...target, recoveryId, data };
+  const entry = settledEntry ?? { ...target, recoveryId, data, revision };
   const settled = Boolean(settledEntry);
   const saved = persistSram(activeHash, entry, { dirty: settled || data !== clean, settled });
   if (saved.id !== target.id) {
@@ -294,6 +300,12 @@ function persistActiveSram(data, settledEntry) {
   }
   activeSram.target = saved;
   activeSram.clean = data;
+  const pending = activeSram.pending;
+  if (pending && (pending.entry.revision === revision || (pending.entry.revision < revision && saved.base === data))) {
+    // A regular autosave can durably replace a delayed lifecycle save.
+    if (!settled) pending.storage.removeItem(pending.key);
+    activeSram.pending = undefined;
+  }
 }
 
 function finishSramSave(error) {
@@ -307,13 +319,14 @@ async function save(lifecycleEvent) {
   if (restorePending) return false;
   const session = activeSram, hash = activeHash;
   const data = encodeSram(liveSram());
+  const revision = nextSramRevision(session);
   let pending;
   const dirty = data !== session.clean;
   if (lifecycleEvent && (dirty || session.pending)) {
     try {
       if (session.pending?.entry.data !== data) {
         const previous = session.pending;
-        const entry = { ...session.target, recoveryId: session.recoveryId, data };
+        const entry = { ...session.target, recoveryId: session.recoveryId, data, revision };
         const journal = stageSram(hash, entry);
         session.pending = { ...journal, entry };
         if (previous) previous.storage.removeItem(previous.key);
@@ -331,15 +344,9 @@ async function save(lifecycleEvent) {
     return await lockSaves(hash, () => {
       if (session !== activeSram) return true;
       if (restorePending) return false;
-      if (pending && pending.storage.getItem(pending.key) === null) {
-        if (session.pending && session.pending !== pending) return true;
-        // This journal entry has already been settled.
-        persistActiveSram(data, pending.entry);
-      } else {
-        persistActiveSram(data);
-        if (pending) pending.storage.removeItem(pending.key);
-      }
-      if (session.pending === pending) session.pending = undefined;
+      if (pending && session.pending !== pending) return true;
+      const settled = pending && pending.storage.getItem(pending.key) === null;
+      persistActiveSram(data, pending?.entry.revision ?? revision, settled ? pending.entry : undefined);
       return finishSramSave();
     });
   } catch (error) {

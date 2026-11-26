@@ -268,6 +268,67 @@ test('a failed state load leaves another tab able to autosave to Save 1', async 
   await expect(other.getByRole('button', { name: 'Recovery · Another tab', exact: true })).toHaveCount(0);
 });
 
+test('state loads protect a reused recovery profile from its stale tab', async ({ page, context }) => {
+  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
+  await ready(page);
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [sramKey, Buffer.alloc(2048, 0x21).toString('base64')]);
+  await local(page);
+  await pause(page);
+  await capture(page);
+
+  const stale = await context.newPage();
+  await ready(stale);
+  await local(stale);
+  await pause(stale);
+  await sram(page, 0x41);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect.poll(stored).toBe(0x41);
+  await sram(stale, 0x79);
+  await stale.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect(stale.locator('#save-status')).toContainText('This tab’s progress is in Recovery');
+  await sram(page, 0x79);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect.poll(stored).toBe(0x79);
+
+  // The matching bytes already exist. If protecting their profile fails, the
+  // current machine and Save 1 must both survive the attempted load.
+  const prior = await machineState(page);
+  await page.evaluate(hash => {
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === `snes-rust:save-profiles:${hash}` && JSON.parse(value).profiles.some(profile => profile.recovery && profile.epoch)) {
+        throw new DOMException('Write denied', 'SecurityError');
+      }
+      return set.call(this, key, value);
+    };
+    window.storageRecovered = () => { Storage.prototype.setItem = set; };
+  }, hash);
+  await page.locator('#load-state').click();
+  await states(page).first().click();
+  await expect(page.locator('#save-state-message')).toContainText('Could not protect SRAM');
+  expect(await machineState(page)).toEqual(prior);
+  expect(await stored()).toBe(0x79);
+
+  await page.evaluate(() => storageRecovered());
+  await states(page).first().click();
+  await expect(page.locator('#save-status')).toContainText('Previous SRAM is available');
+  expect(await stored()).toBe(0x21);
+  await page.locator('#save-data').click();
+  const copies = page.getByRole('button', { name: /^Recovery · / });
+  await expect(copies).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  await sram(stale, 0x52);
+  await stale.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await stale.evaluate(hash => navigator.locks.request(`snes-rust:saves:${hash}`, () => {}), hash);
+  await page.locator('#save-data').click();
+  await expect(copies).toHaveCount(2);
+  await copies.first().click();
+  await expect(page.locator('#save-data-dialog')).toBeHidden();
+  expect(await sram(page)).toBe(0x79);
+  expect(await stored()).toBe(0x21);
+});
+
 for (const contention of [false, true]) test(`navigation preserves dirty SRAM at localStorage quota ${contention ? 'with' : 'without'} lock contention`, async ({ page, context }) => {
   const prior = Buffer.alloc(2048, 0x21).toString('base64');
   const updated = Buffer.alloc(2048, 0x79).toString('base64');
@@ -408,7 +469,7 @@ for (const mode of ['paused', 'changed', 'changed at quota']) {
   });
 }
 
-test('successive saves in a stale tab update one recovery profile', async ({ page, context }) => {
+for (const replayed of [false, true]) test(`successive stale-tab saves update one recovery profile ${replayed ? 'after journal replay at quota' : 'after the saving tab adopts it'}`, async ({ page, context }) => {
   const largeRom = Buffer.from(rom);
   largeRom[0x7fd8] = 8; // 256 KiB, large enough for repeated copies to exhaust localStorage.
   const largeHash = createHash('sha256').update(largeRom).digest('hex');
@@ -434,7 +495,7 @@ test('successive saves in a stale tab update one recovery profile', async ({ pag
   await states(page).first().click();
   await expect(page.locator('#save-status')).toContainText('State loaded.');
 
-  const recoveryProfiles = () => stale.evaluate(async hash => {
+  const recoveryProfiles = () => page.evaluate(async hash => {
     // Wait behind any queued lifecycle write before inspecting the catalog and SRAM.
     return navigator.locks.request(`snes-rust:saves:${hash}`, () => {
       const { profiles } = JSON.parse(localStorage.getItem(`snes-rust:save-profiles:${hash}`));
@@ -444,7 +505,51 @@ test('successive saves in a stale tab update one recovery profile', async ({ pag
     });
   }, largeHash);
   let recoveryId;
-  for (let value = 0x50; value <= 0x52; value++) {
+  if (replayed) {
+    // Delay two lifecycle callbacks before they request the real lock. Replay
+    // the first journal in the other tab before the writer can adopt its ID.
+    await stale.evaluate(hash => {
+      const lock = navigator.locks.request.bind(navigator.locks);
+      const delayed = [];
+      navigator.locks.request = async (name, callback) => {
+        if (name === `snes-rust:saves:${hash}` && delayed.length < 2) {
+          await new Promise(resolve => delayed.push(resolve));
+        }
+        return lock(name, callback);
+      };
+      window.releaseSaveCallbacks = () => delayed.forEach(resolve => resolve());
+    }, largeHash);
+    await sram(stale, 0x50);
+    await stale.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    await page.locator('#save-data').click();
+    await expect(page.getByRole('button', { name: 'Recovery · Another tab', exact: true })).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    const profiles = await recoveryProfiles();
+    recoveryId = profiles[0].id;
+    expect(profiles).toEqual([{ id: recoveryId, value: 0x50 }]);
+
+    // A new journal falls back to sessionStorage. Only a same-size update
+    // fits in localStorage, and the picker must be able to replay it.
+    await fillLocalStorage(page);
+    await sram(stale, 0x51);
+    await stale.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    await expect.poll(() => stale.evaluate(() => Object.keys(sessionStorage)
+      .filter(key => key.startsWith('snes-rust:pending-sram:')).length)).toBe(1);
+    await stale.locator('#save-data').click();
+    await expect.poll(recoveryProfiles).toEqual([{ id: recoveryId, value: 0x51 }]);
+    await expect(stale.locator('#save-data-message')).toBeEmpty();
+    await stale.keyboard.press('Escape');
+    // Pause triggers an ordinary save before either delayed callback runs.
+    await stale.locator('#play').click();
+    await sram(stale, 0x61);
+    await pause(stale);
+    await expect.poll(recoveryProfiles).toEqual([{ id: recoveryId, value: 0x61 }]);
+    await stale.evaluate(() => releaseSaveCallbacks());
+    await expect(stale.locator('#save-status')).toContainText('This tab’s progress is in Recovery');
+    expect(await page.evaluate(hash => JSON.parse(localStorage.getItem(`snes-rust:save-profiles:${hash}`)).selected, largeHash)).toBe('legacy');
+    await page.evaluate(() => localStorage.removeItem('quota-test'));
+  }
+  for (let value = replayed ? 0x52 : 0x50; value <= 0x52; value++) {
     await sram(stale, value);
     await stale.evaluate(() => window.dispatchEvent(new Event('pagehide')));
     const profiles = await recoveryProfiles();
