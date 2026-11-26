@@ -1095,7 +1095,7 @@ for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) =
     return;
   }
   if (!keys[event.code] || !isRunning()) return;
-  const inControl = (inHelp && help.open) || target.closest?.('#cartridge-picker, .save-dialog') ||
+  const inControl = statePicker.open || (inHelp && help.open) || target.closest?.('#cartridge-picker, .save-dialog') ||
     ['INPUT', 'SELECT'].includes(target.tagName) ||
     (['BUTTON', 'A', 'SUMMARY'].includes(target.tagName) && ['Enter', 'Space'].includes(event.code));
   if (inControl && !(type === 'keyup' && held.has(event.code))) return;
@@ -1179,7 +1179,7 @@ window.addEventListener('pagehide', event => { void save(event); });
 
 const profileDialog = $('save-data-dialog'), profileList = $('save-profiles');
 const statePicker = $('state-picker'), stateToggle = $('choose-state'), newState = $('new-state');
-const closeStatePicker = $('close-state-picker'), importState = $('import-state');
+const stateClose = $('close-state-picker'), importState = $('import-state');
 const stateList = $('state-history'), stateMessage = $('state-message'), moreStates = $('more-states');
 for (const controls of [profileDialog, statePicker, stateToggle.parentElement]) {
   controls.addEventListener('keydown', event => {
@@ -1197,7 +1197,7 @@ function requireProfile(catalog, id) {
 
 function updateSaveControls() {
   const disabled = !loaded || Boolean(loading) || restorePending;
-  if (disabled && statePicker.matches(':popover-open')) statePicker.hidePopover();
+  if (disabled && statePicker.open) closeStatePicker();
   const key = saveDestination(saveScope());
   updateStateTarget(key);
   $('save-data').hidden = !activeProfile;
@@ -1219,7 +1219,7 @@ async function saveAction(dialog, action) {
   try {
     await action();
   } catch (error) {
-    if (dialog?.matches('[open], :popover-open')) message.textContent = error.message;
+    if (dialog?.open) message.textContent = error.message;
     else report(error);
   } finally {
     core.discard_prepared_state();
@@ -1456,7 +1456,7 @@ function thumbnail(pointer, width) {
 }
 
 $('save-state').addEventListener('click', () => void saveAction(null, async () => {
-  if (statePicker.matches(':popover-open')) statePicker.hidePopover();
+  if (statePicker.open) closeStatePicker();
   const scope = saveScope();
   const destination = saveDestination(scope);
   const time = Date.now();
@@ -1487,7 +1487,7 @@ function clearHistory(view) {
 }
 
 function isHistoryOpen(view) {
-  return view && view === stateView && statePicker.matches(':popover-open');
+  return view && view === stateView && statePicker.open;
 }
 
 async function showHistory(view, append = false) {
@@ -1534,39 +1534,39 @@ async function showHistory(view, append = false) {
 function chooseState(view, key) {
   if (!isHistoryOpen(view) || saveBusy) return;
   selectSaveDestination(view.scope, key);
-  statePicker.hidePopover();
+  closeStatePicker();
 }
 
-statePicker.addEventListener('beforetoggle', event => {
-  if (event.newState !== 'open') return;
-  if (!loaded || loading || saveBusy || restorePending) {
-    event.preventDefault();
-    return;
-  }
+function closeStatePicker() {
+  statePicker.close();
   clearHistory(stateView);
+  stateView = undefined;
+  stateToggle.focus({ preventScroll: true });
+}
+
+stateToggle.addEventListener('click', () => {
+  if (!loaded || loading || saveBusy || restorePending || statePicker.open) return;
   const view = stateView = { scope: saveScope(), previews: new Set() };
   newState.setAttribute('aria-current', String(!saveDestination(view.scope)));
   stateMessage.textContent = 'Loading history…';
+  statePicker.showModal();
+  void showHistory(view).catch(error => {
+    if (isHistoryOpen(view)) stateMessage.textContent = error.message;
+  });
 });
-statePicker.addEventListener('toggle', () => {
-  const view = stateView;
-  if (isHistoryOpen(view)) {
-    void showHistory(view).catch(error => {
-      if (isHistoryOpen(view)) stateMessage.textContent = error.message;
-    });
-  } else {
-    clearHistory(view);
-    stateView = undefined;
-  }
+statePicker.addEventListener('cancel', event => {
+  event.preventDefault();
+  closeStatePicker();
 });
 statePicker.addEventListener('keydown', event => {
   if (event.key !== 'Tab') return;
   const last = moreStates.hidden ? importState : moreStates;
-  if (event.target !== (event.shiftKey ? closeStatePicker : last)) return;
+  if (event.target !== statePicker && event.target !== (event.shiftKey ? stateClose : last)) return;
   event.preventDefault();
-  (event.shiftKey ? last : closeStatePicker).focus();
+  (event.shiftKey ? last : stateClose).focus();
 });
-$('state-picker-backdrop').addEventListener('click', () => statePicker.hidePopover());
+stateClose.addEventListener('click', closeStatePicker);
+$('state-picker-backdrop').addEventListener('click', closeStatePicker);
 newState.addEventListener('click', () => chooseState(stateView));
 moreStates.addEventListener('click', () => {
   if (isHistoryOpen(stateView)) void saveAction(statePicker, () => showHistory(stateView, true));
@@ -1628,7 +1628,7 @@ $('load-state').addEventListener('click', () => void saveAction(null, async () =
   const scope = saveScope();
   const key = saveDestination(scope);
   if (!key) return;
-  if (statePicker.matches(':popover-open')) statePicker.hidePopover();
+  if (statePicker.open) closeStatePicker();
   const load = pendingStateLoad = { cancelled: false };
   try {
     const snapshot = await readState(key);
