@@ -1003,6 +1003,7 @@ $('scale').addEventListener('change', event => {
   canvas.parentElement.style.setProperty('--video-width', `${256 * Number(event.target.value)}px`);
 });
 const presentation = $('game-presentation'), fullscreenButton = $('fullscreen');
+const fullscreenLabel = fullscreenButton.querySelector('.fullscreen-label');
 const fullscreenStatus = $('fullscreen-status');
 const touchControls = document.querySelector('.touch-controls');
 const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 1100px)');
@@ -1056,7 +1057,10 @@ document.addEventListener('fullscreenchange', () => {
   const active = document.fullscreenElement === presentation;
   if (active === gameplayFullscreen) return;
   gameplayFullscreen = active;
-  fullscreenButton.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+  const label = active ? 'Exit fullscreen' : 'Fullscreen';
+  fullscreenLabel.textContent = label;
+  fullscreenButton.ariaLabel = label;
+  fullscreenButton.title = label;
   // Keep focus and assistive technology inside the fullscreen presentation.
   for (const element of playerChrome) element.inert = active;
   clearVirtualInput();

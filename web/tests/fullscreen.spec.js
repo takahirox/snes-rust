@@ -141,6 +141,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
       const scale = capture ? '3' : '1';
       await page.locator('#scale').selectOption(scale);
       const video = page.locator('#video'), enter = page.locator('#fullscreen'), exit = page.locator('#exit-fullscreen');
+      const label = enter.locator('.fullscreen-label');
       const normal = await video.boundingBox();
       for (const mode of ['crt', 'pixel']) {
         await page.locator('#display').selectOption(mode);
@@ -155,7 +156,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
           await expect(chrome).toHaveJSProperty('inert', true);
         }
         await expect(video).toBeFocused();
-        await expect(enter).toHaveText('Exit fullscreen');
+        await expect(label).toHaveText('Exit fullscreen');
         await gameplayLayout(page, { touch, safeArea });
         await renderedPixels(page, mode, testInfo);
         if (capture) await page.screenshot({ path: testInfo.outputPath(`${capture}-${mode}-fullscreen.png`), scale: 'css' });
@@ -181,7 +182,7 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
         } else await page.keyboard.press('Escape');
         await expect(presentation).toHaveCount(0);
         await expect(touch ? video : enter).toBeFocused();
-        await expect(enter).toHaveText('Fullscreen');
+        await expect(label).toHaveText('Fullscreen');
         await expect(page.locator('#status')).toHaveText('Playing');
         await expect(page.locator('#scale')).toHaveValue(scale);
         expect(await video.boundingBox()).toEqual(normal);
@@ -192,6 +193,26 @@ for (const { viewport, touch, safeArea, rotate, capture } of [
     });
   });
 }
+
+test.describe('320×568 portrait', () => {
+  const viewport = { width: 320, height: 568 };
+  test.use({ viewport, hasTouch: true, isMobile: true });
+  test('exiting fullscreen keeps the compact button visible without horizontal overflow', async ({ page }) => {
+    await page.goto('/');
+    await selectDemo(page);
+    await expect(page.locator('#status')).toHaveText('Playing');
+    const enter = page.getByRole('button', { name: 'Fullscreen', exact: true });
+    await enter.tap();
+    const presentation = page.locator(':fullscreen');
+    await expect(presentation).toHaveAttribute('id', 'game-presentation');
+    await presentation.getByRole('button', { name: 'Exit fullscreen', exact: true }).tap();
+    await expect(presentation).toHaveCount(0);
+    await expect(enter).toBeVisible();
+    expect(await page.evaluate(() => [innerWidth, document.documentElement.scrollWidth]))
+      .toEqual([viewport.width, viewport.width]);
+    await expect(enter.locator('.fullscreen-icon')).toBeVisible();
+  });
+});
 
 for (const viewport of [{ width: 500, height: 250 }, { width: 424, height: 320 }, { width: 360, height: 300 }]) {
   test.describe(`${viewport.width}×${viewport.height} landscape safe area`, () => {
