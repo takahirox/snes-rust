@@ -324,12 +324,31 @@ export function historyExists(scope) {
   });
 }
 
-export function writeState({ hash, profile }, time, snapshot, thumbnail) {
-  const key = [hash, profile, time, crypto.randomUUID()];
+export function writeState({ hash, profile }, time, snapshot, thumbnail, destination) {
+  if (destination && (destination[0] !== hash || destination[1] !== profile)) {
+    throw new Error('The save destination belongs to a different cartridge or profile.');
+  }
+  const key = [hash, profile, time, destination?.[3] ?? crypto.randomUUID()];
   return transaction(['entries', 'snapshots'], 'readwrite', tx => {
-    tx.objectStore('entries').add({ thumbnail }, key);
-    tx.objectStore('snapshots').add(snapshot, key);
-    return () => key;
+    const entries = tx.objectStore('entries'), snapshots = tx.objectStore('snapshots');
+    let written;
+    function add() {
+      entries.add({ thumbnail }, key);
+      snapshots.add(snapshot, key);
+      written = key;
+    }
+    if (destination) {
+      // Check both records before re-keying, and roll back both deletes if either add fails.
+      const entry = entries.getKey(destination);
+      const payload = snapshots.getKey(destination);
+      payload.onsuccess = () => {
+        if (entry.result === undefined || payload.result === undefined) return;
+        entries.delete(destination);
+        snapshots.delete(destination);
+        add();
+      };
+    } else add();
+    return () => written;
   });
 }
 

@@ -110,6 +110,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 #volume { width: 96px; height: 44px; margin: 0; accent-color: #306e59; cursor: pointer; }
 #mute svg { pointer-events: none; }
 #fullscreen, #exit-fullscreen { -webkit-tap-highlight-color: transparent; }
+.fullscreen-icon { display: none; }
 .mute-mark, .muted .sound-waves { display: none; }
 .muted .mute-mark { display: initial; }
 #status, #fullscreen-status { order: 1; min-width: 0; max-width: 100%; margin: 0 0 0 auto; font-size: 13px; }
@@ -193,14 +194,23 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
     main:has(#retry-save:not([hidden])) { --save-restore-space: calc(5lh + 16px + 45px); }
   }
 }
-@media (orientation: portrait) and (max-width: 400px) {
-  /* Keep a usable volume slider when the toolbar wraps. */
+@media (orientation: portrait) and (max-width: 460px) {
+  /* Keep playback and settings on separate rows as the save destination changes. */
+  .toolbar {
+    display: grid;
+    grid-template-columns: repeat(2, max-content) minmax(0, max-content) repeat(2, max-content);
+  }
+  .toolbar-settings, .playback-status { grid-column: 1 / -1; contain: inline-size; }
+  .toolbar-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   .toolbar button { padding-inline: 3px; font-size: 11px; }
   #play { width: 44px; }
   #volume { width: 58px; }
   .display-controls { gap: 4px; }
   .display-controls label { gap: 2px; font-size: 11px; }
   .display-controls select { padding-inline: 4px; font-size: 12px; }
+  .toolbar #fullscreen { width: 24px; font-size: 16px; line-height: 16px; }
+  .fullscreen-label { display: none; }
+  .fullscreen-icon { display: inline; }
 }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
   main { --controller-gap: 6px; padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); }
@@ -357,8 +367,8 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 .save-dialog {
   inset: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
     max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-  width: min(32rem, calc(100% - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right))));
-  max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)));
+  width: min(var(--save-dialog-width, 32rem), calc(100% - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right))));
+  max-height: min(var(--save-dialog-height, 100dvh), calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))));
   color: inherit;
   background: #fff;
   border: 1px solid #c9cdce;
@@ -371,6 +381,32 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 .save-dialog-header, .save-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .save-dialog-header { justify-content: space-between; }
 .save-dialog h2 { font-size: 1.2rem; margin: 0; }
+.save-state-split { display: inline-flex; align-items: stretch; }
+#save-state { border-start-end-radius: 0; border-end-end-radius: 0; line-height: 1.15; padding-block: 4px; }
+#choose-save-destination {
+  min-width: 32px; padding-inline: 5px; border-inline-start: 0;
+  border-start-start-radius: 0; border-end-start-radius: 0;
+}
+.save-state-split > button:focus-visible { z-index: 1; }
+#save-destination { display: block; font-size: .8em; white-space: nowrap; }
+@media (orientation: portrait) and (max-width: 460px) {
+  #save-state { inline-size: 76px; min-inline-size: 0; white-space: nowrap; }
+  #save-destination { overflow: hidden; text-overflow: ellipsis; }
+}
+@media (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
+  #save-state { padding-block: 0; line-height: 1.1; }
+}
+#save-destination-picker {
+  --save-dialog-width: 20rem; --save-dialog-height: 24rem;
+  box-shadow: 0 8px 32px #10201830; font-size: 13px;
+}
+#save-destination-picker h2 { font-size: 15px; }
+#save-destination-picker button { min-height: 44px; font-size: inherit; padding: 6px 10px; }
+.destination-option { width: 100%; text-align: start; }
+#new-state-destination { display: flex; align-items: center; margin-top: 8px; }
+.destination-check { visibility: hidden; margin-inline-start: auto; color: #285e4b; font-weight: bold; }
+[aria-current="true"] > .destination-check { visibility: visible; }
+#new-state-destination[aria-current="true"] { border-color: #306e59; }
 .save-list { margin: 8px 0; padding: 0; list-style: none; }
 .save-list:empty { display: none; }
 .save-list li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 0; }
@@ -378,5 +414,5 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 .save-list li > :first-child { flex: 1 1 auto; text-align: left; }
 .save-list button[aria-current="true"] { border-color: #306e59; }
 .save-time { color: #59636c; font-size: .8rem; }
-#state-history li > :first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-#state-history img { width: 80px; height: auto; border-radius: 4px; }
+.state-list li > :first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.state-list img { width: 80px; height: auto; border-radius: 4px; }

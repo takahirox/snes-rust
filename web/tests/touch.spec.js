@@ -247,7 +247,7 @@ for (const viewport of [{ width: 320, height: 740 }, { width: 375, height: 667 }
   });
 }
 
-for (const viewport of [{ width: 320, height: 568 }, { width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }]) {
+for (const viewport of [{ width: 320, height: 568 }, { width: 320, height: 740 }, { width: 375, height: 667 }, { width: 360, height: 640 }, { width: 412, height: 640 }]) {
   test(`demo selection and save feedback keep every touch control in view at ${viewport.width}×${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport); await boot(page, false); await layout(page);
     await page.locator('#play').tap(); await expect(page.locator('#status')).toHaveText('Paused'); await layout(page);

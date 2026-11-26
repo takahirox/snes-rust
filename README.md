@@ -128,9 +128,13 @@ to return to the player.
   states in its history. **Export current SRAM** downloads raw bytes. **Import
   SRAM** checks the size and creates a new profile for the inserted cartridge.
   Choose a file from the same ROM revision because raw SRAM carries no identity.
-- **Save state** adds a screenshot to the current game's history, including
-  games without SRAM. **Load state** shows the newest snapshots first. Loading
-  resumes the captured machine and preserves manual Pause. If loading replaces
+- **Save state** captures progress and a screenshot. The first save creates an
+  entry, and later clicks overwrite the selected entry for that cartridge and
+  SRAM profile. Use **▼** beside **Save state** to choose another entry or
+  **New state** for the next save. Games without SRAM have one history per
+  cartridge. **Load state** shows the most recently saved entries first. A
+  successful load selects that entry for the next save, resumes the captured
+  machine and preserves manual Pause. If loading replaces
   newer SRAM, **Save data** offers a recovery profile you can select normally.
   Use each entry's **Export** to download a `.snesstate` file. **Import state**
   validates a file and adds it to the selected history for you to load.

@@ -48,9 +48,16 @@
         <div class="playback-controls">
           <button id="play" disabled>Play</button>
           <button id="reset" disabled>Reset</button>
-          <button id="save-state" disabled>Save state</button>
+          <div class="save-state-split">
+            <button id="save-state" aria-label="Save state" aria-describedby="save-destination" disabled>
+              Save state <span id="save-destination">New state</span>
+            </button>
+            <button id="choose-save-destination" popovertarget="save-destination-picker" aria-haspopup="dialog" aria-label="Choose save state destination" disabled>▼</button>
+          </div>
           <button id="load-state" aria-haspopup="dialog" disabled>Load state</button>
-          <button id="fullscreen">Fullscreen</button>
+          <button id="fullscreen" aria-label="Fullscreen" title="Fullscreen">
+            <span class="fullscreen-label">Fullscreen</span><span class="fullscreen-icon" aria-hidden="true">⛶</span>
+          </button>
           <div class="playback-status">
             <p id="status" role="status">Loading emulator…</p>
             <p id="fullscreen-status" role="status"></p>
@@ -73,6 +80,16 @@
             <label>Display <select id="display"><option value="crt">CRT</option><option value="pixel">Pixel</option></select></label>
           </div>
         </div>
+      </div>
+      <div id="save-destination-picker" class="save-dialog" popover role="dialog" aria-labelledby="save-destination-title">
+        <div class="save-dialog-header">
+          <h2 id="save-destination-title">Save destination</h2>
+          <button type="button" popovertarget="save-destination-picker" popovertargetaction="hide">Close</button>
+        </div>
+        <button id="new-state-destination" class="destination-option" autofocus>New state <span class="destination-check" aria-hidden="true">✓</span></button>
+        <p id="destination-message" role="status"></p>
+        <ul id="destination-history" class="save-list state-list"></ul>
+        <button id="more-destinations" hidden>Show older states</button>
       </div>
       <div class="game-entry" role="group" aria-label="Cartridge slot">
         <div class="cartridge-value">
@@ -148,7 +165,7 @@
         <form method="dialog"><button autofocus aria-label="Close save states">Close</button></form>
       </div>
       <p id="save-state-message" role="status"></p>
-      <ul id="state-history" class="save-list"></ul>
+      <ul id="state-history" class="save-list state-list"></ul>
       <div class="save-actions">
         <button id="more-states" hidden>Show older states</button>
         <button id="import-state">Import state</button>
