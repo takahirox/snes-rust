@@ -48,13 +48,14 @@
         <div class="playback-controls">
           <button id="play" disabled>Play</button>
           <button id="reset" disabled>Reset</button>
-          <div class="save-state-split">
-            <button id="save-state" aria-label="Save state" aria-describedby="save-destination" disabled>
-              Save state <span id="save-destination">New state</span>
+          <div class="state-controls" role="group" aria-label="Save states">
+            <button id="choose-state" aria-haspopup="dialog" aria-controls="state-picker" disabled>
+              Save state <span aria-hidden="true">▾</span>
+              <span id="state-target">New state</span>
             </button>
-            <button id="choose-save-destination" popovertarget="save-destination-picker" aria-haspopup="dialog" aria-label="Choose save state destination" disabled>▼</button>
+            <button id="save-state" aria-label="Save state" aria-describedby="state-target" disabled>Save</button>
+            <button id="load-state" aria-label="Load state" aria-describedby="state-target" disabled>Load</button>
           </div>
-          <button id="load-state" aria-haspopup="dialog" disabled>Load state</button>
           <button id="fullscreen" aria-label="Fullscreen" title="Fullscreen">
             <span class="fullscreen-label">Fullscreen</span><span class="fullscreen-icon" aria-hidden="true">⛶</span>
           </button>
@@ -81,16 +82,23 @@
           </div>
         </div>
       </div>
-      <div id="save-destination-picker" class="save-dialog" popover role="dialog" aria-labelledby="save-destination-title">
-        <div class="save-dialog-header">
-          <h2 id="save-destination-title">Save destination</h2>
-          <button type="button" popovertarget="save-destination-picker" popovertargetaction="hide">Close</button>
+      <dialog id="state-picker" aria-labelledby="state-picker-title">
+        <div id="state-picker-backdrop" aria-hidden="true"></div>
+        <div class="save-dialog">
+          <div class="save-dialog-header">
+            <h2 id="state-picker-title">Save states</h2>
+            <button id="close-state-picker" type="button">Close</button>
+          </div>
+          <button id="new-state" class="state-option" autofocus>New state <span class="state-check" aria-hidden="true">✓</span></button>
+          <p id="state-message" role="status"></p>
+          <ul id="state-history" class="save-list state-list"></ul>
+          <div class="save-actions">
+            <button id="import-state">Import state</button>
+            <button id="more-states" hidden>Show older states</button>
+            <input id="state-file" type="file" accept=".snesstate" hidden aria-label="Import save state file">
+          </div>
         </div>
-        <button id="new-state-destination" class="destination-option" autofocus>New state <span class="destination-check" aria-hidden="true">✓</span></button>
-        <p id="destination-message" role="status"></p>
-        <ul id="destination-history" class="save-list state-list"></ul>
-        <button id="more-destinations" hidden>Show older states</button>
-      </div>
+      </dialog>
       <div class="game-entry" role="group" aria-label="Cartridge slot">
         <div class="cartridge-value">
           <div class="cartridge-summary">
@@ -157,19 +165,6 @@
         <button id="export-sram">Export current SRAM</button>
         <button id="import-sram">Import SRAM</button>
         <input id="sram-file" type="file" accept=".srm,.sav" hidden aria-label="Import SRAM file">
-      </div>
-    </dialog>
-    <dialog id="save-state-dialog" aria-labelledby="save-state-title" class="save-dialog">
-      <div class="save-dialog-header">
-        <h2 id="save-state-title">Load state</h2>
-        <form method="dialog"><button autofocus aria-label="Close save states">Close</button></form>
-      </div>
-      <p id="save-state-message" role="status"></p>
-      <ul id="state-history" class="save-list state-list"></ul>
-      <div class="save-actions">
-        <button id="more-states" hidden>Show older states</button>
-        <button id="import-state">Import state</button>
-        <input id="state-file" type="file" accept=".snesstate" hidden aria-label="Import save state file">
       </div>
     </dialog>
     <p id="error" role="alert"></p>
