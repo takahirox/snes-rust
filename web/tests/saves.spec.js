@@ -1041,6 +1041,36 @@ test('the shared picker targets saves and loads separately and removes the selec
   expect(await machineState(page)).toEqual(olderMachine);
 });
 
+test('Tab wraps inside the save-state picker on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await ready(page);
+  await local(page, nonBattery);
+  await pause(page);
+  await capture(page);
+  const history = await savedHistory(page);
+  const picker = page.getByRole('dialog', { name: 'Save states' });
+  const selector = page.locator('#choose-state');
+  const close = picker.getByRole('button', { name: 'Close', exact: true });
+  const importState = picker.getByRole('button', { name: 'Import state', exact: true });
+
+  await selector.press('Enter');
+  await expect(picker.getByRole('button', { name: 'New state' })).toBeFocused();
+  await expect(states(page)).toHaveCount(1);
+  for (const name of [/^Select state from/, /^Export state from/, /^Remove state from/, 'Import state']) {
+    await page.keyboard.press('Tab');
+    await expect(picker.getByRole('button', { name })).toBeFocused();
+  }
+  await page.keyboard.press('Tab');
+  await expect(close).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(importState).toBeFocused();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
+  await expect(picker).toBeHidden();
+  await expect(selector).toBeFocused();
+  expect(await savedHistory(page)).toEqual(history);
+});
+
 test('save destinations are remembered separately for each ROM and SRAM profile', async ({ page }) => {
   await ready(page);
   await local(page);
