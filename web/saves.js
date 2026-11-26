@@ -4,12 +4,13 @@ export const originalProfile = 'legacy';
 const catalogKey = hash => `snes-rust:save-profiles:${hash}`;
 const sramKey = (hash, id) => `snes-rust:sram:${hash}${id === originalProfile ? '' : `:${id}`}`;
 const legacyTimeKey = hash => `snes-rust:sram-time:${hash}`;
+const isProfileUuid = id => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id);
+const validId = id => id === originalProfile || isProfileUuid(id);
 
 export function readProfiles(hash) {
   const raw = localStorage.getItem(catalogKey(hash));
   if (raw === null) return { version: 1, selected: originalProfile, next: 2, profiles: [{ id: originalProfile, name: 'Save 1' }] };
   const catalog = JSON.parse(raw);
-  const validId = id => id === originalProfile || (typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id));
   if (catalog?.version !== 1 || !Number.isSafeInteger(catalog.next) || catalog.next < 2 ||
       !Array.isArray(catalog.profiles) ||
       catalog.profiles.some(p => !validId(p?.id) || typeof p.name !== 'string' ||
@@ -26,9 +27,9 @@ export function writeProfiles(hash, catalog) {
   localStorage.setItem(catalogKey(hash), JSON.stringify(catalog));
 }
 
-function addProfile(catalog, recovery = false) {
+function addProfile(catalog, recovery = false, id = crypto.randomUUID()) {
   const profile = {
-    id: crypto.randomUUID(),
+    id,
     name: recovery ? `Recovery · ${recovery}` : `Save ${catalog.next++}`,
   };
   if (recovery) profile.recovery = true;
@@ -128,16 +129,29 @@ export function recoverSram(hash, id, data, source) {
   }
 }
 
-// Call while holding the ROM's save lock. A stale tab can publish a
-// recovery profile for new progress without replacing the active one.
-export function persistSram(hash, { id, base, epoch, data }, size, dirty) {
-  const profile = readProfiles(hash).profiles.find(profile => profile.id === id);
+// Call while holding the ROM's save lock. The returned target is safe to
+// update only as long as its stored bytes and epoch still match.
+export function persistSram(hash, { id, base, epoch, data, recoveryId }, { dirty = true, settled = false } = {}) {
+  const catalog = readProfiles(hash);
+  const profile = catalog.profiles.find(profile => profile.id === id);
   const stored = profile ? readSramData(hash, id) : undefined;
-  const current = Boolean(profile && base === stored && epoch === profile.epoch);
-  const recovered = !current && dirty && data !== stored;
-  if (current) writeSramData(hash, id, data);
-  else if (recovered) recoverSram(hash, id, decodeSram(data, size), 'Another tab');
-  return { current, recovered };
+  if (profile && (settled ? data : base) === stored && epoch === profile.epoch) {
+    if (!settled) writeSramData(hash, id, data);
+    return { id, base: data, epoch };
+  }
+  if (!dirty || data === stored) return { id, epoch };
+
+  // The reserved ID also identifies a recovery written by journal replay.
+  const recovery = catalog.profiles.find(profile => profile.id === recoveryId);
+  if (recovery?.recovery && recovery.epoch === undefined && readSramData(hash, recovery.id) === data) {
+    return { id: recovery.id, base: data };
+  }
+  if (settled) return { id, epoch };
+
+  const fallback = addProfile(catalog, 'Another tab', !recovery && isProfileUuid(recoveryId) ? recoveryId : undefined);
+  writeSramData(hash, fallback.id, data);
+  persistNewProfile(hash, catalog, fallback);
+  return { id: fallback.id, base: data };
 }
 
 // A closing/frozen tab might not get another turn to acquire the Web Lock.
@@ -182,7 +196,7 @@ export function settlePendingSram(hash, size) {
     const entry = JSON.parse(raw);
     if (typeof entry?.data !== 'string') throw new Error('Pending save data is invalid');
     decodeSram(entry.data, size);
-    persistSram(hash, entry, size, true);
+    persistSram(hash, entry);
     storage.removeItem(key);
   }
 }
