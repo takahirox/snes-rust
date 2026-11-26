@@ -285,7 +285,9 @@ test('failed saves protect both demo and local cartridges, including same-demo r
 
 for (const failure of ['read', 'base64', 'size']) test(`failed demo restore (${failure}) blocks writes and both sources until retry`, async ({ page }) => {
   await boot(page); await loadDemo(page); await setMarker(page, 0x79);
-  await page.locator('#reset').click(); await page.reload();
+  await page.locator('#reset').click();
+  await expect.poll(() => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), saveKey)).toBe(0x79);
+  await page.reload();
   await expect(page.locator('#demo')).toBeEnabled();
   await page.evaluate(({ saveKey, failure }) => {
     window.validSave = localStorage.getItem(saveKey);

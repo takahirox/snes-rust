@@ -186,14 +186,15 @@ test('a demo selected before hiding restores SRAM and starts without another Pla
   await expect(page.locator('#play')).toBeEnabled();
   await expect(page.locator('#play')).toHaveText('Pause');
   await expect.poll(() => page.evaluate(() => testAudio.state)).toBe('running');
-  const saved = await page.evaluate(key => {
+  const restored = await page.evaluate(() => {
     const sram = new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len());
     const restored = sram[3];
     sram[3] = 0x48;
     window.dispatchEvent(new Event('pagehide'));
-    return { restored, persisted: atob(localStorage.getItem(key)).charCodeAt(3) };
-  }, saveKey);
-  expect(saved).toEqual({ restored: 0x79, persisted: 0x48 });
+    return restored;
+  });
+  expect(restored).toBe(0x79);
+  await expect.poll(() => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), saveKey)).toBe(0x48);
   await waitForAnimationFrames(page);
   expect(await page.evaluate(() => launchMetrics.frames)).toBe(0);
   await setTabHidden(page, false);

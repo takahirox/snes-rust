@@ -13,7 +13,8 @@ export function readProfiles(hash) {
   if (catalog?.version !== 1 || !Number.isSafeInteger(catalog.next) || catalog.next < 2 ||
       !Array.isArray(catalog.profiles) ||
       catalog.profiles.some(p => !validId(p?.id) || typeof p.name !== 'string' ||
-        (p.recovery !== undefined && p.recovery !== true)) ||
+        (p.recovery !== undefined && p.recovery !== true) ||
+        (p.epoch !== undefined && !validId(p.epoch))) ||
       new Set(catalog.profiles.map(p => p.id)).size !== catalog.profiles.length ||
       !catalog.profiles.some(p => p.id === catalog.selected)) {
     throw new Error('Save data profile list is invalid');
@@ -25,7 +26,7 @@ export function writeProfiles(hash, catalog) {
   localStorage.setItem(catalogKey(hash), JSON.stringify(catalog));
 }
 
-export function addProfile(catalog, recovery = false) {
+function addProfile(catalog, recovery = false) {
   const profile = {
     id: crypto.randomUUID(),
     name: recovery ? `Recovery · ${recovery}` : `Save ${catalog.next++}`,
@@ -43,8 +44,7 @@ function profileRecord(hash, id) {
   return record;
 }
 
-export function readSram(hash, id, size) {
-  const { data } = profileRecord(hash, id);
+export function decodeSram(data, size) {
   if (data === null) return null;
   if (data.length !== Math.ceil(size / 3) * 4) throw new Error('Save size does not match cartridge SRAM');
   const decoded = atob(data);
@@ -52,10 +52,25 @@ export function readSram(hash, id, size) {
   return Uint8Array.from(decoded, c => c.charCodeAt(0));
 }
 
-export function writeSram(hash, id, bytes) {
+export function readSramData(hash, id) {
+  return profileRecord(hash, id).data;
+}
+
+function readSram(hash, id, size) {
+  return decodeSram(readSramData(hash, id), size);
+}
+
+export function encodeSram(bytes) {
   let binary = '';
   for (const value of bytes) binary += String.fromCharCode(value);
-  const data = btoa(binary);
+  return btoa(binary);
+}
+
+function writeSram(hash, id, bytes) {
+  writeSramData(hash, id, encodeSram(bytes));
+}
+
+export function writeSramData(hash, id, data) {
   const key = sramKey(hash, id);
   if (id === originalProfile) {
     const changed = localStorage.getItem(key) !== data;
@@ -83,6 +98,72 @@ export function sramTimestamp(hash, id) {
 
 export function sameSram(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function addStoredProfile(hash, catalog, data, recovery = false) {
+  const profile = addProfile(catalog, recovery);
+  writeSram(hash, profile.id, data);
+  return profile;
+}
+
+export function persistNewProfile(hash, catalog, profile) {
+  try {
+    writeProfiles(hash, catalog);
+  } catch (error) {
+    try { removeSram(hash, profile.id); } catch {}
+    throw error;
+  }
+}
+
+export function recoverSram(hash, id, data, source) {
+  const catalog = readProfiles(hash);
+  const exists = catalog.profiles.some(profile => {
+    if (!profile.recovery || profile.id === id) return false;
+    try { return sameSram(data, readSram(hash, profile.id, data.length)); }
+    catch { return false; }
+  });
+  if (!exists) {
+    const recovery = addStoredProfile(hash, catalog, data, source);
+    persistNewProfile(hash, catalog, recovery);
+  }
+}
+
+// Call while holding the ROM's save lock. A stale tab can publish a
+// recovery profile for new progress without replacing the active one.
+export function persistSram(hash, { id, base, epoch, data }, size, dirty) {
+  const profile = readProfiles(hash).profiles.find(profile => profile.id === id);
+  const stored = profile ? readSramData(hash, id) : undefined;
+  const current = Boolean(profile && base === stored && epoch === profile.epoch);
+  const recovered = !current && dirty && data !== stored;
+  if (current) writeSramData(hash, id, data);
+  else if (recovered) recoverSram(hash, id, decodeSram(data, size), 'Another tab');
+  return { current, recovered };
+}
+
+// A closing/frozen tab might not get another turn to acquire the Web Lock.
+// Stage its dirty bytes under a unique key before yielding to the browser.
+const pendingPrefix = hash => `snes-rust:pending-sram:${hash}:`;
+
+export function stageSram(hash, entry) {
+  const key = pendingPrefix(hash) + crypto.randomUUID();
+  localStorage.setItem(key, JSON.stringify(entry));
+  return key;
+}
+
+export function pendingSramKeys(hash) {
+  return Object.keys(localStorage).filter(key => key.startsWith(pendingPrefix(hash)));
+}
+
+export function settlePendingSram(hash, size) {
+  for (const key of pendingSramKeys(hash)) {
+    const raw = localStorage.getItem(key);
+    if (raw === null) continue;
+    const entry = JSON.parse(raw);
+    if (typeof entry?.data !== 'string') throw new Error('Pending save data is invalid');
+    decodeSram(entry.data, size);
+    persistSram(hash, entry, size, true);
+    localStorage.removeItem(key);
+  }
 }
 
 // History holds small entries and compressed payloads in separate stores.
@@ -169,8 +250,7 @@ export function removeState(key) {
   });
 }
 
-// Serialize history insertion and profile deletion across tabs. Within a tab
-// the player also gates cartridge, profile and snapshot operations.
+// Serialize SRAM writes, profile changes and history mutations across tabs.
 export function lockSaves(hash, callback) {
   return navigator.locks.request(`snes-rust:saves:${hash}`, callback);
 }

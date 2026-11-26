@@ -1,6 +1,8 @@
 import {
-  addProfile, historyExists, historyPage, lockSaves, readProfiles, readSram, readState,
-  removeSram, removeState, sameSram, sramTimestamp, writeProfiles, writeSram, writeState,
+  addStoredProfile, decodeSram, encodeSram, historyExists, historyPage, lockSaves, pendingSramKeys,
+  persistNewProfile, persistSram, readProfiles, readSramData, readState, recoverSram, removeSram,
+  removeState, sameSram, settlePendingSram, sramTimestamp, stageSram, writeProfiles,
+  writeSramData, writeState,
 } from './saves.js';
 
 const $ = (id) => document.getElementById(id);
@@ -9,6 +11,7 @@ const context = canvas.getContext('2d', { alpha: false });
 let image = context.createImageData(256, 224);
 const decoder = new TextDecoder();
 let core, loaded = false, playRequested = false, running = false, activeHash = '', activeProfile;
+let activeSram;
 let saveBusy = false;
 let audio, masterGain, nextAudio = 0, lastTime, debt = 0, saveClock = 0;
 let keyboard = 0;
@@ -268,16 +271,61 @@ function showErrors() {
 }
 function report(error) { operationError = error.message || String(error); showErrors(); }
 function clearError() { operationError = ''; showErrors(); }
-function save() {
-  if (!loaded || !activeHash || !core.battery() || !core.sram_len()) return true;
+function trackSram(base, epoch) {
+  activeSram = activeProfile ? { base, epoch, clean: encodeSram(liveSram()) } : undefined;
+}
+
+function persistActiveSram(data) {
+  const { base, epoch, clean } = activeSram;
+  const { current, recovered } = persistSram(activeHash, { id: activeProfile.id, base, epoch, data }, core.sram_len(), data !== clean);
+  activeSram.base = current ? data : undefined;
+  activeSram.clean = data;
+  if (recovered) $('save-status').textContent = 'Save data changed in another tab. This tab’s progress is available in Save data.';
+}
+
+function finishSramSave(error) {
+  persistenceError = error ? `Could not persist SRAM: ${error.message}. Keep this tab open to retain the current save. Cartridge changes are blocked until saving succeeds.` : '';
+  showErrors();
+  return !error;
+}
+
+async function save(lifecycle = false) {
+  if (!activeSram) return true;
   if (restorePending) return false;
-  try {
-    const catalog = readProfiles(activeHash);
-    requireProfile(catalog, activeProfile.id);
-    writeSram(activeHash, activeProfile.id, bytes(core.sram_buffer(), core.sram_len()));
-    persistenceError = ''; showErrors(); return true;
+  const session = activeSram, hash = activeHash;
+  const data = encodeSram(liveSram());
+  let pending;
+  if (lifecycle && (data !== session.clean || session.pending)) {
+    try {
+      if (session.pending?.data !== data) {
+        const previous = session.pending;
+        const key = stageSram(hash, { id: activeProfile.id, base: session.base, epoch: session.epoch, data });
+        session.pending = { key, data };
+        if (previous) localStorage.removeItem(previous.key);
+      }
+      pending = session.pending;
+    } catch (error) { finishSramSave(error); }
   }
-  catch (e) { persistenceError = `Could not persist SRAM: ${e.message}. Keep this tab open to retain the current save. Cartridge changes are blocked until saving succeeds.`; showErrors(); return false; }
+  try {
+    return await lockSaves(hash, () => {
+      if (session !== activeSram) return true;
+      if (restorePending) return false;
+      if (pending && localStorage.getItem(pending.key) === null) {
+        if (session.pending && session.pending !== pending) return true;
+        // Another tab already finished this journal entry.
+        const profile = readProfiles(hash).profiles.find(profile => profile.id === activeProfile.id);
+        session.base = profile && profile.epoch === session.epoch && readSramData(hash, profile.id) === data ? data : undefined;
+        session.clean = data;
+      } else {
+        persistActiveSram(data);
+        if (pending) localStorage.removeItem(pending.key);
+      }
+      if (session.pending === pending) session.pending = undefined;
+      return finishSramSave();
+    });
+  } catch (error) {
+    return session === activeSram && !restorePending ? finishSramSave(error) : !restorePending;
+  }
 }
 function restoreSave() {
   // The candidate remains separate until its save has been read and validated.
@@ -286,13 +334,20 @@ function restoreSave() {
   const { hash, name, remember } = pendingCartridge;
   try {
     const size = core.prepared_sram_len();
+    let pendingError;
+    if (size) {
+      try { settlePendingSram(hash, size); }
+      catch (error) { pendingError = error; }
+    }
     const catalog = size ? readProfiles(hash) : null;
     const profile = catalog ? requireProfile(catalog, catalog.selected) : null;
-    const saved = profile ? readSram(hash, profile.id, size) : null;
+    const base = profile ? readSramData(hash, profile.id) : null;
+    const saved = decodeSram(base, size);
     if (saved !== null) copyInput(saved);
     check(core.commit_rom(saved !== null ? 1 : 0));
     activeHash = hash; activeProfile = profile; loaded = true;
-    $('save-status').textContent = '';
+    trackSram(base, profile?.epoch);
+    $('save-status').textContent = pendingError ? `Could not finish saving SRAM: ${pendingError.message}. Open Save data to retry.` : '';
     $('current-game').textContent = name;
     $('current-game').title = name;
     $('placeholder').hidden = true;
@@ -306,13 +361,23 @@ function restoreSave() {
   $('play').disabled = !loaded || restorePending; $('reset').disabled = !loaded || restorePending;
   showErrors(); updatePlayback(); updateSaveControls();
 }
-$('retry-save').addEventListener('click', () => {
-  if (!restorePending || loading) return;
-  void activateAudio(); restoreSave();
-  if (!restorePending) {
-    start();
-    if (isRunning()) canvas.focus({ preventScroll: true });
-  }
+const retrySave = $('retry-save');
+retrySave.addEventListener('click', async () => {
+  if (!restorePending || loading || retrySave.disabled) return;
+  retrySave.disabled = true;
+  void activateAudio();
+  const pending = pendingCartridge;
+  try {
+    await lockSaves(pending.hash, () => {
+      if (pending !== pendingCartridge) return;
+      restoreSave();
+      if (!restorePending) {
+        start();
+        if (isRunning()) canvas.focus({ preventScroll: true });
+      }
+    });
+  } catch (error) { report(error); }
+  finally { retrySave.disabled = false; }
 });
 function flushAudio() { for (const source of sources) source.stop(); sources.clear(); nextAudio = 0; }
 function isRunning() { return running && !document.hidden; }
@@ -355,7 +420,7 @@ function start(retryAudio = false) {
 }
 function togglePlayback(event) {
   if (!loaded || restorePending || loading) return;
-  if (playRequested) { pause(); return; }
+  if (playRequested) { void pause(); return; }
   clearError(); void activateAudio(); start();
   if (isRunning() && event?.detail > 0) canvas.focus({ preventScroll: true });
 }
@@ -409,8 +474,8 @@ function animate(time) {
     let frames = 0;
     while (debt >= frameMilliseconds && frames < 3) { check(core.run_frame(buttons())); queueAudio(); debt -= frameMilliseconds; frames++; }
     if (frames) { draw(); display.observeWorkload(performance.now() - workStart, frames); }
-    if (time - saveClock > 5000) { save(); saveClock = time; }
-  } catch (e) { pause(); report(e); }
+    if (time - saveClock > 5000) { void save(); saveClock = time; }
+  } catch (e) { void pause(); report(e); }
 }
 const maxRomBytes = 4 * 1024 * 1024 + 512;
 const romSizeError = 'Maximum ROM size is 4 MiB plus a copier header';
@@ -447,9 +512,13 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     if (fromLibrary && !isRomHash(savedHash)) throw new Error('Invalid saved ROM hash');
     const expectedHash = demo?.hash ?? savedHash;
     // Check a local file's identity before requiring a save to replace the machine.
-    if (expectedHash && expectedHash !== activeHash && !(demo ? pause() : save())) {
-      if (playRequested) stopPlayback();
-      return;
+    if (expectedHash && expectedHash !== activeHash) {
+      const saved = await (demo ? pause() : save());
+      if (loading !== load) return;
+      if (!saved) {
+        if (playRequested) stopPlayback();
+        return;
+      }
     }
     clearError();
     if (!core) throw new Error('Emulator has not loaded');
@@ -472,17 +541,27 @@ async function loadCartridge(name, read, { demo, savedHash } = {}) {
     } else {
       // A successful suspension save already captured the outgoing machine.
       // Playback cannot resume while this cartridge read is still pending.
-      if (load.savedOnSuspend) stopPlayback();
-      else if (!pause()) return;
+      const savedOnSuspend = await load.savedOnSuspend;
+      if (loading !== load) return;
+      if (savedOnSuspend) stopPlayback();
+      else if (!await pause()) return;
+      if (loading !== load) return;
       copyInput(data); check(core.prepare_rom());
-      pendingCartridge = { hash, name, remember };
-      restoreSave();
+      const restore = () => {
+        if (loading !== load) return;
+        pendingCartridge = { hash, name, remember };
+        restoreSave();
+      };
+      if (core.prepared_sram_len()) await lockSaves(hash, restore);
+      else restore();
+      if (loading !== load) return;
       if (restorePending) setStatus('Restore save before changing cartridge');
       playReplacement = !restorePending && !operationError && !persistenceError;
     }
   } catch (e) {
     if (loading !== load) return;
-    if (!fromLibrary && playRequested) pause();
+    if (!fromLibrary && playRequested) await pause();
+    if (loading !== load) return;
     setStatus(loaded ? playbackStatus() : 'Cartridge could not be loaded');
     if (fromLibrary) {
       savedLoadFailed = true;
@@ -838,7 +917,7 @@ for (const button of demoButtons) button.addEventListener('click', async () => {
 $('play').addEventListener('click', togglePlayback);
 $('reset').addEventListener('click', () => {
   if (!loaded || restorePending || loading || saveBusy) return;
-  pause();
+  void pause();
   try {
     check(core.reset()); draw(); clearError();
     void activateAudio(); start();
@@ -1010,9 +1089,11 @@ for (const button of touchButtons) {
   button.addEventListener('blur', () => { virtualKeys.delete(button); paintVirtualInput(); });
 }
 document.addEventListener('visibilitychange', () => {
-  if (syncPlayback(true) && save() && loading) loading.savedOnSuspend = true;
+  if (!syncPlayback(true)) return;
+  const saved = save(true);
+  if (loading) loading.savedOnSuspend = saved;
 });
-window.addEventListener('pagehide', save);
+window.addEventListener('pagehide', () => { void save(true); });
 
 const profileDialog = $('save-data-dialog'), stateDialog = $('save-state-dialog');
 const profileList = $('save-profiles'), historyList = $('state-history');
@@ -1060,8 +1141,9 @@ async function saveAction(dialog, action) {
   }
 }
 
-function finishSaveRestore() {
+function finishSaveRestore(base, epoch) {
   check(core.commit_prepared_state());
+  trackSram(base, epoch);
   clearInput();
   flushAudio();
   persistenceError = '';
@@ -1105,44 +1187,35 @@ function prepareProfile(data) {
   check(core.prepare_profile(data !== null ? 1 : 0));
 }
 
-function addStoredProfile(catalog, data, recovery = false) {
-  const profile = addProfile(catalog, recovery);
-  writeSram(activeHash, profile.id, data);
-  return profile;
-}
-
-function persistNewProfile(catalog, profile) {
-  try {
-    writeProfiles(activeHash, catalog);
-  } catch (error) {
-    try { removeSram(activeHash, profile.id); } catch {}
-    throw error;
-  }
-}
-
 function changeProfile(id, mode, data) {
   const view = profileView;
   return saveAction(profileDialog, () => lockSaves(activeHash, () => {
     if (!profileDialog.open || view !== profileView) return;
     if (id === activeProfile.id) { profileDialog.close(); return; }
-    const catalog = readProfiles(activeHash);
+    let catalog = readProfiles(activeHash);
     const retained = catalog.profiles.some(profile => profile.id === activeProfile.id);
-    if (retained && !save()) throw new Error('Could not save the current profile. Retry when storage is available.');
+    if (retained) {
+      try { persistActiveSram(encodeSram(liveSram())); }
+      catch (error) { finishSramSave(error); throw error; }
+      catalog = readProfiles(activeHash);
+    }
     if (!retained && mode !== 'duplicate') requireProfile(catalog, activeProfile.id);
-    let profile;
+    let profile, base;
     if (id) {
       profile = requireProfile(catalog, id);
-      prepareProfile(readSram(activeHash, id, core.sram_len()));
+      base = readSramData(activeHash, id);
+      prepareProfile(decodeSram(base, core.sram_len()));
       catalog.selected = id;
       writeProfiles(activeHash, catalog);
     } else {
       prepareProfile(mode === 'duplicate' ? liveSram() : data ?? null);
-      profile = addStoredProfile(catalog, preparedSram());
+      profile = addStoredProfile(activeHash, catalog, preparedSram());
       catalog.selected = profile.id;
-      persistNewProfile(catalog, profile);
+      persistNewProfile(activeHash, catalog, profile);
+      base = readSramData(activeHash, profile.id);
     }
     activeProfile = profile;
-    finishSaveRestore();
+    finishSaveRestore(base, profile.epoch);
     profileDialog.close();
   }));
 }
@@ -1162,17 +1235,18 @@ function deleteProfile(id) {
     catalog.profiles = catalog.profiles.filter(item => item.id !== id);
     if (isActive) {
       const replacement = catalog.profiles.find(item => item.id === catalog.selected) ?? catalog.profiles[0];
-      prepareProfile(replacement ? readSram(hash, replacement.id, core.sram_len()) : null);
-      activeProfile = replacement ?? addStoredProfile(catalog, preparedSram());
+      const base = replacement ? readSramData(hash, replacement.id) : null;
+      prepareProfile(decodeSram(base, core.sram_len()));
+      activeProfile = replacement ?? addStoredProfile(hash, catalog, preparedSram());
       catalog.selected = activeProfile.id;
       try {
         if (replacement) writeProfiles(hash, catalog);
-        else persistNewProfile(catalog, activeProfile);
+        else persistNewProfile(hash, catalog, activeProfile);
       } catch (error) {
         activeProfile = profile;
         throw error;
       }
-      finishSaveRestore();
+      finishSaveRestore(replacement ? base : readSramData(hash, activeProfile.id), activeProfile.epoch);
     } else {
       if (catalog.selected === id) catalog.selected = activeProfile.id;
       writeProfiles(hash, catalog);
@@ -1208,7 +1282,17 @@ $('save-data').addEventListener('click', () => {
   profileView = {};
   $('save-data-message').textContent = '';
   profileDialog.showModal();
-  try { renderProfiles(); }
+  try {
+    renderProfiles();
+    if (pendingSramKeys(activeHash).length) {
+      const view = profileView;
+      void saveAction(profileDialog, () => lockSaves(activeHash, () => {
+        if (!profileDialog.open || view !== profileView) return;
+        settlePendingSram(activeHash, core.sram_len());
+        renderProfiles();
+      }));
+    }
+  }
   catch (error) { $('save-data-message').textContent = error.message; }
 });
 $('new-save-profile').addEventListener('click', () => void changeProfile());
@@ -1228,8 +1312,8 @@ $('sram-file').addEventListener('change', async event => {
     await lockSaves(activeHash, () => {
       if (!profileDialog.open || view !== profileView) return;
       const catalog = readProfiles(activeHash);
-      const profile = addStoredProfile(catalog, data);
-      persistNewProfile(catalog, profile);
+      const profile = addStoredProfile(activeHash, catalog, data);
+      persistNewProfile(activeHash, catalog, profile);
       renderProfiles();
       $('save-data-message').textContent = `Imported as ${profile.name}. Select it to play.`;
     });
@@ -1346,28 +1430,29 @@ function prepareSnapshot(snapshot) {
 
 function preserveSram(scope) {
   const { hash, profile } = scope;
-  if (!profile) return false;
+  if (!profile) return;
   const current = liveSram(), incoming = preparedSram();
-  const persisted = readSram(hash, profile, current.length);
-  const catalog = readProfiles(hash);
+  const base = readSramData(hash, profile);
+  const persisted = decodeSram(base, current.length);
   const priorImages = [{ data: current, source: 'Current game' }];
   if (persisted && !sameSram(current, persisted)) priorImages.push({ data: persisted, source: 'Last saved' });
   const recover = priorImages.filter(({ data }) => !sameSram(data, incoming));
-  for (const { data, source } of recover) {
-    const exists = catalog.profiles.some(p => {
-      if (!p.recovery || p.id === profile) return false;
-      try { return sameSram(data, readSram(hash, p.id, data.length)); }
-      catch { return false; }
-    });
-    if (!exists) {
-      const recovery = addStoredProfile(catalog, data, source);
-      persistNewProfile(catalog, recovery);
-    }
-  }
+  for (const { data, source } of recover) recoverSram(hash, profile, data, source);
   // Any displaced image is now durable and visible. If this write fails,
   // both the inserted machine and the prior persisted bytes remain intact.
-  if (recover.length) writeSram(hash, profile, incoming);
-  return Boolean(recover.length);
+  const data = encodeSram(incoming);
+  const catalog = readProfiles(hash);
+  const record = requireProfile(catalog, profile);
+  if (data !== base) {
+    const previousEpoch = record.epoch;
+    // Advance the epoch before replacing bytes so a tab from before an
+    // intervening restore stays stale even when the restored SRAM matches its base.
+    record.epoch = crypto.randomUUID();
+    writeProfiles(hash, catalog);
+    if (activeSram.base === base && activeSram.epoch === previousEpoch) activeSram.epoch = record.epoch;
+    writeSramData(hash, profile, data);
+  }
+  return { data, epoch: record.epoch, recovered: Boolean(recover.length) };
 }
 
 function loadHistoryState(view, key) {
@@ -1377,12 +1462,12 @@ function loadHistoryState(view, key) {
       if (!stateDialog.open || view !== historyView) return;
       ensureScope(view.scope);
       prepareSnapshot(snapshot);
-      let recovered;
-      try { recovered = preserveSram(view.scope); }
+      let protectedSram;
+      try { protectedSram = preserveSram(view.scope); }
       catch (error) { throw new Error(`Could not protect SRAM before restoring: ${error.message}. Retry when storage is available.`); }
-      finishSaveRestore();
+      finishSaveRestore(protectedSram?.data, protectedSram?.epoch);
       stateDialog.close();
-      $('save-status').textContent = recovered ? 'State loaded. Previous SRAM is available in Save data.' : 'State loaded.';
+      $('save-status').textContent = protectedSram?.recovered ? 'State loaded. Previous SRAM is available in Save data.' : 'State loaded.';
     });
   });
 }

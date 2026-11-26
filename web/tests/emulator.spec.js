@@ -151,6 +151,10 @@ for (const failure of ['read', 'base64', 'size']) {
     await load(page); await expect(page.locator('#status')).toHaveText('Playing');
     await page.evaluate(() => { new Uint8Array(testCore.memory.buffer, testCore.sram_buffer(), testCore.sram_len())[3] = 0x79; });
     await page.locator('#reset').click();
+    await expect.poll(() => page.evaluate(() => {
+      const key = Object.keys(localStorage).find(k => k.startsWith('snes-rust:sram:'));
+      return key ? atob(localStorage.getItem(key)).charCodeAt(3) : null;
+    })).toBe(0x79);
     await page.reload(); await expect(page.locator('#status')).toHaveText('Ready');
     await page.evaluate((failure) => {
       window.saveKey = Object.keys(localStorage).find((k) => k.startsWith('snes-rust:sram:'));
@@ -175,6 +179,7 @@ for (const failure of ['read', 'base64', 'size']) {
     expect(await page.evaluate(() => localStorage.getItem(window.saveKey))).toBe(await page.evaluate(() => window.persistedSave));
     if (failure !== 'read') {
       await page.locator('#retry-save').click();
+      await expect(page.locator('#retry-save')).toBeEnabled();
       await expect(page.locator('#play')).toBeDisabled();
       await page.evaluate(() => localStorage.setItem(window.saveKey, window.validSave));
     }

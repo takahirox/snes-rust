@@ -1639,6 +1639,9 @@ impl Machine {
         )?;
         let mut input = Reader(&body);
         let cpu = Cpu::read(&mut input)?;
+        if !cpu.valid_mode() {
+            return Err(snapshot::invalid());
+        }
         let mut bus = SystemBus::new(cart.clone());
         bus.read_members(&mut input)?;
         bus.wram.copy_from_slice(input.take(0x20000)?);

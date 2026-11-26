@@ -279,4 +279,40 @@ mod tests {
         assert!(machine.load_snapshot(&invalid).is_err());
         assert_eq!(machine.save_snapshot().unwrap(), saved);
     }
+
+    #[test]
+    fn checksummed_invalid_cpu_modes_cannot_replace_the_inserted_guest() {
+        use crate::cpu::{M, X};
+
+        let mut machine = Machine::new(include_bytes!("../../../tests/roms/smoke.bin")).unwrap();
+        let reset = machine.save_snapshot().unwrap();
+        machine.run_frame().unwrap();
+        let current = machine.save_snapshot().unwrap();
+        let cart = &machine.bus.cart;
+        let (hash, mapping, battery, size) = (
+            cart.rom_hash(),
+            cart.mapping.snapshot_id(),
+            cart.battery,
+            cart.sram.len(),
+        );
+        let body = unpack(&reset, hash, mapping, battery, size).unwrap();
+        assert_eq!(body[15], 1); // E
+        assert_eq!(body[14] & (M | X), M | X); // P
+        for (offset, value) in [
+            (14, body[14] & !(M | X)),
+            (14, body[14] & !M),
+            (14, body[14] & !X),
+            (7, 0x02), // S high byte
+            (3, 0x01), // X high byte
+            (5, 0x01), // Y high byte
+        ] {
+            let mut invalid = body.clone();
+            invalid[offset] = value;
+            let file = pack(hash, mapping, battery, size, &invalid);
+            assert_eq!(machine.load_snapshot(&file).unwrap_err(), super::invalid());
+            assert_eq!(machine.save_snapshot().unwrap(), current);
+        }
+        machine.load_snapshot(&reset).unwrap();
+        assert_eq!(machine.save_snapshot().unwrap(), reset);
+    }
 }

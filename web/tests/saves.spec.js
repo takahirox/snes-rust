@@ -17,8 +17,8 @@ const backupFile = (page, id, name, buffer) => page.locator(id).setInputFiles({
   name, mimeType: 'application/octet-stream', buffer,
 });
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
+test.beforeEach(async ({ context }) => {
+  await context.addInitScript(() => {
     const instantiate = WebAssembly.instantiate;
     WebAssembly.instantiate = async (...args) => {
       const result = await instantiate(...args);
@@ -216,6 +216,69 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
   await backupFile(page, '#state-file', 'wrong-rom.snesstate', file);
   await expect(page.locator('#save-state-message')).toContainText('different ROM revision');
 });
+
+for (const dirty of [false, true]) {
+  test(`closing a ${dirty ? 'changed' : 'paused'} stale tab preserves restored SRAM`, async ({ page, context }) => {
+    const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
+    async function persist(value) {
+      await sram(page, value);
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      await expect.poll(stored).toBe(value);
+    }
+
+    await ready(page);
+    await local(page);
+    await pause(page);
+    await persist(0x21);
+    await capture(page);
+    if (!dirty) await persist(0x79);
+
+    const stale = await context.newPage();
+    await ready(stale);
+    await local(stale);
+    await pause(stale);
+    expect(await sram(stale)).toBe(dirty ? 0x21 : 0x79);
+    if (dirty) await persist(0x79);
+
+    await page.locator('#load-state').click();
+    await states(page).first().click();
+    await expect(page.locator('#save-status')).toContainText('State loaded.');
+    expect(await stored()).toBe(0x21);
+
+    if (dirty) {
+      // The restored bytes match this tab's original base. Force page exit
+      // while the lock is held so only the synchronous journal can save it.
+      await sram(stale, 0x52);
+      await page.evaluate(hash => new Promise(ready => {
+        void navigator.locks.request(`snes-rust:saves:${hash}`, () => new Promise(resolve => {
+          window.releaseExitSaveLock = resolve;
+          ready();
+        }));
+      }), hash);
+    }
+    await stale.goto('/?closed-stale-game');
+    await stale.close();
+    if (dirty) {
+      await expect.poll(() => page.evaluate(hash => Object.keys(localStorage)
+        .filter(key => key.startsWith(`snes-rust:pending-sram:${hash}:`)).length, hash)).toBe(1);
+      await page.evaluate(() => releaseExitSaveLock());
+    }
+    expect(await stored()).toBe(0x21);
+    await expect(page.locator('#status')).toHaveText('Paused');
+    expect(await sram(page)).toBe(0x21);
+
+    await page.locator('#save-data').click();
+    const recovery = page.getByRole('button', { name: 'Recovery · Another tab', exact: true });
+    if (dirty) {
+      await recovery.click();
+      await expect(page.locator('#save-data-dialog')).toBeHidden();
+      expect(await sram(page)).toBe(0x52);
+      expect(await stored()).toBe(0x21);
+    } else {
+      await expect(recovery).toHaveCount(0);
+    }
+  });
+}
 
 test('105 non-battery captures persist, page thumbnails, and restore arbitrary entries', async ({ page }) => {
   test.setTimeout(60000);
