@@ -195,7 +195,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
   }
 }
 @media (orientation: portrait) and (max-width: 460px) {
-  /* Keep playback and settings on separate rows as the save destination changes. */
+  /* Keep playback and settings on separate rows as the save-state target changes. */
   .toolbar {
     display: grid;
     grid-template-columns: repeat(2, max-content) minmax(0, max-content) repeat(2, max-content);
@@ -381,32 +381,27 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 .save-dialog-header, .save-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .save-dialog-header { justify-content: space-between; }
 .save-dialog h2 { font-size: 1.2rem; margin: 0; }
-.save-state-split { display: inline-flex; align-items: stretch; }
-#save-state { border-start-end-radius: 0; border-end-end-radius: 0; line-height: 1.15; padding-block: 4px; }
-#choose-save-destination {
-  min-width: 32px; padding-inline: 5px; border-inline-start: 0;
-  border-start-start-radius: 0; border-end-start-radius: 0;
-}
-.save-state-split > button:focus-visible { z-index: 1; }
-#save-destination { display: block; font-size: .8em; white-space: nowrap; }
-@media (orientation: portrait) and (max-width: 460px) {
-  #save-state { inline-size: 76px; min-inline-size: 0; white-space: nowrap; }
-  #save-destination { overflow: hidden; text-overflow: ellipsis; }
-}
+.state-controls { display: flex; gap: 3px; min-width: 0; }
+.state-controls > button:focus-visible { z-index: 1; }
+#choose-state { inline-size: 112px; min-inline-size: 0; padding: 3px 4px; line-height: 1.15; white-space: nowrap; }
+#state-target { display: block; font-size: .85em; overflow: hidden; text-overflow: ellipsis; }
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
-  #save-state { padding-block: 0; line-height: 1.1; }
+  #choose-state { inline-size: 96px; padding-block: 0; }
 }
-#save-destination-picker {
-  --save-dialog-width: 20rem; --save-dialog-height: 24rem;
+#state-picker {
+  --save-dialog-width: 26rem; --save-dialog-height: 26rem;
+  container-type: inline-size;
   box-shadow: 0 8px 32px #10201830; font-size: 13px;
 }
-#save-destination-picker h2 { font-size: 15px; }
-#save-destination-picker button { min-height: 44px; font-size: inherit; padding: 6px 10px; }
-.destination-option { width: 100%; text-align: start; }
-#new-state-destination { display: flex; align-items: center; margin-top: 8px; }
-.destination-check { visibility: hidden; margin-inline-start: auto; color: #285e4b; font-weight: bold; }
-[aria-current="true"] > .destination-check { visibility: visible; }
-#new-state-destination[aria-current="true"] { border-color: #306e59; }
+#state-picker:popover-open { display: flex; flex-direction: column; gap: 8px; }
+#state-picker > :not(.state-list) { flex-shrink: 0; }
+#state-picker h2 { font-size: 15px; }
+#state-picker button { min-height: 44px; font-size: inherit; padding: 6px 10px; }
+#state-message { margin: 0; }
+.state-option { display: flex; align-items: center; gap: 6px; text-align: start; }
+.state-option[aria-current="true"] { border-color: #306e59; }
+.state-check { visibility: hidden; margin-inline-start: auto; color: #285e4b; font-weight: bold; }
+[aria-current="true"] > .state-check { visibility: visible; }
 .save-list { margin: 8px 0; padding: 0; list-style: none; }
 .save-list:empty { display: none; }
 .save-list li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 0; }
@@ -414,5 +409,12 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 .save-list li > :first-child { flex: 1 1 auto; text-align: left; }
 .save-list button[aria-current="true"] { border-color: #306e59; }
 .save-time { color: #59636c; font-size: .8rem; }
-.state-list li > :first-child { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.state-list img { width: 80px; height: auto; border-radius: 4px; }
+.state-list { margin: 0; overflow: auto; overscroll-behavior: contain; }
+.state-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
+.state-list button:focus-visible { outline-offset: -3px; }
+.state-list img { width: min(40%, 72px); height: auto; border-radius: 4px; }
+.state-list time { min-inline-size: 0; overflow-wrap: anywhere; }
+@container (max-width: 330px) {
+  .state-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .state-list .state-option { grid-row: span 2; align-self: stretch; }
+}

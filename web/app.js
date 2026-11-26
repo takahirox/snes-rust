@@ -1007,7 +1007,7 @@ const fullscreenLabel = fullscreenButton.querySelector('.fullscreen-label');
 const fullscreenStatus = $('fullscreen-status');
 const touchControls = document.querySelector('.touch-controls');
 const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 1100px)');
-const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save');
+const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #state-picker, #retry-save');
 let gameplayFullscreen = false;
 let fullscreenEnteredWithKeyboard = false;
 let fullscreenWarningTimeout;
@@ -1080,6 +1080,11 @@ for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) =
   const inHelp = target.closest?.('#help');
   if (type === 'keydown' && event.key === 'Escape' && document.fullscreenElement === presentation) {
     event.preventDefault(); void toggleFullscreen(); return;
+  }
+  if (type === 'keydown' && event.key === 'Escape' && pendingStateLoad) {
+    pendingStateLoad.cancelled = true;
+    event.preventDefault();
+    return;
   }
   if (type === 'keydown' && event.key === 'Escape' && help.open) {
     help.open = false;
@@ -1172,16 +1177,15 @@ document.addEventListener('visibilitychange', event => {
 });
 window.addEventListener('pagehide', event => { void save(event); });
 
-const profileDialog = $('save-data-dialog'), stateDialog = $('save-state-dialog');
-const profileList = $('save-profiles');
-const destinationPicker = $('save-destination-picker'), newDestination = $('new-state-destination');
-const destinationToggle = $('choose-save-destination');
-for (const controls of [profileDialog, stateDialog, destinationPicker, destinationToggle.parentElement]) {
+const profileDialog = $('save-data-dialog'), profileList = $('save-profiles');
+const statePicker = $('state-picker'), stateToggle = $('choose-state'), newState = $('new-state');
+const stateList = $('state-history'), stateMessage = $('state-message'), moreStates = $('more-states');
+for (const controls of [profileDialog, statePicker, stateToggle.parentElement]) {
   controls.addEventListener('keydown', event => {
     if (event.key === 'Enter' && event.repeat) event.preventDefault();
   });
 }
-let historyView, profileView, destinationView, saveNoticeTimer;
+let stateView, profileView, pendingStateLoad, saveNoticeTimer;
 const saveDestinations = new Map();
 
 function requireProfile(catalog, id) {
@@ -1192,12 +1196,13 @@ function requireProfile(catalog, id) {
 
 function updateSaveControls() {
   const disabled = !loaded || Boolean(loading) || restorePending;
-  if (disabled && destinationPicker.matches(':popover-open')) destinationPicker.hidePopover();
-  updateSaveDestination();
+  if (disabled && statePicker.matches(':popover-open')) statePicker.hidePopover();
+  const key = saveDestination(saveScope());
+  updateStateTarget(key);
   $('save-data').hidden = !activeProfile;
   $('active-save-name').textContent = activeProfile?.name ?? '';
-  for (const button of [$('save-data'), $('save-state'), destinationToggle, $('load-state')]) {
-    button.disabled = disabled;
+  for (const button of [$('save-data'), $('save-state'), stateToggle, $('load-state')]) {
+    button.disabled = disabled || (button.id === 'load-state' && !key);
     if (saveBusy) button.setAttribute('aria-disabled', 'true');
     else button.removeAttribute('aria-disabled');
   }
@@ -1205,7 +1210,7 @@ function updateSaveControls() {
 
 async function saveAction(dialog, action) {
   if (!loaded || loading || restorePending || saveBusy) return;
-  const message = dialog === profileDialog ? $('save-data-message') : dialog === stateDialog ? $('save-state-message') : $('save-status');
+  const message = dialog === profileDialog ? $('save-data-message') : dialog === statePicker ? stateMessage : $('save-status');
   saveBusy = true;
   updateSaveControls();
   clearError();
@@ -1213,7 +1218,7 @@ async function saveAction(dialog, action) {
   try {
     await action();
   } catch (error) {
-    if (dialog?.open) message.textContent = error.message;
+    if (dialog?.matches('[open], :popover-open')) message.textContent = error.message;
     else report(error);
   } finally {
     core.discard_prepared_state();
@@ -1407,21 +1412,21 @@ function saveScope() {
 
 const destinationScope = ({ hash, profile }) => `${hash}:${profile}`;
 const saveDestination = scope => saveDestinations.get(destinationScope(scope));
-const stateTime = key => new Date(key[2]).toLocaleString();
+const stateTime = (key, short = false) => new Date(key[2]).toLocaleString(undefined, {
+  year: short ? undefined : 'numeric', month: 'numeric', day: 'numeric',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
 
-function updateSaveDestination() {
-  const key = saveDestination(saveScope());
-  const label = $('save-destination');
-  label.textContent = key ? new Date(key[2]).toLocaleString(undefined, {
-    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }) : 'New state';
+function updateStateTarget(key) {
+  const label = $('state-target');
+  label.textContent = key ? stateTime(key, true) : 'New state';
   label.title = key ? stateTime(key) : '';
 }
 
 function selectSaveDestination(scope, key) {
   if (key) saveDestinations.set(destinationScope(scope), key);
   else saveDestinations.delete(destinationScope(scope));
-  updateSaveDestination();
+  updateSaveControls();
 }
 
 function ensureScope(scope) {
@@ -1450,7 +1455,7 @@ function thumbnail(pointer, width) {
 }
 
 $('save-state').addEventListener('click', () => void saveAction(null, async () => {
-  if (destinationPicker.matches(':popover-open')) destinationPicker.hidePopover();
+  if (statePicker.matches(':popover-open')) statePicker.hidePopover();
   const scope = saveScope();
   const destination = saveDestination(scope);
   const time = Date.now();
@@ -1475,30 +1480,30 @@ function clearHistory(view) {
   if (!view) return;
   for (const url of view.previews) URL.revokeObjectURL(url);
   view.previews.clear();
-  view.list.replaceChildren();
-  view.more.hidden = true;
+  stateList.replaceChildren();
+  moreStates.hidden = true;
   view.before = undefined;
 }
 
 function isHistoryOpen(view) {
-  return view.selecting ? view === destinationView && destinationPicker.matches(':popover-open') :
-    view === historyView && stateDialog.open;
+  return view && view === stateView && statePicker.matches(':popover-open');
 }
 
 async function showHistory(view, append = false) {
   const { entries, more } = await historyPage(view.scope, append ? view.before : undefined);
   if (!isHistoryOpen(view)) return;
   if (!append) clearHistory(view);
-  view.message.textContent = view.list.children.length || entries.length ? '' : 'No saved states yet.';
-  const selected = view.selecting ? saveDestination(view.scope) : undefined;
+  stateMessage.textContent = stateList.children.length || entries.length ? '' : 'No saved states yet.';
+  const selected = saveDestination(view.scope);
+  newState.setAttribute('aria-current', String(!selected));
   let first;
   for (const { key, thumbnail } of entries) {
     view.before = key;
     const row = document.createElement('li');
     const time = stateTime(key);
-    const action = view.selecting
-      ? button(time, () => chooseDestination(view, key), `Select state from ${time}`)
-      : button(time, () => void loadHistoryState(view, key), `Load state from ${time}`);
+    const action = button('', () => chooseState(view, key), `Select state from ${time}`);
+    action.className = 'state-option';
+    if (key[3] === selected?.[3]) action.setAttribute('aria-current', 'true');
     const image = document.createElement('img');
     image.alt = '';
     image.width = 128;
@@ -1506,97 +1511,60 @@ async function showHistory(view, append = false) {
     const url = URL.createObjectURL(thumbnail);
     image.src = url;
     view.previews.add(url);
-    action.prepend(image);
-    row.append(action);
-    if (view.selecting) {
-      action.classList.add('destination-option');
-      if (key[3] === selected?.[3]) action.setAttribute('aria-current', 'true');
-      const mark = document.createElement('span');
-      mark.className = 'destination-check';
-      mark.setAttribute('aria-hidden', 'true');
-      mark.textContent = '✓';
-      action.append(mark);
-    } else {
-      row.append(
-        button('Export', () => void exportHistoryState(view, key), `Export state from ${time}`),
-        button('Remove', () => void deleteHistoryState(view, key, row, url), `Remove state from ${time}`));
-    }
-    view.list.append(row);
+    const timestamp = document.createElement('time');
+    timestamp.dateTime = new Date(key[2]).toISOString();
+    timestamp.textContent = time;
+    const mark = document.createElement('span');
+    mark.className = 'state-check';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = '✓';
+    action.append(image, timestamp, mark);
+    row.append(
+      action,
+      button('Export', () => void exportHistoryState(view, key), `Export state from ${time}`),
+      button('Remove', () => void deleteHistoryState(view, key, row, url), `Remove state from ${time}`));
+    stateList.append(row);
     first ??= action;
   }
-  view.more.hidden = !more;
+  moreStates.hidden = !more;
   if (append) first?.focus();
 }
 
-function openHistory(view) {
-  view.message.textContent = 'Loading history…';
-  void showHistory(view).catch(error => {
-    if (isHistoryOpen(view)) view.message.textContent = error.message;
-  });
-}
-
-function chooseDestination(view, key) {
-  if (!view || !isHistoryOpen(view) || saveBusy) return;
+function chooseState(view, key) {
+  if (!isHistoryOpen(view) || saveBusy) return;
   selectSaveDestination(view.scope, key);
-  destinationPicker.hidePopover();
+  statePicker.hidePopover();
 }
 
-destinationPicker.addEventListener('beforetoggle', event => {
+statePicker.addEventListener('beforetoggle', event => {
   if (event.newState !== 'open') return;
   if (!loaded || loading || saveBusy || restorePending) {
     event.preventDefault();
     return;
   }
-  clearHistory(destinationView);
-  const view = {
-    scope: saveScope(), selecting: true, previews: new Set(),
-    list: $('destination-history'), message: $('destination-message'), more: $('more-destinations'),
-  };
-  destinationView = view;
-  newDestination.setAttribute('aria-current', String(!saveDestination(view.scope)));
-  openHistory(view);
+  clearHistory(stateView);
+  const view = stateView = { scope: saveScope(), previews: new Set() };
+  newState.setAttribute('aria-current', String(!saveDestination(view.scope)));
+  stateMessage.textContent = 'Loading history…';
 });
-destinationPicker.addEventListener('toggle', () => {
-  if (destinationPicker.matches(':popover-open')) return;
-  clearHistory(destinationView);
-  destinationView = undefined;
+statePicker.addEventListener('toggle', () => {
+  const view = stateView;
+  if (isHistoryOpen(view)) {
+    void showHistory(view).catch(error => {
+      if (isHistoryOpen(view)) stateMessage.textContent = error.message;
+    });
+  } else {
+    clearHistory(view);
+    stateView = undefined;
+  }
 });
-newDestination.addEventListener('click', () => chooseDestination(destinationView));
-$('more-destinations').addEventListener('click', async () => {
-  const view = destinationView;
-  if (!view || !isHistoryOpen(view) || view.paging) return;
-  view.paging = true;
-  try { await showHistory(view, true); }
-  catch (error) { if (isHistoryOpen(view)) view.message.textContent = error.message; }
-  finally { view.paging = false; }
+newState.addEventListener('click', () => chooseState(stateView));
+moreStates.addEventListener('click', () => {
+  if (isHistoryOpen(stateView)) void saveAction(statePicker, () => showHistory(stateView, true));
 });
-
-$('load-state').addEventListener('click', () => {
-  if (!loaded || loading || saveBusy || restorePending) return;
-  if (destinationPicker.matches(':popover-open')) destinationPicker.hidePopover();
-  clearHistory(historyView);
-  const view = {
-    scope: saveScope(), previews: new Set(),
-    list: $('state-history'), message: $('save-state-message'), more: $('more-states'),
-  };
-  historyView = view;
-  stateDialog.showModal();
-  openHistory(view);
-});
-stateDialog.addEventListener('close', () => {
-  if (stateDialog.open) return;
-  clearHistory(historyView);
-  historyView = undefined;
-});
-$('more-states').addEventListener('click', () => void saveAction(stateDialog, () => showHistory(historyView, true)));
-
-async function getHistoryState(key) {
-  const snapshot = await readState(key);
-  if (!(snapshot instanceof Uint8Array)) throw new Error('The saved state is missing or invalid.');
-  return snapshot;
-}
 
 function prepareSnapshot(snapshot) {
+  if (!(snapshot instanceof Uint8Array)) throw new Error('The saved state is missing or invalid.');
   if (snapshot.length > core.snapshot_max_len()) throw new Error('Save state exceeds the supported size.');
   copyInput(snapshot);
   check(core.prepare_snapshot());
@@ -1647,69 +1615,77 @@ function preserveSram(scope) {
   return { data, epoch: record.epoch, recovered: Boolean(recover.length) };
 }
 
-function loadHistoryState(view, key) {
-  return saveAction(stateDialog, async () => {
-    const snapshot = await getHistoryState(key);
-    await lockSaves(view.scope.hash, () => {
-      if (!stateDialog.open || view !== historyView) return;
-      ensureScope(view.scope);
+$('load-state').addEventListener('click', () => void saveAction(null, async () => {
+  const scope = saveScope();
+  const key = saveDestination(scope);
+  if (!key) return;
+  if (statePicker.matches(':popover-open')) statePicker.hidePopover();
+  const load = pendingStateLoad = { cancelled: false };
+  try {
+    const snapshot = await readState(key);
+    if (load.cancelled) return;
+    await lockSaves(scope.hash, () => {
+      if (load.cancelled) return;
+      ensureScope(scope);
+      if (snapshot === undefined) selectSaveDestination(scope);
       prepareSnapshot(snapshot);
       let protectedSram;
-      try { protectedSram = preserveSram(view.scope); }
+      try { protectedSram = preserveSram(scope); }
       catch (error) { throw new Error(`Could not protect SRAM before restoring: ${error.message}. Retry when storage is available.`); }
       finishSaveRestore(protectedSram?.data, protectedSram?.epoch);
-      selectSaveDestination(view.scope, key);
-      stateDialog.close();
       $('save-status').textContent = protectedSram?.recovered ? 'State loaded. Previous SRAM is available in Save data.' : 'State loaded.';
     });
-  });
-}
+  } finally {
+    pendingStateLoad = undefined;
+  }
+}));
 
 function exportHistoryState(view, key) {
-  return saveAction(stateDialog, async () => {
-    const snapshot = await getHistoryState(key);
-    if (!stateDialog.open || view !== historyView) return;
+  return saveAction(statePicker, async () => {
+    const snapshot = await readState(key);
+    if (!isHistoryOpen(view)) return;
     prepareSnapshot(snapshot);
     downloadSave(snapshot, `${key[0].slice(0, 12)}-${key[2]}-${key[3]}.snesstate`);
   });
 }
 
 function deleteHistoryState(view, key, row, url) {
-  return saveAction(stateDialog, async () => {
+  return saveAction(statePicker, async () => {
     if (!confirm(`Remove the saved state from ${stateTime(key)}?`)) return;
     await lockSaves(view.scope.hash, () => removeState(key));
     if (saveDestination(view.scope)?.[3] === key[3]) selectSaveDestination(view.scope);
-    if (!stateDialog.open || view !== historyView) return;
+    if (!isHistoryOpen(view)) return;
+    newState.setAttribute('aria-current', String(!saveDestination(view.scope)));
     const next = row.nextElementSibling ?? row.previousElementSibling;
     row.remove();
     URL.revokeObjectURL(url);
     view.previews.delete(url);
-    if (!view.list.children.length && view.more.hidden) view.message.textContent = 'No saved states yet.';
-    (next?.querySelector('button') ?? stateDialog.querySelector('[autofocus]')).focus();
+    if (!stateList.children.length && moreStates.hidden) stateMessage.textContent = 'No saved states yet.';
+    (next?.querySelector('button') ?? newState).focus();
   });
 }
 
-$('import-state').addEventListener('click', () => { if (!saveBusy && historyView) $('state-file').click(); });
+$('import-state').addEventListener('click', () => { if (!saveBusy && isHistoryOpen(stateView)) $('state-file').click(); });
 $('state-file').addEventListener('change', async event => {
   const file = event.target.files[0];
   event.target.value = '';
-  const view = historyView;
-  if (!file || !stateDialog.open || !view) return;
-  await saveAction(stateDialog, async () => {
+  const view = stateView;
+  if (!file || !isHistoryOpen(view)) return;
+  await saveAction(statePicker, async () => {
     if (file.size > core.snapshot_max_len()) throw new Error('Save state exceeds the supported size.');
     const time = Date.now();
     const snapshot = new Uint8Array(await file.arrayBuffer());
-    if (!stateDialog.open || view !== historyView) return;
+    if (!isHistoryOpen(view)) return;
     ensureScope(view.scope);
     prepareSnapshot(snapshot);
     const preview = await thumbnail(core.prepared_state_framebuffer(), core.prepared_state_framebuffer_width());
     await lockSaves(view.scope.hash, () => {
-      if (!stateDialog.open || view !== historyView) return;
+      if (!isHistoryOpen(view)) return;
       ensureScope(view.scope);
       return writeState(view.scope, time, snapshot, preview);
     });
     await showHistory(view);
-    if (stateDialog.open && view === historyView) $('save-state-message').textContent = 'State imported. Select it to restore.';
+    if (isHistoryOpen(view)) stateMessage.textContent = 'State imported.';
   });
 });
 
