@@ -303,7 +303,7 @@ test.describe('normal portrait keyboard focus', () => {
     await selectDemo(page);
     await expect(page.locator('#status')).toHaveText('Playing');
     await expect(page.locator('#video')).toBeFocused();
-    for (const id of ['play', 'reset', 'mute', 'volume', 'fullscreen', 'scale', 'display', 'change-cartridge']) {
+    for (const id of ['play', 'reset', 'save-state', 'load-state', 'fullscreen', 'mute', 'volume', 'scale', 'display', 'save-data', 'change-cartridge']) {
       await page.keyboard.press('Tab');
       await expect(page.locator(`#${id}`)).toBeFocused();
     }

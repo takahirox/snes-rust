@@ -1178,3 +1178,20 @@ impl Cpu {
         }
     }
 }
+
+crate::snapshot::snapshot_fields!(
+    Cpu,
+    a,
+    x,
+    y,
+    s,
+    d,
+    pc,
+    pb,
+    db,
+    p,
+    e,
+    waiting,
+    stopped,
+    instructions
+);

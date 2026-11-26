@@ -7,6 +7,8 @@ struct State {
     input: Vec<u8>,
     machine: Option<Machine>,
     prepared: Option<Machine>,
+    prepared_state: Option<Machine>,
+    snapshot: Vec<u8>,
     error: Vec<u8>,
     audio: Vec<f32>,
 }
@@ -41,6 +43,7 @@ pub extern "C" fn input_buffer(len: u32) -> usize {
 pub extern "C" fn load_rom() -> u32 {
     perform(|s| {
         let m = Machine::new(&s.input)?;
+        s.prepared_state = None;
         s.machine = Some(m);
         s.audio.clear();
         Ok(())
@@ -73,6 +76,7 @@ pub extern "C" fn commit_rom(restore: u32) -> u32 {
         if restore != 0 {
             candidate.load_sram(&s.input)?;
         }
+        s.prepared_state = None;
         s.machine = s.prepared.take();
         s.audio.clear();
         Ok(())
@@ -81,6 +85,7 @@ pub extern "C" fn commit_rom(restore: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn reset() -> u32 {
     perform(|s| {
+        s.prepared_state = None;
         s.machine.as_mut().ok_or("Load a cartridge first")?.reset();
         s.audio.clear();
         Ok(())
@@ -89,6 +94,7 @@ pub extern "C" fn reset() -> u32 {
 #[no_mangle]
 pub extern "C" fn run_frame(buttons: u32) -> u32 {
     perform(|s| {
+        s.prepared_state = None;
         let m = s.machine.as_mut().ok_or("Load a cartridge first")?;
         m.set_buttons(buttons as u16);
         m.run_frame()?;
@@ -170,6 +176,7 @@ pub extern "C" fn sram_len() -> usize {
 #[no_mangle]
 pub extern "C" fn load_sram() -> u32 {
     perform(|s| {
+        s.prepared_state = None;
         s.machine
             .as_mut()
             .ok_or("Load a cartridge first")?
@@ -196,6 +203,110 @@ pub extern "C" fn peek(address: u32) -> u32 {
             .machine
             .as_ref()
             .map_or(0, |m| m.bus.peek(address & 0xffffff) as u32)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn snapshot_max_len() -> usize {
+    snes_core::MAX_SNAPSHOT_BYTES
+}
+
+#[no_mangle]
+pub extern "C" fn save_snapshot() -> u32 {
+    perform(|s| {
+        s.snapshot.clear();
+        s.snapshot = s
+            .machine
+            .as_ref()
+            .ok_or("Load a cartridge first")?
+            .save_snapshot()?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn snapshot_buffer() -> usize {
+    STATE.with(|s| s.borrow().snapshot.as_ptr() as usize)
+}
+
+#[no_mangle]
+pub extern "C" fn snapshot_len() -> usize {
+    STATE.with(|s| s.borrow().snapshot.len())
+}
+
+#[no_mangle]
+pub extern "C" fn prepare_snapshot() -> u32 {
+    perform(|s| {
+        s.prepared_state = None;
+        s.prepared_state = Some(
+            s.machine
+                .as_ref()
+                .ok_or("Load a cartridge first")?
+                .prepare_snapshot(&s.input)?,
+        );
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn prepare_profile(restore: u32) -> u32 {
+    perform(|s| {
+        s.prepared_state = None;
+        s.prepared_state = Some(
+            s.machine
+                .as_ref()
+                .ok_or("Load a cartridge first")?
+                .restart_with_sram((restore != 0).then_some(&s.input))?,
+        );
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn discard_prepared_state() {
+    STATE.with(|s| s.borrow_mut().prepared_state = None);
+}
+
+#[no_mangle]
+pub extern "C" fn commit_prepared_state() -> u32 {
+    perform(|s| {
+        s.machine = Some(
+            s.prepared_state
+                .take()
+                .ok_or("No prepared save to restore")?,
+        );
+        s.audio.clear();
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn prepared_state_sram_buffer() -> usize {
+    STATE.with(|s| {
+        s.borrow()
+            .prepared_state
+            .as_ref()
+            .map_or(0, |m| m.bus.cart.sram.as_ptr() as usize)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn prepared_state_framebuffer() -> usize {
+    STATE.with(|s| {
+        s.borrow()
+            .prepared_state
+            .as_ref()
+            .map_or(0, |m| m.framebuffer().as_ptr() as usize)
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn prepared_state_framebuffer_width() -> usize {
+    STATE.with(|s| {
+        s.borrow()
+            .prepared_state
+            .as_ref()
+            .map_or(0, Machine::framebuffer_width)
     })
 }
 

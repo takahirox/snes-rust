@@ -1035,3 +1035,54 @@ mod timing_tests {
         assert_eq!(whole.read(0xfd), 0);
     }
 }
+
+use crate::snapshot::{self, Reader, Value};
+
+snapshot::snapshot_fields!(Spc, a, x, y, sp, p, pc, halted);
+snapshot::snapshot_members!(
+    Apu,
+    cpu,
+    input,
+    output,
+    pending,
+    command,
+    boot,
+    upload,
+    dest,
+    count,
+    clock,
+    cycles,
+    total,
+    timer_stage,
+    timer_out,
+    control,
+);
+
+impl Apu {
+    pub(crate) fn write_snapshot(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.ram[..]);
+        self.write_members(out);
+        self.dsp.write_members(out);
+    }
+
+    pub(crate) fn read_snapshot(&mut self, input: &mut Reader<'_>) -> snapshot::Result<()> {
+        self.ram.copy_from_slice(input.take(0x10000)?);
+        self.read_members(input)?;
+        self.dsp.read_members(input)?;
+        if self.clock >= 21_477_272
+            || !(-15..=0).contains(&self.cycles)
+            || self.total >= u64::MAX / 2
+            || self.timer_out.iter().any(|&value| value > 15)
+            || self
+                .pending
+                .is_some_and(|(_, due)| due <= self.total || due - self.total > 32 || !self.boot)
+            || self
+                .command
+                .is_some_and(|(_, due)| self.boot && (due <= self.total || due - self.total > 6))
+            || !self.dsp.valid_snapshot()
+        {
+            return Err(snapshot::invalid());
+        }
+        Ok(())
+    }
+}

@@ -7,3 +7,7 @@ license.workspace = true
 [[bin]]
 name = "snes-run"
 path = "src/bin/runner.rs"
+
+[dependencies]
+miniz_oxide = { version = "0.8.9", features = ["with-alloc"] }
+sha2 = "0.10.9"

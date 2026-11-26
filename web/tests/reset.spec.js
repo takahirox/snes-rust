@@ -145,7 +145,7 @@ test('Reset guards absent, loading and unresolved save restoration without overw
     releaseHash();
   });
   await expect(page.locator('#error')).toContainText('Save could not be restored');
-  // The outgoing save is written after hashing, before attempting restoration.
+  // Suspension already made the outgoing SRAM durable before restoration.
   const savedBytes = await page.evaluate(() => Object.entries(localStorage));
   const hash = createHash('sha256').update(buffer).digest('hex');
   const savedSram = new Map(savedBytes).get(`snes-rust:sram:${hash}`);

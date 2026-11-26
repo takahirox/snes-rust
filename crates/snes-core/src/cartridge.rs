@@ -15,8 +15,22 @@ pub struct Cartridge {
     // `SLOW_PAGE` where `read` must decode SRAM, open bus or a split page.
     pages: Vec<u32>,
 }
+impl Mapping {
+    pub(crate) fn snapshot_id(self) -> u8 {
+        match self {
+            Self::LoRom => 0,
+            Self::HiRom => 1,
+        }
+    }
+}
+
 const SLOW_PAGE: u32 = u32::MAX;
 impl Cartridge {
+    pub(crate) fn rom_hash(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(&self.rom).into()
+    }
+
     pub fn load(image: &[u8]) -> Result<Self, String> {
         let image = if image.len() % 1024 == 512 {
             &image[512..]
