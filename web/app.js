@@ -1,8 +1,8 @@
 import {
   addStoredProfile, decodeSram, encodeSram, hasPendingSram, historyExists, historyPage, lockSaves,
-  persistNewProfile, persistSram, readProfiles, readSramData, readState, recoverSram, removeSram,
-  removeState, sameSram, settlePendingSram, sramTimestamp, stageSram, writeProfiles,
-  writeSramData, writeState,
+  persistNewProfile, persistSram, readPendingSram, readProfiles, readSramData, readState,
+  recoverSram, removeSram, removeState, sameSram, settlePendingSram, sramTimestamp, stageSram,
+  writeProfiles, writeSramData, writeState,
 } from './saves.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1462,6 +1462,12 @@ function preserveSram(scope) {
   const persisted = decodeSram(base, current.length);
   const priorImages = [{ data: current, source: 'Current game' }];
   if (persisted && !sameSram(current, persisted)) priorImages.push({ data: persisted, source: 'Last saved' });
+  // The ROM lock serializes replay with this restore. Preserve journal images
+  // alongside live and saved SRAM so replay cannot replace the selected bytes.
+  const pending = [...readPendingSram(hash, current.length, profile)];
+  for (const { data } of pending) {
+    if (!priorImages.some(image => sameSram(data, image.data))) priorImages.push({ data, source: 'Pending save' });
+  }
   const recover = priorImages.filter(({ data }) => !sameSram(data, incoming));
   for (const { data, source } of recover) recoverSram(hash, profile, data, source);
   // Any displaced image is now durable and visible. If this write fails,
@@ -1469,12 +1475,12 @@ function preserveSram(scope) {
   const data = encodeSram(incoming);
   const catalog = readProfiles(hash);
   const record = requireProfile(catalog, profile);
+  const previousEpoch = record.epoch;
+  // Revoke old write claims even when the bytes match. A tab can stage an
+  // exit save outside the lock or in session storage this tab cannot read.
+  record.epoch = crypto.randomUUID();
+  writeProfiles(hash, catalog);
   if (data !== base) {
-    const previousEpoch = record.epoch;
-    // Advance the epoch before replacing bytes so a tab from before an
-    // intervening restore stays stale even when the restored SRAM matches its base.
-    record.epoch = crypto.randomUUID();
-    writeProfiles(hash, catalog);
     try {
       writeSramData(hash, profile, data);
     } catch (error) {
@@ -1484,6 +1490,11 @@ function preserveSram(scope) {
       writeProfiles(hash, catalog);
       throw error;
     }
+  }
+  for (const { storage, key } of pending) {
+    // Each entry is now recoverable. If cleanup fails, the new epoch still
+    // prevents the retained entry from overwriting the restored SRAM.
+    try { storage.removeItem(key); } catch {}
   }
   return { data, epoch: record.epoch, recovered: Boolean(recover.length) };
 }

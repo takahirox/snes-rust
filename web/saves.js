@@ -208,13 +208,19 @@ export function hasPendingSram(hash) {
   return !pendingSramEntries(hash).next().done;
 }
 
-export function settlePendingSram(hash, size) {
+export function* readPendingSram(hash, size, profileId) {
   for (const { storage, key } of pendingSramEntries(hash)) {
     const raw = storage.getItem(key);
     if (raw === null) continue;
     const entry = JSON.parse(raw);
     if (typeof entry?.data !== 'string') throw new Error('Pending save data is invalid');
-    decodeSram(entry.data, size);
+    if (profileId !== undefined && entry.id !== profileId) continue;
+    yield { storage, key, entry, data: decodeSram(entry.data, size) };
+  }
+}
+
+export function settlePendingSram(hash, size) {
+  for (const { storage, key, entry } of readPendingSram(hash, size)) {
     persistSram(hash, entry);
     storage.removeItem(key);
   }

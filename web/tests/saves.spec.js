@@ -268,6 +268,65 @@ test('a failed state load leaves another tab able to autosave to Save 1', async 
   await expect(other.getByRole('button', { name: 'Recovery · Another tab', exact: true })).toHaveCount(0);
 });
 
+test('a same-byte state load preserves a pending exit save without changing Save 1 on replay or reload', async ({ page }) => {
+  const saved = Buffer.alloc(2048, 0x21).toString('base64');
+  const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
+  const pending = () => page.evaluate(hash => Object.keys(localStorage)
+    .filter(key => key.startsWith(`snes-rust:pending-sram:${hash}:`)).length, hash);
+  await ready(page);
+  await page.evaluate(([key, data]) => localStorage.setItem(key, data), [sramKey, saved]);
+  await local(page);
+  await pause(page);
+  await capture(page);
+
+  const exitSave = Buffer.alloc(2048, 0x79).toString('base64');
+  await page.evaluate(([key, exitSave]) => {
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (record, data) {
+      if (record === key || (record.startsWith(key + ':') && JSON.parse(data).data === exitSave)) {
+        throw new DOMException('Write denied', 'SecurityError');
+      }
+      return set.call(this, record, data);
+    };
+    window.storageRecovered = () => { Storage.prototype.setItem = set; };
+  }, [sramKey, exitSave]);
+  await sram(page, 0x79);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect(page.locator('#error')).toContainText('Could not persist SRAM');
+  expect(await pending()).toBe(1);
+  expect(await stored()).toBe(0x21);
+
+  // The denied exit write is now the only copy of 0x79.
+  await sram(page, 0x52);
+  await page.locator('#load-state').click();
+  await states(page).first().click();
+  await expect(page.locator('#save-state-message')).toContainText('Could not protect SRAM');
+  expect(await sram(page)).toBe(0x52);
+  expect(await pending()).toBe(1);
+  expect(await stored()).toBe(0x21);
+
+  await page.evaluate(() => storageRecovered());
+  await states(page).first().click();
+  await expect(page.locator('#save-status')).toContainText('Previous SRAM is available');
+  await page.locator('#save-data').click();
+  await expect(page.getByRole('button', { name: 'Save 1', exact: true })).toHaveAttribute('aria-current', 'true');
+  await expect.poll(pending).toBe(0);
+  expect(await stored()).toBe(0x21);
+  expect(await sram(page)).toBe(0x21);
+
+  await page.reload();
+  await expect(page.locator('#status')).toHaveText('Ready');
+  await local(page);
+  await pause(page);
+  await page.locator('#save-data').click();
+  await expect(page.getByRole('button', { name: 'Save 1', exact: true })).toHaveAttribute('aria-current', 'true');
+  expect(await sram(page)).toBe(0x21);
+  await page.getByRole('button', { name: 'Recovery · Pending save', exact: true }).click();
+  await expect(page.locator('#save-data-dialog')).toBeHidden();
+  expect(await sram(page)).toBe(0x79);
+  expect(await stored()).toBe(0x21);
+});
+
 test('state loads protect a reused recovery profile from its stale tab', async ({ page, context }) => {
   const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
   await ready(page);
@@ -408,10 +467,11 @@ test('closing a dirty tab at quota warns while another tab holds the save lock',
   expect(await sram(holder)).toBe(0x79);
 });
 
-for (const mode of ['paused', 'changed', 'changed at quota']) {
-  test(`closing a ${mode} stale tab preserves restored SRAM`, async ({ page, context }) => {
+for (const mode of ['paused', 'changed', 'changed at quota', 'changed after a same-byte restore']) {
+  test(`closing a stale tab preserves restored SRAM (${mode})`, async ({ page, context }) => {
     const dirty = mode !== 'paused';
-    const journal = mode === 'changed';
+    const sameByteRestore = mode === 'changed after a same-byte restore';
+    const journal = mode === 'changed' || sameByteRestore;
     const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
     async function persist(value) {
       await sram(page, value);
@@ -431,7 +491,7 @@ for (const mode of ['paused', 'changed', 'changed at quota']) {
     await local(stale);
     await pause(stale);
     expect(await sram(stale)).toBe(dirty ? 0x21 : 0x79);
-    if (dirty) await persist(0x79);
+    if (dirty && !sameByteRestore) await persist(0x79);
 
     await page.locator('#load-state').click();
     await states(page).first().click();
