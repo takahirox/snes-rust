@@ -72,6 +72,22 @@ function states(page) {
   return page.getByRole('button', { name: /^Load state from/ });
 }
 
+async function fillLocalStorage(page) {
+  await page.evaluate(() => {
+    // Find the browser's actual quota, then leave no room for a journal entry.
+    let low = 0, high = 6 * 1024 * 1024;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      try { localStorage.setItem('quota-test', 'x'.repeat(middle)); low = middle; }
+      catch (error) {
+        if (error.name !== 'QuotaExceededError') throw error;
+        high = middle;
+      }
+    }
+    localStorage.setItem('quota-test', 'x'.repeat(low));
+  });
+}
+
 test('legacy Save 1, new and duplicate profiles, persisted selection, raw export/import and deletion', async ({ page }) => {
   await ready(page);
   await page.evaluate(([key, value]) => localStorage.setItem(key, value), [sramKey, Buffer.alloc(2048, 0x79).toString('base64')]);
@@ -217,8 +233,30 @@ test('historical restore protects SRAM, refuses unsafe deletion, and reloads the
   await expect(page.locator('#save-state-message')).toContainText('different ROM revision');
 });
 
-for (const dirty of [false, true]) {
-  test(`closing a ${dirty ? 'changed' : 'paused'} stale tab preserves restored SRAM`, async ({ page, context }) => {
+test('navigation persists dirty SRAM when localStorage has room only to replace the save', async ({ page }) => {
+  const prior = Buffer.alloc(2048, 0x21).toString('base64');
+  const updated = Buffer.alloc(2048, 0x79).toString('base64');
+  await ready(page);
+  await page.evaluate(([key, prior]) => localStorage.setItem(key, prior), [sramKey, prior]);
+  await local(page);
+  await pause(page);
+  expect(await sram(page)).toBe(0x21);
+  await fillLocalStorage(page);
+  await page.evaluate(([key, prior, updated]) => {
+    // A same-size replacement succeeds. The exit still cannot add a new key.
+    localStorage.setItem(key, updated);
+    localStorage.setItem(key, prior);
+  }, [sramKey, prior, updated]);
+  await sram(page, 0x79);
+  await page.goto('/?after-quota-exit');
+  const persisted = await page.evaluate(([key, updated]) => localStorage.getItem(key) === updated, [sramKey, updated]);
+  expect(persisted).toBe(true);
+});
+
+for (const mode of ['paused', 'changed', 'changed at quota']) {
+  test(`closing a ${mode} stale tab preserves restored SRAM`, async ({ page, context }) => {
+    const dirty = mode !== 'paused';
+    const journal = mode === 'changed';
     const stored = () => page.evaluate(key => atob(localStorage.getItem(key)).charCodeAt(3), sramKey);
     async function persist(value) {
       await sram(page, value);
@@ -245,10 +283,11 @@ for (const dirty of [false, true]) {
     await expect(page.locator('#save-status')).toContainText('State loaded.');
     expect(await stored()).toBe(0x21);
 
-    if (dirty) {
+    if (dirty) await sram(stale, 0x52);
+    if (mode === 'changed at quota') await fillLocalStorage(page);
+    if (journal) {
       // The restored bytes match this tab's original base. Force page exit
       // while the lock is held so only the synchronous journal can save it.
-      await sram(stale, 0x52);
       await page.evaluate(hash => new Promise(ready => {
         void navigator.locks.request(`snes-rust:saves:${hash}`, () => new Promise(resolve => {
           window.releaseExitSaveLock = resolve;
@@ -258,7 +297,7 @@ for (const dirty of [false, true]) {
     }
     await stale.goto('/?closed-stale-game');
     await stale.close();
-    if (dirty) {
+    if (journal) {
       await expect.poll(() => page.evaluate(hash => Object.keys(localStorage)
         .filter(key => key.startsWith(`snes-rust:pending-sram:${hash}:`)).length, hash)).toBe(1);
       await page.evaluate(() => releaseExitSaveLock());
@@ -269,7 +308,7 @@ for (const dirty of [false, true]) {
 
     await page.locator('#save-data').click();
     const recovery = page.getByRole('button', { name: 'Recovery · Another tab', exact: true });
-    if (dirty) {
+    if (journal) {
       await recovery.click();
       await expect(page.locator('#save-data-dialog')).toBeHidden();
       expect(await sram(page)).toBe(0x52);
@@ -289,6 +328,8 @@ test('105 non-battery captures persist, page thumbnails, and restore arbitrary e
   await pause(page);
   await expect(page.locator('#save-data')).toBeHidden();
   const expected = await page.evaluate(async () => {
+    // Pause can land on any frame. Start the fixture's palette cycle at reset.
+    if (!saveCore.reset()) throw new Error('Could not reset capture fixture');
     const saved = [];
     const button = document.getElementById('save-state');
     const status = document.getElementById('save-status');
@@ -319,7 +360,7 @@ test('105 non-battery captures persist, page thumbnails, and restore arbitrary e
     await expect(states(page)).toHaveCount(Math.min(24 * pageNumber, 105));
   }
   await expect(page.getByRole('button', { name: 'Show older states' })).toBeHidden();
-  const selected = 57;
+  const selected = 57; // Frame 58 after reset is in the bright red part of the palette cycle.
   const image = states(page).nth(104 - selected).locator('img');
   const preview = await image.evaluate(async image => {
     await image.decode();

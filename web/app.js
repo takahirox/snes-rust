@@ -271,8 +271,13 @@ function showErrors() {
 }
 function report(error) { operationError = error.message || String(error); showErrors(); }
 function clearError() { operationError = ''; showErrors(); }
+function saveBeforeUnload() { void save(); }
 function trackSram(base, epoch) {
   activeSram = activeProfile ? { base, epoch, clean: encodeSram(liveSram()) } : undefined;
+  // Start the locked in-place save earlier in navigation. A new pagehide
+  // journal entry can exceed quota even when the existing record still fits.
+  if (activeSram) window.addEventListener('beforeunload', saveBeforeUnload);
+  else window.removeEventListener('beforeunload', saveBeforeUnload);
 }
 
 function persistActiveSram(data) {
