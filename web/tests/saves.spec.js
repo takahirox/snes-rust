@@ -1064,7 +1064,7 @@ for (const hasTouch of [false, true]) {
 
           const button = page.locator(`#${action}`);
           const bounds = await button.boundingBox();
-          const panel = await picker.boundingBox();
+          const panel = await picker.locator('.save-dialog').boundingBox();
           const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
           expect(x < panel.x || x > panel.x + panel.width || y < panel.y || y > panel.y + panel.height).toBe(true);
           if (hasTouch) await page.touchscreen.tap(x, y);
@@ -1113,6 +1113,18 @@ test('Tab wraps inside the save-state picker on a narrow screen', async ({ page 
   await page.keyboard.press('Enter');
   await expect(picker).toBeHidden();
   await expect(selector).toBeFocused();
+
+  await selector.click();
+  await picker.getByRole('heading', { name: 'Save states' }).click();
+  for (let step = 0; step < 2; step++) {
+    await page.keyboard.press('Shift+Tab');
+    expect.soft(await picker.evaluate(dialog => dialog.contains(document.activeElement)),
+      'Shift+Tab after a heading click keeps focus inside the picker').toBe(true);
+  }
+
+  await page.locator('#state-picker-backdrop').click({ position: { x: 2, y: 2 } });
+  await expect(picker).toBeHidden();
+  await expect.soft(selector).toBeFocused({ timeout: 1000 });
   expect(await savedHistory(page)).toEqual(history);
 });
 
@@ -1165,10 +1177,10 @@ test('105 non-battery captures persist, page thumbnails, and restore arbitrary e
     const saved = [];
     const button = document.getElementById('save-state');
     const status = document.getElementById('save-status');
-    const picker = document.getElementById('state-picker');
+    const selector = document.getElementById('choose-state');
     const newState = document.getElementById('new-state');
     for (let i = 0; i < 105; i++) {
-      if (i) { picker.showPopover(); newState.click(); }
+      if (i) { selector.click(); newState.click(); }
       if (!saveCore.run_frame(i % 4 === 0 ? 0x0100 : 0)) throw new Error('Fixture failed');
       if (!saveCore.save_snapshot()) throw new Error('Capture probe failed');
       const snapshot = new Uint8Array(saveCore.memory.buffer, saveCore.snapshot_buffer(), saveCore.snapshot_len());

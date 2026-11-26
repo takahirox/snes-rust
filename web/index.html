@@ -49,7 +49,7 @@
           <button id="play" disabled>Play</button>
           <button id="reset" disabled>Reset</button>
           <div class="state-controls" role="group" aria-label="Save states">
-            <button id="choose-state" popovertarget="state-picker" aria-haspopup="dialog" disabled>
+            <button id="choose-state" aria-haspopup="dialog" aria-controls="state-picker" disabled>
               Save state <span aria-hidden="true">▾</span>
               <span id="state-target">New state</span>
             </button>
@@ -82,12 +82,12 @@
           </div>
         </div>
       </div>
-      <div id="state-picker" popover>
+      <dialog id="state-picker" aria-labelledby="state-picker-title">
         <div id="state-picker-backdrop" aria-hidden="true"></div>
-        <div class="save-dialog" role="dialog" aria-labelledby="state-picker-title">
+        <div class="save-dialog">
           <div class="save-dialog-header">
             <h2 id="state-picker-title">Save states</h2>
-            <button id="close-state-picker" type="button" popovertarget="state-picker" popovertargetaction="hide">Close</button>
+            <button id="close-state-picker" type="button">Close</button>
           </div>
           <button id="new-state" class="state-option" autofocus>New state <span class="state-check" aria-hidden="true">✓</span></button>
           <p id="state-message" role="status"></p>
@@ -98,7 +98,7 @@
             <input id="state-file" type="file" accept=".snesstate" hidden aria-label="Import save state file">
           </div>
         </div>
-      </div>
+      </dialog>
       <div class="game-entry" role="group" aria-label="Cartridge slot">
         <div class="cartridge-value">
           <div class="cartridge-summary">
