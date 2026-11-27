@@ -50,7 +50,7 @@ downloaded unmodified from the same site and checked against its pinned SHA-256:
 | Picker button | File | Size | SHA-256 |
 | --- | --- | ---: | --- |
 | Bundled demo — 潮鳴りの密室 (Shionari no Misshitsu, adventure) | `demos/shionari.sfc` | 524,288 | `1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca` |
-| Bundled demo — 夜鳴き鐘 (Yonaki Kane, sound novel) | `demos/yonaki.sfc` | 3,145,728 | `585d7d4e28db46e9b64d0e8af63c5dfda9eb13484722bc7359ae641d841c857b` |
+| Bundled demo — 夜鳴き鐘 (Yonaki Kane, sound novel) | `demos/yonaki.sfc` | 3,145,728 | `9d33f0be82a58315587ef60b7431bd2aedf6759b3c42cb7939083f59c2672f21` |
 
 In Yonaki, hold **W** (R) for a dimmer reading view or **Q** (L) to hide the text and
 view the scenery. Hold both to dim the scenery with the text hidden.
@@ -390,7 +390,7 @@ story, and checks battery-save retention,
 source switching and failed-save/restore protection. It also plays the checked-in
 MIT diagnostic through local file selection. See the [Issue #110 validation
 record](docs/issue-110-validation.md) for bounded assertions and actual results.
-It also skips Yonaki Kane's opening and plays from its title through name entry into the prologue
+It also skips Yonaki Kane's opening and plays from its title through a bookmark and name entry into the prologue
 and checks that both demos keep separate saves ([Issue #126
 record](docs/issue-126-validation.md)).
 It rejects unexpected files, symlinks, root-path or remote requests, HTTP failures

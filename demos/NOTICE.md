@@ -50,7 +50,7 @@ broader license is granted. The repository's MIT license for emulator source cod
 
 - File: `demos/yonaki.sfc` (published unchanged as `yonaki.sfc`).
 - Size: 3,145,728 bytes; headerless ordinary LoROM, 8 KiB battery-backed SRAM.
-- SHA-256: `585d7d4e28db46e9b64d0e8af63c5dfda9eb13484722bc7359ae641d841c857b`.
+- SHA-256: `9d33f0be82a58315587ef60b7431bd2aedf6759b3c42cb7939083f59c2672f21`.
 - Added for [Issue #126](https://github.com/takahirox/snes-rust/issues/126) and updated to the current build for
   [Issue #130](https://github.com/takahirox/snes-rust/issues/130), [Issue #132](https://github.com/takahirox/snes-rust/issues/132) and
   [Issue #138](https://github.com/takahirox/snes-rust/issues/138). Their bodies record
@@ -100,6 +100,11 @@ broader license is granted. The repository's MIT license for emulator source cod
 - Updated from the maintainer's validated snes-roms commit `8272ae2`: an opening plays at power-on
   (night shots of the valley, the inn, the empty bath and the bell, with three typed lines) and the
   title comes out of a white flash; any button skips it.
+- Updated from the maintainer's validated snes-roms commit `13dc4c4`: the opening is told without
+  words (a takahirox logo and credit, then rain, the inn and faster cuts down to the bell, with the
+  title music starting only on the title), New Game picks one of three bookmarks shown as a photo,
+  the guest register and name entry stand on a photo of the register, and START no longer backs
+  out of the title's screens.
 - The code, story, music, sound effects and SPC700 driver were created for this
   game with AI assistance under the maintainer's direction; instruments are
   synthesised, not sampled. Background photographs and character silhouettes were

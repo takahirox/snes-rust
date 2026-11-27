@@ -8,7 +8,7 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 const dist = new URL('../dist/', import.meta.url);
 const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'saves.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream', 'yonaki.sfc': 'application/octet-stream' };
 const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
-const yonakiHash = '585d7d4e28db46e9b64d0e8af63c5dfda9eb13484722bc7359ae641d841c857b';
+const yonakiHash = '9d33f0be82a58315587ef60b7431bd2aedf6759b3c42cb7939083f59c2672f21';
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const fixtureHash = createHash('sha256').update(fixture).digest('hex');
 const prefix = '/snes-rust/';
@@ -187,7 +187,7 @@ test('Shionari skips its opening to the title and keyboard A starts the warehous
   expect(requests.filter(url => url.endsWith('.sfc'))).toEqual([`${origin}${prefix}shionari.sfc`]);
 });
 
-test('Yonaki skips its opening, then plays from the title through the guest register into the prologue, with its own save', async ({ page }, testInfo) => {
+test('Yonaki skips its opening, then plays from the title through a bookmark and the guest register into the prologue, with its own save', async ({ page }, testInfo) => {
   const errors = [], requests = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -207,16 +207,21 @@ test('Yonaki skips its opening, then plays from the title through the guest regi
   await page.waitForTimeout(500);
   expect(await scene(page)).toBe(title);
   await testInfo.attach('Yonaki title', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
-  await tapA(page); // New Game opens the guest register with the kept names.
+  await tapA(page); // はじめる shows the three bookmarks.
   await expect.poll(() => scene(page)).not.toBe(title);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(1000);
+  const bookmarks = await scene(page);
+  await testInfo.attach('Yonaki bookmarks', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
+  await tapA(page); // The first bookmark is empty: a new game opens the guest register with the kept names.
+  await expect.poll(() => scene(page)).not.toBe(bookmarks);
+  await page.waitForTimeout(1500);
   const names = await scene(page);
   await testInfo.attach('Yonaki guest register', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
   await tapA(page); // このまま始める starts with those names.
   await expect.poll(() => scene(page), { timeout: 10000 }).not.toBe(names);
   await page.waitForTimeout(3000);
   const story = await scene(page);
-  expect([title, names]).not.toContain(story);
+  expect([title, bookmarks, names]).not.toContain(story);
   await testInfo.attach('Yonaki prologue', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
   // Its SRAM uses its own key; Shionari's save is untouched and reselecting does not reload.
   expect(await marker(page)).not.toBe(0x79);

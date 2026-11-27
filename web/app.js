@@ -21,7 +21,7 @@ let operationError = '', persistenceError = '', restorePending = false, loading,
 // Bundled demos by picker button id; each is fetched from the same origin and pinned.
 const demos = {
   demo: { file: 'shionari.sfc', name: '潮鳴りの密室 / Shionari no Misshitsu', size: 524288, hash: '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca' },
-  'demo-yonaki': { file: 'yonaki.sfc', name: '夜鳴き鐘 / Yonaki Kane', size: 3145728, hash: '585d7d4e28db46e9b64d0e8af63c5dfda9eb13484722bc7359ae641d841c857b' },
+  'demo-yonaki': { file: 'yonaki.sfc', name: '夜鳴き鐘 / Yonaki Kane', size: 3145728, hash: '9d33f0be82a58315587ef60b7431bd2aedf6759b3c42cb7939083f59c2672f21' },
 };
 const demoButtons = Object.keys(demos).map($);
 function enableSources(enabled, pickerEnabled = enabled) {

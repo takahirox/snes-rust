@@ -97,6 +97,15 @@ for (const source of ['local', 'demo', 'demo-yonaki']) {
     await ready(page);
     if (source === 'local') await local(page); else await selectDemo(page, source);
     await expect(page.locator('#status')).toHaveText('Playing');
+    if (source === 'demo-yonaki') {
+      // Its opening starts with a silent logo; once it is up, A skips to the title and its music.
+      await page.locator('#video').click();
+      await expect.poll(() => page.evaluate(() => new Uint8Array(volumeCore.memory.buffer, volumeCore.framebuffer(), volumeCore.framebuffer_len())
+        .some((value, index) => index % 4 !== 3 && value > 0)), { timeout: 10000 }).toBe(true);
+      await page.keyboard.down('KeyX'); // Existing mapping: X = SNES A.
+      await page.waitForTimeout(100);
+      await page.keyboard.up('KeyX');
+    }
     const evidence = [];
     for (const value of [100, 50, 25, 0, 100]) {
       const before = await page.evaluate(() => volumeMetrics.frames);
