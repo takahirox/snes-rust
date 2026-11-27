@@ -5,6 +5,7 @@ pub mod dsp;
 mod gaussian;
 pub mod machine;
 pub mod ppu;
+mod spc7110;
 pub use machine::Machine;
 /// Stable FNV-1a digest for deterministic frame regression logs (not a security hash).
 pub fn frame_hash(bytes: &[u8]) -> u64 {

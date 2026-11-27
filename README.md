@@ -77,7 +77,7 @@ npm --prefix web run serve
 ```
 
 Open <http://127.0.0.1:8080>. Use **Insert cartridge** to choose a bundled demo
-or a lawfully obtained ordinary NTSC LoROM or HiROM `.sfc`/`.smc` file with **Open local ROM…**.
+or a lawfully obtained NTSC LoROM, HiROM or SPC7110 (without RTC) `.sfc`/`.smc` file with **Open local ROM…**.
 Newly inserted cartridges start automatically after validation and save
 restoration. The browser remembers successfully imported personal ROMs when
 storage is available. To play one again, choose it under **Insert cartridge →
@@ -517,6 +517,11 @@ Pixel/CRT playback measurements for Issue #174.
 
 - Ordinary LoROM/HiROM, copier-header removal, header validation, reset vectors,
   WRAM/SRAM mirrors, open bus, multiply/divide I/O and region-specific bus waits.
+- SPC7110 boards without RTC (map mode `$3a`, type `$f5`): data decompression,
+  data port, multiply/divide, data-ROM banking and gated SRAM, following the
+  ISC-licensed ares implementation. Chip work completes on the starting write.
+  Blank SRAM holds the factory-check marker that shipped cartridges carry, so
+  the game starts instead of the board's check program.
 - All 256 65C816 opcode decodings; native/emulation and register-width modes,
   decimal arithmetic, stack edge cases, software interrupts, NMI/IRQ, WAI/STP.
   Licensed full/basic semantic suites pass. Independent bus-order/count tests
@@ -832,7 +837,7 @@ Pixel/CRT playback measurements for Issue #174.
   envelope corrections also remain unverified.
   Browser tests bound device-clock drift, queue duration and live sources,
   including main-thread stalls and repeated pause/reset/play.
-- Enhancement chips, ExLoROM/ExHiROM, PAL, save states and broad commercial
+- Other enhancement chips, SPC7110 RTC, ExLoROM/ExHiROM, PAL and broad commercial
   compatibility are unsupported. Unsupported cartridge hardware/region errors
   are explicit. High-resolution ROM behavior may render incorrectly rather
   than being rejected.
