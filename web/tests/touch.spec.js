@@ -477,6 +477,16 @@ test('fullscreen entry/exit release virtual input and preserve running guest geo
   await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
   await expect.poll(() => controller(page)).toBe(0); await touch.up();
   await expect(page.locator('#video')).toBeFocused();
+  const chooseState = page.locator(':fullscreen #choose-state');
+  await chooseState.press('Enter');
+  await page.getByRole('button', { name: 'New state', exact: true }).press('Enter');
+  await expect(chooseState).toBeFocused();
+  const frame = await page.evaluate(() => testCore.peek(0x10));
+  await page.keyboard.down('ArrowRight');
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x10))).not.toBe(frame);
+  expect(await controller(page)).toBe(0);
+  await page.keyboard.up('ArrowRight');
+  await page.locator('#video').tap();
   await page.evaluate(() => { window.testPads = [{ mapping: 'standard', axes: [1, 0], buttons: [] }]; });
   await expect.poll(() => controller(page)).toBe(masks.Right);
   await page.evaluate(() => { window.testPads = []; });
@@ -500,6 +510,33 @@ test('fullscreen entry/exit release virtual input and preserve running guest geo
   await touch.down('Start'); await expect.poll(() => controller(page)).toBe(masks.Start);
   await touch.up(); await expect.poll(() => controller(page)).toBe(0);
   await expect(page.locator('#status')).toHaveText('Playing'); await layout(page);
+});
+
+test('portrait fullscreen save feedback leaves a held D-pad direction in place', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await boot(page);
+  await page.locator('#fullscreen').tap();
+  const fullscreen = page.locator('#game-presentation:fullscreen');
+  const down = fullscreen.getByRole('button', { name: 'SNES Down', exact: true });
+  const original = await down.boundingBox();
+  await fullscreen.locator('#save-state').tap();
+  const status = fullscreen.locator('#save-status');
+  await expect(status).toHaveText('State saved.');
+  await expect(status).toBeInViewport({ ratio: 1 });
+  const position = await down.boundingBox();
+  const touch = await fingers(page);
+  await touch.down('Down');
+  await expect.poll(() => controller(page)).toBe(masks.Down);
+  const x = position.x + position.width / 2, y = position.y + 10;
+  await touch.move(1, x, y);
+  await expect(status).toBeEmpty({ timeout: 5000 });
+  await touch.move(1, x + 2, y);
+  await waitForAnimationFrames(page);
+  expect(await controller(page)).toBe(masks.Down);
+  expect(position).toEqual(original);
+  expect(await down.boundingBox()).toEqual(original);
+  await touch.up();
+  await expect.poll(() => controller(page)).toBe(0);
 });
 
 test('compact landscape fullscreen keeps the entire D-pad button active and supports diagonals', async ({ page }) => {
