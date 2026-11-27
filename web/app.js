@@ -1005,9 +1005,12 @@ $('scale').addEventListener('change', event => {
 const presentation = $('game-presentation'), fullscreenButton = $('fullscreen');
 const fullscreenLabel = fullscreenButton.querySelector('.fullscreen-label');
 const fullscreenStatus = $('fullscreen-status');
+const fullscreenControls = presentation.querySelector('.fullscreen-controls');
+const fullscreenFeedback = presentation.querySelector('.fullscreen-feedback');
+const playbackStatusRow = document.querySelector('.playback-status');
 const touchControls = document.querySelector('.touch-controls');
 const shortLandscape = matchMedia('(orientation: landscape) and (max-height: 600px) and (max-width: 1100px)');
-const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #state-picker, #retry-save');
+const playerChrome = document.querySelectorAll('header, .toolbar, .game-entry, #retry-save');
 let gameplayFullscreen = false;
 let fullscreenEnteredWithKeyboard = false;
 let fullscreenWarningTimeout;
@@ -1061,6 +1064,15 @@ document.addEventListener('fullscreenchange', () => {
   fullscreenLabel.textContent = label;
   fullscreenButton.ariaLabel = label;
   fullscreenButton.title = label;
+  if (active) {
+    fullscreenControls.append(stateControls);
+    fullscreenFeedback.append($('error'), $('save-status'));
+  } else {
+    if (statePicker.open) closeStatePicker();
+    fullscreenButton.before(stateControls);
+    playbackStatusRow.append($('save-status'));
+    $('audio-status').before($('error'));
+  }
   // Keep focus and assistive technology inside the fullscreen presentation.
   for (const element of playerChrome) element.inert = active;
   clearVirtualInput();
@@ -1078,12 +1090,20 @@ help.addEventListener('focusout', (event) => {
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) => {
   const target = event.target;
   const inHelp = target.closest?.('#help');
-  if (type === 'keydown' && event.key === 'Escape' && document.fullscreenElement === presentation) {
-    event.preventDefault(); void toggleFullscreen(); return;
+  if (type === 'keydown' && event.key === 'Escape' && statePicker.open) {
+    event.preventDefault();
+    if (removeStateDialog.open) removeStateDialog.close('cancel');
+    else if (!event.repeat) closeStatePicker();
+    return;
   }
   if (type === 'keydown' && event.key === 'Escape' && pendingStateLoad) {
     pendingStateLoad.cancelled = true;
     event.preventDefault();
+    return;
+  }
+  if (type === 'keydown' && event.key === 'Escape' && document.fullscreenElement === presentation) {
+    event.preventDefault();
+    if (!event.repeat) void toggleFullscreen();
     return;
   }
   if (type === 'keydown' && event.key === 'Escape' && help.open) {
@@ -1095,7 +1115,8 @@ for (const type of ['keydown', 'keyup']) window.addEventListener(type, (event) =
     return;
   }
   if (!keys[event.code] || !isRunning()) return;
-  const inControl = statePicker.open || (inHelp && help.open) || target.closest?.('#cartridge-picker, .save-dialog') ||
+  const inControl = statePicker.open || (inHelp && help.open) ||
+    target.closest?.('#cartridge-picker, .save-dialog, .state-controls, .fullscreen-feedback') ||
     ['INPUT', 'SELECT'].includes(target.tagName) ||
     (['BUTTON', 'A', 'SUMMARY'].includes(target.tagName) && ['Enter', 'Space'].includes(event.code));
   if (inControl && !(type === 'keyup' && held.has(event.code))) return;
@@ -1179,9 +1200,11 @@ window.addEventListener('pagehide', event => { void save(event); });
 
 const profileDialog = $('save-data-dialog'), profileList = $('save-profiles');
 const statePicker = $('state-picker'), stateToggle = $('choose-state'), newState = $('new-state');
+const stateControls = stateToggle.parentElement;
 const stateClose = $('close-state-picker'), importState = $('import-state');
 const stateList = $('state-history'), stateMessage = $('state-message'), moreStates = $('more-states');
-for (const controls of [profileDialog, statePicker, stateToggle.parentElement]) {
+const removeStateDialog = $('remove-state-dialog');
+for (const controls of [profileDialog, statePicker, stateControls, removeStateDialog]) {
   controls.addEventListener('keydown', event => {
     if (event.key === 'Enter' && event.repeat) event.preventDefault();
   });
@@ -1520,10 +1543,23 @@ async function showHistory(view, append = false) {
     mark.setAttribute('aria-hidden', 'true');
     mark.textContent = '✓';
     action.append(image, timestamp, mark);
+    const remove = button('Remove', () => {
+      if (saveBusy) return;
+      $('remove-state-message').textContent = `Saved state from ${time}`;
+      removeStateDialog.returnValue = '';
+      removeStateDialog.addEventListener('close', () => {
+        if (removeStateDialog.returnValue === 'remove' && isHistoryOpen(view)) {
+          void deleteHistoryState(view, key, row, url);
+        }
+      }, { once: true });
+      remove.focus({ preventScroll: true });
+      // Browser confirmation prompts exit element fullscreen.
+      removeStateDialog.showModal();
+    }, `Remove state from ${time}`);
     row.append(
       action,
       button('Export', () => void exportHistoryState(view, key), `Export state from ${time}`),
-      button('Remove', () => void deleteHistoryState(view, key, row, url), `Remove state from ${time}`));
+      remove);
     stateList.append(row);
     first ??= action;
   }
@@ -1538,6 +1574,7 @@ function chooseState(view, key) {
 }
 
 function closeStatePicker() {
+  if (removeStateDialog.open) removeStateDialog.close('cancel');
   statePicker.close();
   clearHistory(stateView);
   stateView = undefined;
@@ -1546,6 +1583,7 @@ function closeStatePicker() {
 
 stateToggle.addEventListener('click', () => {
   if (!loaded || loading || saveBusy || restorePending || statePicker.open) return;
+  clearInput();
   const view = stateView = { scope: saveScope(), previews: new Set() };
   newState.setAttribute('aria-current', String(!saveDestination(view.scope)));
   stateMessage.textContent = 'Loading history…';
@@ -1660,7 +1698,6 @@ function exportHistoryState(view, key) {
 
 function deleteHistoryState(view, key, row, url) {
   return saveAction(statePicker, async () => {
-    if (!confirm(`Remove the saved state from ${stateTime(key)}?`)) return;
     await lockSaves(view.scope.hash, () => removeState(key));
     if (saveDestination(view.scope)?.[3] === key[3]) selectSaveDestination(view.scope);
     if (!isHistoryOpen(view)) return;

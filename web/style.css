@@ -124,7 +124,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 #error { color: #a32f29; white-space: pre-wrap; overflow-wrap: anywhere; }
 #audio-status, #display-status { color: #805511; }
 #error:empty, #audio-status:empty, #display-status:empty { display: none; }
-.touch-controls, #exit-fullscreen { display: none; }
+.touch-controls, .fullscreen-controls, .fullscreen-feedback { display: none; }
 @media (max-width: 760px), (pointer: coarse), (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
   main {
     padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
@@ -301,7 +301,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 
 .game-presentation:fullscreen {
   display: grid;
-  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  grid-template: minmax(0, 1fr) auto auto / minmax(0, 1fr);
   background: #000;
 }
 .game-presentation:fullscreen .screen {
@@ -317,37 +317,65 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
   max-width: none;
 }
 .game-presentation:fullscreen .touch-controls { display: none; }
+.game-presentation:fullscreen .fullscreen-controls {
+  grid-area: 3 / 1;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+.fullscreen-controls button {
+  min-width: 44px;
+  min-height: 36px;
+  padding: 3px 6px;
+  color: white;
+  background: #20262b;
+  border-color: #727c82;
+  font-size: 13px;
+}
+.game-presentation:fullscreen .fullscreen-controls button:hover:enabled { background: #333d45; }
+.game-presentation:fullscreen .fullscreen-feedback {
+  grid-area: 2 / 1;
+  display: block;
+  justify-self: center;
+  width: min(100%, 60ch);
+  max-height: 25dvh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: #eee;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.fullscreen-feedback #save-status, .fullscreen-feedback #error { margin: 4px 0; font-size: 12px; line-height: 1.3; }
+.fullscreen-feedback #error { color: #ffb6ac; }
 
 @media (pointer: coarse) {
   .game-presentation:fullscreen {
-    grid-template-rows: minmax(0, 1fr) auto auto;
-    gap: 8px;
+    grid-template-rows: minmax(0, 1fr) auto auto auto;
     padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   }
-  .game-presentation:fullscreen .touch-controls { display: grid; grid-row: 2; }
-  .game-presentation:fullscreen #exit-fullscreen {
-    display: block;
-    grid-area: 3 / 1;
-    justify-self: center;
-    min-height: 44px;
-    padding: 6px 12px;
-    background: #20262b;
-    border-color: #727c82;
-    color: white;
-    font-size: 13px;
+  .game-presentation:fullscreen .touch-controls { display: grid; grid-row: 2; margin-top: 8px; }
+  .game-presentation:fullscreen .fullscreen-feedback { grid-area: 3 / 1; }
+  .game-presentation:fullscreen .fullscreen-controls { grid-area: 4 / 1; padding: 8px 0 0; }
+  .fullscreen-controls button { min-height: 44px; }
+  @media (max-width: 480px) {
+    #exit-fullscreen span { display: none; }
   }
   @media (orientation: landscape) {
     .game-presentation:fullscreen {
-      grid-template: minmax(0, 1fr) auto / var(--controller-width) minmax(0, 1fr) var(--controller-width);
+      grid-template: minmax(0, 1fr) auto auto / var(--controller-width) minmax(0, 1fr) var(--controller-width);
+      column-gap: 8px;
     }
     .game-presentation:fullscreen .screen { grid-area: 1 / 2; }
+    .game-presentation:fullscreen .fullscreen-feedback { grid-area: 2 / 2; }
+    .game-presentation:fullscreen .fullscreen-controls { grid-area: 3 / 1 / 4 / -1; }
     .game-presentation:fullscreen .touch-controls { display: contents; }
     .game-presentation:fullscreen :is(.left-controls, .right-controls) {
       align-self: center;
       grid-template-columns: minmax(44px, 1fr) minmax(44px, 72px);
       gap: 4px;
     }
-    /* Give both controller columns the full safe height on short screens. */
+    /* Give both controller columns the space above the bottom controls. */
     .game-presentation:fullscreen .left-controls { grid-area: 1 / 1 / 3 / 2; }
     .game-presentation:fullscreen .right-controls { grid-area: 1 / 3 / 3 / 4; }
     .game-presentation:fullscreen :is(.dpad, .face-buttons) {
@@ -357,8 +385,9 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
       width: 100%;
     }
     .game-presentation:fullscreen .system { grid-area: 1 / 2; min-width: 44px; width: 100%; }
-    .game-presentation:fullscreen #exit-fullscreen {
-      grid-area: 2 / 1 / 3 / -1;
+    @media (max-height: 280px) {
+      .game-presentation:fullscreen .fullscreen-controls { padding-top: 0; }
+      .game-presentation:fullscreen :is(.left-controls, .right-controls) { row-gap: 0; }
     }
   }
 }
@@ -388,6 +417,7 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 1100px) {
   #choose-state { inline-size: 96px; padding-block: 0; }
 }
+.fullscreen-controls #choose-state { inline-size: 112px; }
 /* Keep the backdrop inside the dialog until the dismissal click completes. */
 #state-picker {
   position: fixed; inset: 0; width: auto; height: auto; max-width: none; max-height: none;
@@ -406,6 +436,8 @@ main:has(#cartridge-picker:popover-open) #rom-retention-notice { visibility: hid
 #state-picker > .save-dialog > :not(.state-list) { flex-shrink: 0; }
 #state-picker h2 { font-size: 15px; }
 #state-picker button { min-height: 44px; font-size: inherit; padding: 6px 10px; }
+#remove-state-dialog { --save-dialog-width: 20rem; }
+#remove-state-dialog button { min-height: 44px; }
 #state-message { margin: 0; }
 .state-option { display: flex; align-items: center; gap: 6px; text-align: start; }
 .state-option[aria-current="true"] { border-color: #306e59; }
