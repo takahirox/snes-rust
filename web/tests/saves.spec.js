@@ -1533,6 +1533,36 @@ test('fullscreen shares state selection, capture, overwrite, restore and picker 
   await expect(page.locator('#status')).toHaveText('Paused');
 });
 
+test('import finishes when the file chooser exits fullscreen', async ({ page }) => {
+  await ready(page);
+  await local(page, nonBattery);
+  await pause(page);
+  const buffer = Buffer.from(await machineState(page));
+  await page.evaluate(() => saveCore.run_frame(0x0400));
+  const beforeImport = await machineState(page);
+  const fullscreen = page.locator('#game-presentation:fullscreen');
+  const picker = page.getByRole('dialog', { name: 'Save states' });
+  await page.locator('#fullscreen').press('Enter');
+  await fullscreen.locator('#choose-state').click();
+  await expect(picker.getByRole('status')).toHaveText('No saved states yet.');
+  const chooser = page.waitForEvent('filechooser');
+  await picker.getByRole('button', { name: 'Import state' }).click();
+  const file = await chooser;
+  // Playwright intercepts the native chooser, so reproduce its fullscreen exit.
+  await page.evaluate(() => document.exitFullscreen());
+  const normalSelector = page.locator('.toolbar #choose-state');
+  await expect(normalSelector).toBeVisible();
+  await file.setFiles({ name: 'backup.snesstate', mimeType: 'application/octet-stream', buffer });
+  await expect(picker.getByRole('status')).toHaveText('State imported.');
+  await expect(states(page)).toHaveCount(1);
+  expect(await savedHistory(page)).toHaveLength(1);
+  expect(await machineState(page)).toEqual(beforeImport);
+  await expect(page.locator('#state-target')).toHaveText('New state');
+  await page.keyboard.press('Escape');
+  await expect(picker).toBeHidden();
+  await expect(normalSelector).toBeFocused();
+});
+
 test.describe('touch save states', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 320, height: 568 } });
   test('bundled cartridge snapshots respect visibility and paused intent on narrow and short touch layouts', async ({ page }) => {
