@@ -8,7 +8,7 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 const dist = new URL('../dist/', import.meta.url);
 const assets = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'saves.js': 'text/javascript', 'style.css': 'text/css', 'snes_wasm.wasm': 'application/wasm', 'shionari.sfc': 'application/octet-stream', 'yonaki.sfc': 'application/octet-stream' };
 const demoHash = '1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca';
-const yonakiHash = '0b17152ca3bcea76579bdbc2d8b20fb1c281acf8cf4b6e371160616cdca83a97';
+const yonakiHash = '585d7d4e28db46e9b64d0e8af63c5dfda9eb13484722bc7359ae641d841c857b';
 const fixture = readFileSync(new URL('../../tests/roms/smoke.bin', import.meta.url));
 const fixtureHash = createHash('sha256').update(fixture).digest('hex');
 const prefix = '/snes-rust/';
@@ -187,7 +187,7 @@ test('Shionari skips its opening to the title and keyboard A starts the warehous
   expect(requests.filter(url => url.endsWith('.sfc'))).toEqual([`${origin}${prefix}shionari.sfc`]);
 });
 
-test('Yonaki plays from the title through the guest register into the prologue, with its own save', async ({ page }, testInfo) => {
+test('Yonaki skips its opening, then plays from the title through the guest register into the prologue, with its own save', async ({ page }, testInfo) => {
   const errors = [], requests = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -198,9 +198,11 @@ test('Yonaki plays from the title through the guest register into the prologue, 
   await loadDemo(page, 'demo-yonaki');
   await expect(page.locator('#current-game')).toHaveText('夜鳴き鐘 / Yonaki Kane');
   await page.locator('#video').click();
-  // The title fades in after a short black boot, then stays still.
+  // The opening plays after a short black boot; A skips it to the title, which then stays still.
   await expect.poll(() => lit(page), { timeout: 10000 }).toBe(true);
-  await page.waitForTimeout(2500);
+  await testInfo.attach('Yonaki opening', { body: await page.locator('#video').screenshot(), contentType: 'image/png' });
+  await tapA(page);
+  await page.waitForTimeout(3000);
   const title = await scene(page);
   await page.waitForTimeout(500);
   expect(await scene(page)).toBe(title);

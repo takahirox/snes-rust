@@ -50,7 +50,7 @@ broader license is granted. The repository's MIT license for emulator source cod
 
 - File: `demos/yonaki.sfc` (published unchanged as `yonaki.sfc`).
 - Size: 3,145,728 bytes; headerless ordinary LoROM, 8 KiB battery-backed SRAM.
-- SHA-256: `0b17152ca3bcea76579bdbc2d8b20fb1c281acf8cf4b6e371160616cdca83a97`.
+- SHA-256: `585d7d4e28db46e9b64d0e8af63c5dfda9eb13484722bc7359ae641d841c857b`.
 - Added for [Issue #126](https://github.com/takahirox/snes-rust/issues/126) and updated to the current build for
   [Issue #130](https://github.com/takahirox/snes-rust/issues/130), [Issue #132](https://github.com/takahirox/snes-rust/issues/132) and
   [Issue #138](https://github.com/takahirox/snes-rust/issues/138). Their bodies record
@@ -97,6 +97,9 @@ broader license is granted. The repository's MIT license for emulator source cod
 - Updated from the maintainer's validated snes-roms commit `a9e84b2`: both leads have full names
   with fixed family names, the player sets only their given names, and the two call each other by
   them. Saves from earlier builds start fresh.
+- Updated from the maintainer's validated snes-roms commit `8272ae2`: an opening plays at power-on
+  (night shots of the valley, the inn, the empty bath and the bell, with three typed lines) and the
+  title comes out of a white flash; any button skips it.
 - The code, story, music, sound effects and SPC700 driver were created for this
   game with AI assistance under the maintainer's direction; instruments are
   synthesised, not sampled. Background photographs and character silhouettes were
