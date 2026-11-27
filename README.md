@@ -50,7 +50,7 @@ downloaded unmodified from the same site and checked against its pinned SHA-256:
 | Picker button | File | Size | SHA-256 |
 | --- | --- | ---: | --- |
 | Bundled demo — 潮鳴りの密室 (Shionari no Misshitsu, adventure) | `demos/shionari.sfc` | 524,288 | `1132c59cfba4cc7b0c1a7d7957b4b5de84c6038e0e061ca2e6372f8b8b4a01ca` |
-| Bundled demo — 夜鳴き鐘 (Yonaki Kane, sound novel) | `demos/yonaki.sfc` | 3,145,728 | `6b31ba767d877cd042cd96e04104daf1aac1112c6646fc2296e16e9d0016eb86` |
+| Bundled demo — 夜鳴き鐘 (Yonaki Kane, sound novel) | `demos/yonaki.sfc` | 3,145,728 | `0b17152ca3bcea76579bdbc2d8b20fb1c281acf8cf4b6e371160616cdca83a97` |
 
 In Yonaki, hold **W** (R) for a dimmer reading view or **Q** (L) to hide the text and
 view the scenery. Hold both to dim the scenery with the text hidden.
