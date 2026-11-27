@@ -271,7 +271,8 @@ impl Machine {
     }
 }
 impl SystemBus {
-    fn new(cart: Cartridge) -> Self {
+    fn new(mut cart: Cartridge) -> Self {
+        cart.power_on();
         Self {
             cart,
             ppu: Ppu::default(),
@@ -783,7 +784,7 @@ impl SystemBus {
                 _ => {}
             }
         }
-        self.cart.read(a).unwrap_or(self.open)
+        self.cart.bus_read(a).unwrap_or(self.open)
     }
     fn write_raw(&mut self, a: u32, v: u8) {
         let a = a & 0xffffff;
@@ -1595,7 +1596,7 @@ impl Machine {
             }
             cart.sram.copy_from_slice(data);
         } else {
-            cart.sram.fill(0);
+            cart.blank_sram();
         }
         Ok(Self::powered_on(cart))
     }
@@ -1617,6 +1618,9 @@ impl Machine {
         body.extend_from_slice(&cart.sram);
         bus.ppu.write_snapshot(&mut body);
         bus.apu.write_snapshot(&mut body);
+        if let Some(chip) = &cart.spc7110 {
+            chip.write(&mut body);
+        }
         Ok(snapshot::pack(
             cart.rom_hash(),
             cart.mapping.snapshot_id(),
@@ -1649,6 +1653,13 @@ impl Machine {
         bus.cart.sram.copy_from_slice(input.take(size)?);
         bus.ppu.read_snapshot(&mut input)?;
         bus.apu.read_snapshot(&mut input)?;
+        if bus.cart.spc7110.is_some() {
+            let chip = Value::read(&mut input)?;
+            if !crate::spc7110::Spc7110::valid(&chip) {
+                return Err(snapshot::invalid());
+            }
+            bus.cart.spc7110 = Some(chip);
+        }
         if !input.0.is_empty()
             || cpu.stopped
             || cpu.instructions >= u64::MAX / 2
