@@ -477,6 +477,16 @@ test('fullscreen entry/exit release virtual input and preserve running guest geo
   await expect(page.locator(':fullscreen')).toHaveAttribute('id', 'game-presentation');
   await expect.poll(() => controller(page)).toBe(0); await touch.up();
   await expect(page.locator('#video')).toBeFocused();
+  const chooseState = page.locator(':fullscreen #choose-state');
+  await chooseState.press('Enter');
+  await page.getByRole('button', { name: 'New state', exact: true }).press('Enter');
+  await expect(chooseState).toBeFocused();
+  const frame = await page.evaluate(() => testCore.peek(0x10));
+  await page.keyboard.down('ArrowRight');
+  await expect.poll(() => page.evaluate(() => testCore.peek(0x10))).not.toBe(frame);
+  expect(await controller(page)).toBe(0);
+  await page.keyboard.up('ArrowRight');
+  await page.locator('#video').tap();
   await page.evaluate(() => { window.testPads = [{ mapping: 'standard', axes: [1, 0], buttons: [] }]; });
   await expect.poll(() => controller(page)).toBe(masks.Right);
   await page.evaluate(() => { window.testPads = []; });

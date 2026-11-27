@@ -116,8 +116,9 @@ continues automatically; choose CRT again to retry. See the
 [CRT-default validation](docs/issue-147-validation.md).
 
 **Fullscreen** fits the game image to the screen and keeps the on-screen
-controller available on touch devices. Press Escape or tap **Exit fullscreen**
-to return to the player.
+controller available on touch devices. The bottom row has the same save-state
+picker, **Save**, and **Load**, and the selected state carries across both modes.
+Press Escape or use **Exit fullscreen** to return to the player.
 
 ### Save and resume
 
