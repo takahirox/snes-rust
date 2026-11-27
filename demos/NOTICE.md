@@ -55,21 +55,18 @@ broader license is granted. The repository's MIT license for emulator source cod
   [Issue #130](https://github.com/takahirox/snes-rust/issues/130), [Issue #132](https://github.com/takahirox/snes-rust/issues/132) and
   [Issue #138](https://github.com/takahirox/snes-rust/issues/138). Their bodies record
   the maintainer's authorship and distribution authorization.
-- Updated for [Issue #149](https://github.com/takahirox/snes-rust/issues/149): the maintainer's
-  validated snes-roms working-tree build (base commit `6da6766`) sets `DIM_TEXT` to 2 out of 31
-  for subtly dimmed backgrounds while reading. White text is unchanged.
-- Updated for [Issue #152](https://github.com/takahirox/snes-rust/issues/152): the same working tree
-  removes full-background dimming during figure changes, prepares the new composition while the old
+- Updated for [Issue #152](https://github.com/takahirox/snes-rust/issues/152): the maintainer's
+  snes-roms working tree (base commit `6da6766`) removes full-background dimming during figure changes, prepares the new composition while the old
   VRAM image stays visible, then transfers the affected columns during V-blank.
 - Updated for [Issue #155](https://github.com/takahirox/snes-rust/issues/155): the same working tree
   adds eight gradual figure-only dissolve stages, with at least 32 animation frames. It compares
-  the settled/target pictures and transfers only changed tiles while retaining the photo palette,
-  reading dim and text. Larger multi-figure updates take longer. See the
+  the settled/target pictures and transfers only changed tiles while retaining the photo palette
+  and text. Larger multi-figure updates take longer. See the
   [validation and captures](../docs/issue-155-validation.md). Public SFC Kamaitachi no Yoru gameplay
   informed the pacing; no artwork, ROM data or code from that game is included.
 - Updated for [Issue #168](https://github.com/takahirox/snes-rust/issues/168) from the same
   maintainer working tree. Ordinary scenes keep their brightness when narration begins.
-  Holding R applies the previous reading dim and holding L hides the text layer, including
+  Holding R dims the photo for reading and holding L hides the text layer, including
   when both buttons are held. Chapter names label bookmarks and the story flows directly
   into each scene.
 - Updated for [Issue #172](https://github.com/takahirox/snes-rust/issues/172): the
@@ -80,9 +77,9 @@ broader license is granted. The repository's MIT license for emulator source cod
   Its `dist/yonaki.sfc` combines the 3 MiB packed assets, frame scheduler, and save recovery with
   the reading controls, outlined text, continuous chapter transitions, and silhouette dissolves.
 - Updated from the maintainer's validated snes-roms commit `1334304`:
-  the culprit is typed on the name entry grid, most choices continue the sentence above them, the
-  photo dims under text by its own brightness, a guest register precedes a new game, and the
-  scenario's clues and pacing are revised. Saves from earlier builds start fresh.
+  the culprit is typed on the name entry grid, most choices continue the sentence above them, a
+  guest register precedes a new game, and the scenario's clues and pacing are revised. Saves from
+  earlier builds start fresh.
 - Updated from the maintainer's validated snes-roms commit `abd348e`: the night photographs and
   figures from the first bell to the end of the main story are shown (an unlifted darkness had
   hidden them), story lines are 24 px apart with seven lines a page, reveals open a new page, and
