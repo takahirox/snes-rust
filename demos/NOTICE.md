@@ -50,7 +50,7 @@ broader license is granted. The repository's MIT license for emulator source cod
 
 - File: `demos/yonaki.sfc` (published unchanged as `yonaki.sfc`).
 - Size: 3,145,728 bytes; headerless ordinary LoROM, 8 KiB battery-backed SRAM.
-- SHA-256: `403481220c2c32e03e98f26109355372f09a016dee6238fb4b8ff27fcdfc10dc`.
+- SHA-256: `aad5e1a3a81b1327efedea01cfd30d6c112f9451c803645e318912b4c17070aa`.
 - Added for [Issue #126](https://github.com/takahirox/snes-rust/issues/126) and updated to the current build for
   [Issue #130](https://github.com/takahirox/snes-rust/issues/130), [Issue #132](https://github.com/takahirox/snes-rust/issues/132) and
   [Issue #138](https://github.com/takahirox/snes-rust/issues/138). Their bodies record
@@ -88,6 +88,10 @@ broader license is granted. The repository's MIT license for emulator source cod
   brightness from its fade-in (only the menu, scripted darkness and a held R dim it), all
   photos are lifted for the night scenes, silhouettes use their original blue tint, and
   holding L and R together dims and hides the text as in Issue #168.
+- Updated from the maintainer's validated snes-roms commit `5f57342`: the story opens on the bus
+  without the narration before it, the guest register is shown over the inn at dusk, a far bell
+  precedes the title, and twenty seconds on the title play a demo of the chapter 1 lounge until a
+  button is pressed. The demo keeps no read marks, flags or endings.
 - The code, story, music, sound effects and SPC700 driver were created for this
   game with AI assistance under the maintainer's direction; instruments are
   synthesised, not sampled. Background photographs and character silhouettes were
