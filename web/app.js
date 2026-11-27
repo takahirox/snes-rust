@@ -1068,7 +1068,8 @@ document.addEventListener('fullscreenchange', () => {
     fullscreenControls.append(stateControls);
     fullscreenFeedback.append($('error'), $('save-status'));
   } else {
-    if (statePicker.open) closeStatePicker();
+    // A native file chooser can leave fullscreen before returning the file.
+    if (statePicker.open && !stateView.importing) closeStatePicker();
     fullscreenButton.before(stateControls);
     playbackStatusRow.append($('save-status'));
     $('audio-status').before($('error'));
@@ -1077,6 +1078,7 @@ document.addEventListener('fullscreenchange', () => {
   for (const element of playerChrome) element.inert = active;
   clearVirtualInput();
   placeTouchControls();
+  if (statePicker.open) return;
   if (!active && fullscreenEnteredWithKeyboard) fullscreenButton.focus();
   else canvas.focus({ preventScroll: true });
 });
@@ -1201,7 +1203,7 @@ window.addEventListener('pagehide', event => { void save(event); });
 const profileDialog = $('save-data-dialog'), profileList = $('save-profiles');
 const statePicker = $('state-picker'), stateToggle = $('choose-state'), newState = $('new-state');
 const stateControls = stateToggle.parentElement;
-const stateClose = $('close-state-picker'), importState = $('import-state');
+const stateClose = $('close-state-picker'), importState = $('import-state'), stateFile = $('state-file');
 const stateList = $('state-history'), stateMessage = $('state-message'), moreStates = $('more-states');
 const removeStateDialog = $('remove-state-dialog');
 for (const controls of [profileDialog, statePicker, stateControls, removeStateDialog]) {
@@ -1711,8 +1713,15 @@ function deleteHistoryState(view, key, row, url) {
   });
 }
 
-importState.addEventListener('click', () => { if (!saveBusy && isHistoryOpen(stateView)) $('state-file').click(); });
-$('state-file').addEventListener('change', async event => {
+importState.addEventListener('click', () => {
+  if (saveBusy || !isHistoryOpen(stateView)) return;
+  stateView.importing = true;
+  stateFile.click();
+});
+stateFile.addEventListener('cancel', () => {
+  if (stateView) stateView.importing = false;
+});
+stateFile.addEventListener('change', async event => {
   const file = event.target.files[0];
   event.target.value = '';
   const view = stateView;
@@ -1732,6 +1741,8 @@ $('state-file').addEventListener('change', async event => {
     });
     await showHistory(view);
     if (isHistoryOpen(view)) stateMessage.textContent = 'State imported.';
+  }).finally(() => {
+    view.importing = false;
   });
 });
 
